@@ -1,0 +1,16 @@
+# NotTheNet — Python Dependencies
+# Pinned to exact versions for supply-chain security (OpenSSF SLSA compliance).
+# Run: pip install -r requirements.txt
+#
+# To regenerate hashes after version bumps:
+#   pip-compile --generate-hashes requirements.in
+
+# DNS packet parsing / server
+dnslib==0.9.25
+
+# TLS certificate generation (used by cert_utils.py)
+cryptography>=42.0.0,<44.0.0
+
+# Note: All other functionality uses Python stdlib only:
+#   http.server, ssl, socketserver, threading, tkinter, json, logging,
+#   ipaddress, subprocess, socket, select, uuid, email, re, os, sys

@@ -1,0 +1,42 @@
+# NotTheNet
+# ─────────────────────────────────────────────────────────────────────────────
+# Do NOT commit private keys, captured emails or malware uploads.
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.pyo
+*.pyd
+
+# Virtualenv
+venv/
+.venv/
+env/
+
+# Secrets / TLS keys (NEVER commit private keys)
+certs/server.key
+certs/*.key
+certs/*.p12
+certs/*.pfx
+
+# Captured data (may contain malware artifacts)
+logs/
+*.eml
+*.bin
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# iptables save
+/tmp/notthenet_iptables_save.rules

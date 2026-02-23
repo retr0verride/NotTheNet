@@ -1,0 +1,118 @@
+# NotTheNet — Fake Internet Simulator
+
+> **For malware analysis and sandboxed environments only.**  
+> Never run on a production network or internet-connected interface.
+
+NotTheNet simulates the internet for malware being analysed in an isolated environment. It solves the core problems of INetSim and FakeNet-NG — specifically DNS race conditions, service restart socket leaks, and opaque configuration — with a single clean Python application and a live GUI.
+
+---
+
+## Features
+
+| Service | Details |
+|---------|---------|
+| **DNS** | Resolves every hostname to your configured IP. PTR/rDNS handled cleanly. Per-host override records. |
+| **HTTP/HTTPS** | Configurable response code, body, and `Server:` header. TLS 1.2+ with ECDHE+AEAD ciphers only. |
+| **SMTP** | Accepts and archives email to `logs/emails/`. UUID filenames, disk cap enforced. |
+| **POP3 / IMAP** | Minimal state machines that satisfy poll-checkers. Zero stored state. |
+| **FTP** | Accepts uploads with UUID filenames, size-capped storage. Active (PORT) mode disabled (SSRF). |
+| **TCP Catch-All** | Receives any TCP connection redirected by iptables; responds with `200 OK`. |
+| **UDP Catch-All** | Optional UDP drain; responds with `OK`. |
+| **iptables manager** | Auto-applies NAT REDIRECT rules; cleanly restores originals on stop. |
+
+---
+
+## Requirements
+
+- Kali Linux / Debian 12 / Ubuntu 22.04+
+- Python 3.9+
+- `python3-tk` (for GUI — pre-installed on Kali)
+- Root access (for binding ports < 1024 and iptables)
+
+---
+
+## Installation
+
+```bash
+git clone https://github.com/your-org/notthenet
+cd notthenet
+sudo bash install.sh
+```
+
+---
+
+## Usage
+
+### GUI (recommended)
+```bash
+sudo notthenet
+```
+
+### Headless / CLI
+```bash
+sudo notthenet --nogui --config config.json
+```
+
+### Custom config
+```bash
+sudo notthenet --config /etc/notthenet/mylab.json
+```
+
+---
+
+## Configuration
+
+All settings live in `config.json`. The GUI exposes every field.  
+Key settings:
+
+| Key | Description |
+|-----|-------------|
+| `general.redirect_ip` | IP all DNS queries resolve to (usually `127.0.0.1`) |
+| `general.interface` | Network interface to apply iptables rules on |
+| `general.auto_iptables` | Auto-manage iptables NAT rules |
+| `dns.custom_records` | Per-hostname overrides: `{"c2.evil.com": "127.0.0.1"}` |
+| `https.cert_file` / `key_file` | TLS cert paths (auto-generated if absent) |
+| `catch_all.excluded_ports` | Ports to EXCLUDE from TCP catch-all (e.g. `[22]` for SSH) |
+
+---
+
+## Architecture
+
+```
+notthenet.py          ← Entry point + GUI (tkinter)
+config.py             ← JSON config loader / saver / validator
+service_manager.py    ← Orchestrates all services + iptables lifecycle
+services/
+  dns_server.py       ← dnslib-based DNS (UDP + TCP, all → redirect_ip)
+  http_server.py      ← HTTP + HTTPS (hardened TLS)
+  mail_server.py      ← SMTP + POP3 + IMAP
+  ftp_server.py       ← FTP (PASV only, PORT disabled)
+  catch_all.py        ← TCP/UDP catch-all
+network/
+  iptables_manager.py ← NAT redirect rules, save/restore
+utils/
+  cert_utils.py       ← RSA-4096 self-signed TLS cert generation
+  logging_utils.py    ← Log sanitization (CWE-117 prevention)
+  privilege.py        ← Privilege drop after port binding
+  validators.py       ← Input validation for all external data
+```
+
+---
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for the full security policy and vulnerability reporting process.
+
+Key hardening highlights:
+- Subprocess calls: always `shell=False` — no shell injection possible
+- Log output: all untrusted strings sanitized (ANSI/CRLF stripped)
+- File saves: UUID filenames only — attacker never controls path
+- TLS: minimum 1.2, ECDHE+AEAD ciphers, `OP_NO_SSLv2/3/TLSv1/1.1`
+- Private key: written with mode `0o600`
+- Privilege: dropped to `nobody:nogroup` after port binding
+
+---
+
+## License
+
+MIT — see `LICENSE`.

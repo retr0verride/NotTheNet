@@ -1,0 +1,80 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "notthenet"
+version = "1.0.0"
+description = "Fake internet simulator for malware analysis — INetSim/FakeNet-NG alternative"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+keywords = ["malware-analysis", "sandbox", "fakenet", "inetsim", "dns", "http"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: X11 Applications",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+]
+dependencies = [
+    "dnslib==0.9.25",
+    "cryptography>=42.0.0,<44.0.0",
+]
+
+[project.scripts]
+notthenet = "notthenet:main"
+
+[project.urls]
+"Homepage"       = "https://github.com/your-org/notthenet"
+"Bug Tracker"    = "https://github.com/your-org/notthenet/issues"
+"Security"       = "https://github.com/your-org/notthenet/security/advisories"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["notthenet*", "services*", "network*", "utils*"]
+
+# ── Linting / formatting ──────────────────────────────────────────────────────
+
+[tool.ruff]
+line-length = 100
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "S",    # flake8-bandit (security)
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+]
+ignore = [
+    "S101",  # assert statements (OK in tests)
+    "S603",  # subprocess without shell — we explicitly use shell=False
+    "S607",  # partial path for subprocess — we use full paths where possible
+]
+target-version = "py39"
+
+[tool.ruff.per-file-ignores]
+"install.sh" = []  # shell, not Python
+
+[tool.mypy]
+python_version = "3.9"
+strict = false
+ignore_missing_imports = true
+warn_return_any = true
+warn_unused_ignores = true
+
+# ── Security scanning (Bandit) ────────────────────────────────────────────────
+
+[tool.bandit]
+exclude_dirs = ["venv", ".git", "tests"]
+skips = [
+    "B104",   # binding to 0.0.0.0 — intentional (fake internet)
+    "B324",   # hashlib use — not for crypto here
+]
