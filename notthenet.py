@@ -49,7 +49,7 @@ C_BORDER   = "#2d2d48"   # Subtle dividers
 C_ACCENT   = "#00d4aa"   # Primary teal
 C_ACCENT2  = "#00aaff"   # Secondary blue
 C_GREEN    = "#4ade80"   # Running / OK
-C_RED      = "#f87171"   # Error / stop
+C_RED      = "#e53e3e"   # Error / stop
 C_ORANGE   = "#fb923c"   # Warning
 C_TEXT     = "#e2e8f0"   # Primary text
 C_DIM      = "#4a5568"   # Muted / secondary
@@ -432,7 +432,7 @@ class NotTheNetApp(tk.Tk):
             command=self._on_stop, state="disabled", **btn_style
         )
         self._btn_stop.pack(side="left", padx=(0, 10))
-        _hover_bind(self._btn_stop, C_RED, "#fca5a5")
+        _hover_bind(self._btn_stop, C_RED, "#fc5c5c")
 
         # Vertical divider
         tk.Frame(inner, bg=C_BORDER, width=1).pack(side="left", fill="y", padx=6)
