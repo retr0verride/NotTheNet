@@ -39,6 +39,7 @@ APP_VERSION = "1.0.0"
 PAD = 8
 FIELD_WIDTH = 22
 LOG_MAX_LINES = 2000  # Cap displayed log lines to avoid memory creep
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # Project root
 
 # ─── Colour scheme ──────────────────────────────────────────────────────────
 C_BG       = "#13131f"   # Window background
@@ -452,6 +453,16 @@ class NotTheNetApp(tk.Tk):
         self._btn_load.pack(side="left", padx=2)
         _hover_bind(self._btn_load, C_HOVER, C_SELECTED)
 
+        # Vertical divider
+        tk.Frame(inner, bg=C_BORDER, width=1).pack(side="left", fill="y", padx=6)
+
+        self._btn_update = tk.Button(
+            inner, text="↑  Update", bg=C_HOVER, fg=C_ACCENT2,
+            command=self._on_update, **sec_btn
+        )
+        self._btn_update.pack(side="left", padx=2)
+        _hover_bind(self._btn_update, C_HOVER, C_SELECTED)
+
         # Root warning (right side)
         import os as _os
         if _os.name != "nt" and _os.geteuid() != 0:
@@ -864,6 +875,151 @@ class NotTheNetApp(tk.Tk):
                 self._show_page("general")
             else:
                 messagebox.showerror("Error", f"Failed to load config from:\n{path}")
+
+    def _on_update(self):
+        """Pull latest code from GitHub and reinstall dependencies."""
+        # Confirm first
+        if not messagebox.askyesno(
+            "Check for Updates",
+            "This will run:\n"
+            "  git pull origin master\n"
+            "  pip install -r requirements.txt\n\n"
+            "Any running services will NOT be interrupted.\n"
+            "Continue?",
+        ):
+            return
+
+        self._btn_update.configure(state="disabled", text="↑  Updating…")
+        self._status_label.configure(text="↑  Checking for updates…", fg=C_ACCENT2)
+
+        def _run():
+            import subprocess
+            import sys as _sys
+            results = []
+            changed = False
+
+            # ── Step 1: git pull ──────────────────────────────────────────
+            try:
+                proc = subprocess.run(
+                    ["git", "pull", "origin", "master"],
+                    capture_output=True, text=True, cwd=_BASE_DIR,
+                )
+                output = (proc.stdout + proc.stderr).strip()
+                results.append(("git pull", proc.returncode, output))
+                changed = proc.returncode == 0 and "Already up to date." not in output
+            except FileNotFoundError:
+                results.append(("git pull", -1,
+                                 "git not found — is git installed?"))
+
+            # ── Step 2: pip install ───────────────────────────────────────
+            try:
+                proc = subprocess.run(
+                    [_sys.executable, "-m", "pip", "install",
+                     "-r", os.path.join(_BASE_DIR, "requirements.txt"),
+                     "--quiet"],
+                    capture_output=True, text=True,
+                )
+                output = (proc.stdout + proc.stderr).strip() or "Dependencies up to date."
+                results.append(("pip install", proc.returncode, output))
+            except Exception as exc:
+                results.append(("pip install", -1, str(exc)))
+
+            self.after(0, self._show_update_result, results, changed)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _show_update_result(self, results: list, changed: bool):
+        """Display update output in a scrollable dialog."""
+        self._btn_update.configure(state="normal", text="↑  Update")
+        all_ok = all(rc == 0 for _, rc, _ in results)
+        self._status_label.configure(
+            text="● Running" if (self._manager and self._manager.running) else "●  Stopped",
+            fg=C_GREEN if (self._manager and self._manager.running) else C_DIM,
+        )
+
+        # Build dialog
+        dlg = tk.Toplevel(self)
+        dlg.title("Update Result")
+        dlg.configure(bg=C_BG)
+        dlg.geometry("620x380")
+        dlg.resizable(True, True)
+        dlg.transient(self)
+        dlg.grab_set()
+
+        # Accent strip
+        tk.Frame(dlg, bg=C_ACCENT if all_ok else C_ORANGE, height=2).pack(fill="x")
+
+        # Header
+        header_color = C_GREEN if (all_ok and changed) else (C_ACCENT if all_ok else C_RED)
+        header_text = (
+            "✔  Updated successfully — restart to apply changes."
+            if (all_ok and changed) else
+            "✔  Already up to date." if all_ok else
+            "✘  Update encountered errors."
+        )
+        tk.Label(
+            dlg, text=header_text,
+            bg=C_BG, fg=header_color,
+            font=("monospace", 10, "bold"),
+            anchor="w",
+        ).pack(fill="x", padx=PAD + 4, pady=(PAD, 4))
+
+        tk.Frame(dlg, bg=C_BORDER, height=1).pack(fill="x", padx=PAD)
+
+        # Scrollable output
+        txt = scrolledtext.ScrolledText(
+            dlg, bg=C_LOG_BG, fg=C_TEXT,
+            font=("monospace", 9), relief="flat",
+            highlightthickness=0, state="normal",
+        )
+        txt.pack(fill="both", expand=True, padx=PAD, pady=PAD)
+
+        txt.tag_config("header",  foreground=C_ACCENT2,  font=("monospace", 9, "bold"))
+        txt.tag_config("ok",      foreground=C_GREEN)
+        txt.tag_config("err",     foreground=C_RED)
+        txt.tag_config("body",    foreground=C_SUBTLE)
+
+        for step, returncode, output in results:
+            txt.insert("end", f"── {step} ", "header")
+            status = "(OK)" if returncode == 0 else f"(exit {returncode})"
+            txt.insert("end", status + "\n", "ok" if returncode == 0 else "err")
+            if output:
+                for line in output.splitlines():
+                    txt.insert("end", f"   {line}\n", "body")
+            txt.insert("end", "\n")
+
+        txt.configure(state="disabled")
+
+        # Footer buttons
+        btn_frame = tk.Frame(dlg, bg=C_BG)
+        btn_frame.pack(fill="x", padx=PAD, pady=(0, PAD))
+
+        if all_ok and changed:
+            def _restart():
+                dlg.destroy()
+                import subprocess as _sp
+                import sys as _sys
+                # Stop services cleanly before restart
+                if self._manager and self._manager.running:
+                    self._manager.stop()
+                _sp.Popen([_sys.executable] + _sys.argv)
+                self.destroy()
+
+            tk.Button(
+                btn_frame, text="↺  Restart Now",
+                bg=C_GREEN, fg="#0c0c18",
+                relief="flat", padx=12, pady=4,
+                font=("monospace", 9, "bold"), cursor="hand2",
+                command=_restart,
+            ).pack(side="left", padx=(0, 6))
+
+        tk.Button(
+            btn_frame, text="Close",
+            bg=C_HOVER, fg=C_TEXT,
+            relief="flat", padx=12, pady=4,
+            font=("monospace", 9), cursor="hand2",
+            command=dlg.destroy,
+        ).pack(side="left")
 
     def _on_close(self):
         if self._manager and self._manager.running:
