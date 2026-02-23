@@ -107,6 +107,15 @@ for dir in "${SCRIPT_DIR}/logs" \
     chmod 700 "$dir"
 done
 
+# ── Install man page ──────────────────────────────────────────────────────────
+if [[ $EUID -eq 0 ]]; then
+    MAN_DIR="/usr/local/share/man/man1"
+    mkdir -p "$MAN_DIR"
+    gzip -c "${SCRIPT_DIR}/man/notthenet.1" > "${MAN_DIR}/notthenet.1.gz"
+    mandb -q 2>/dev/null || true
+    info "Man page installed: man notthenet"
+fi
+
 # ── Create /usr/local/bin launcher (optional) ─────────────────────────────────
 if [[ $EUID -eq 0 ]]; then
     LAUNCHER="/usr/local/bin/notthenet"
@@ -130,5 +139,7 @@ echo -e "${GREEN}║   NotTheNet installed successfully!              ║${NC}"
 echo -e "${GREEN}║                                                  ║${NC}"
 echo -e "${GREEN}║   GUI:       sudo notthenet                      ║${NC}"
 echo -e "${GREEN}║   Headless:  sudo notthenet --nogui              ║${NC}"
+echo -e "${GREEN}║   Man page:  man notthenet                       ║${NC}"
+echo -e "${GREEN}║   Docs:      ${SCRIPT_DIR}/docs/                    ║${NC}"
 echo -e "${GREEN}║   Config:    ${SCRIPT_DIR}/config.json              ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}"

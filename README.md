@@ -7,6 +7,22 @@ NotTheNet simulates the internet for malware being analysed in an isolated envir
 
 ---
 
+## Documentation
+
+| Guide | Description |
+|-------|-------------|
+| [Installation](docs/installation.md) | System requirements, install steps, virtualenv setup |
+| [Configuration](docs/configuration.md) | Full reference for every `config.json` field |
+| [Usage](docs/usage.md) | GUI walkthrough, CLI/headless mode, command-line flags |
+| [Services](docs/services.md) | DNS, HTTP/HTTPS, SMTP, POP3, IMAP, FTP, Catch-All technical details |
+| [Network & iptables](docs/network.md) | Traffic redirection, loopback vs gateway mode, manual rules |
+| [Security Hardening](docs/security-hardening.md) | Lab isolation, interface binding, privilege model, OpenSSF practices |
+| [Troubleshooting](docs/troubleshooting.md) | Common errors and fixes |
+
+Man page available at [`man/notthenet.1`](man/notthenet.1) — install with `sudo install.sh` or manually via `man ./man/notthenet.1`.
+
+---
+
 ## Features
 
 | Service | Details |

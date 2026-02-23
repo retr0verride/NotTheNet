@@ -1,0 +1,314 @@
+.\" Man page for NotTheNet
+.\" Generated for NotTheNet v1.0.0
+.\"
+.TH NOTTHENET 1 "February 2026" "NotTheNet 1.0.0" "Malware Analysis Tools"
+
+.SH NAME
+notthenet \- fake internet simulator for malware analysis
+
+.SH SYNOPSIS
+.B notthenet
+[\fB\-\-config\fR \fIFILE\fR]
+[\fB\-\-nogui\fR]
+[\fB\-\-loglevel\fR \fILEVEL\fR]
+[\fB\-h\fR]
+
+.SH DESCRIPTION
+.B notthenet
+is a fake internet simulator designed for use in isolated malware analysis
+environments. It starts a suite of fake network services (DNS, HTTP, HTTPS,
+SMTP, POP3, IMAP, FTP, and a TCP/UDP catch-all) that respond convincingly
+to connections from malware under analysis, making the malware believe it
+has internet access.
+
+.PP
+NotTheNet automatically manages
+.BR iptables (8)
+NAT REDIRECT rules to funnel all outbound TCP traffic to its fake services,
+eliminating the DNS race conditions and socket leak problems common in
+INetSim and FakeNet-NG.
+
+.PP
+A Tkinter GUI is provided for configuration and live log monitoring.
+A headless CLI mode is available for automated pipelines and servers
+without a display.
+
+.SH OPTIONS
+.TP
+.BR \-\-config " " \fIFILE\fR
+Path to the JSON configuration file.
+Defaults to
+.I config.json
+in the current working directory.
+
+.TP
+.BR \-\-nogui
+Run in headless (CLI) mode without starting the graphical interface.
+All output is written to stdout and the log file.
+.B SIGINT
+(Ctrl+C) or
+.B SIGTERM
+triggers a clean shutdown with iptables rule restoration.
+
+.TP
+.BR \-\-loglevel " " \fILEVEL\fR
+Override the log level set in the configuration file.
+Valid values:
+.BR DEBUG ", " INFO ", " WARNING ", " ERROR .
+Default:
+.IR INFO .
+
+.TP
+.BR \-h ", " \-\-help
+Show a brief help message and exit.
+
+.SH SERVICES
+
+NotTheNet provides the following fake services:
+
+.TP
+.B DNS (port 53, UDP+TCP)
+Resolves every query to the configured
+.I redirect_ip
+address. Handles A, AAAA, PTR, MX, NS, TXT, and CNAME record types.
+Per-hostname overrides are configurable.
+
+.TP
+.B HTTP (port 80, TCP)
+Returns a configurable HTTP response (default: 200 OK) to every request,
+regardless of method or path.
+
+.TP
+.B HTTPS (port 443, TCP)
+As HTTP, wrapped in TLS 1.2+ with ECDHE+AEAD cipher suites.
+A self-signed RSA-4096 certificate is generated automatically if absent.
+
+.TP
+.B SMTP (port 25, TCP)
+Accepts ESMTP connections and optionally archives received emails to
+.I logs/emails/
+using UUID-based filenames (maximum 5 MB per message, 100 MB total).
+
+.TP
+.B POP3 (port 110, TCP)
+Presents an empty mailbox; accepts any credentials.
+
+.TP
+.B IMAP (port 143, TCP)
+Presents an empty INBOX (IMAP4rev1 subset); accepts any credentials.
+
+.TP
+.B FTP (port 21, TCP)
+Accepts connections and file uploads. Saves uploads to
+.I logs/ftp_uploads/
+using UUID-based filenames. PASV only; PORT (active mode) is disabled.
+
+.TP
+.B TCP Catch-All (port 9999, TCP)
+Receives all TCP connections redirected by iptables from ports not
+handled by named services. Responds with
+.IR "200 OK" .
+
+.TP
+.B UDP Catch-All (port 9998, UDP, disabled by default)
+Optional UDP drain service.
+
+.SH CONFIGURATION
+
+All settings are stored in a JSON file (default:
+.IR config.json ).
+The configuration is divided into sections, one per service, plus a
+.I general
+section for global settings.
+
+.PP
+Key fields:
+
+.TP
+.B general.bind_ip
+IP address all services listen on.
+.B 0.0.0.0
+for all interfaces (default).
+
+.TP
+.B general.redirect_ip
+IP address returned by DNS for all queries.
+Should be
+.B 127.0.0.1
+for loopback mode or the host IP for gateway mode.
+
+.TP
+.B general.interface
+Network interface for iptables rule application.
+.B IMPORTANT:
+set this to an isolated interface, not a real internet-connected adapter.
+
+.TP
+.B general.auto_iptables
+Boolean.
+If
+.BR true ,
+apply and remove iptables NAT REDIRECT rules automatically.
+
+.TP
+.B general.iptables_mode
+.B loopback
+(default): applies rules to the OUTPUT chain (local traffic only).
+.B gateway :
+applies rules to the PREROUTING chain (intercept traffic from other hosts).
+
+.PP
+See
+.B docs/configuration.md
+for the complete configuration reference.
+
+.SH FILES
+.TP
+.I config.json
+Default configuration file.
+
+.TP
+.I certs/server.crt
+TLS certificate (auto-generated RSA-4096, self-signed).
+
+.TP
+.I certs/server.key
+TLS private key (mode 0600).
+
+.TP
+.I logs/notthenet.log
+Rotating log file (10 MB × 5 backups).
+
+.TP
+.I logs/emails/
+Directory for captured SMTP emails (.eml files, UUID names).
+
+.TP
+.I logs/ftp_uploads/
+Directory for captured FTP uploads (.bin files, UUID names).
+
+.TP
+.I /tmp/notthenet_iptables_save.rules
+Snapshot of iptables rules taken before NotTheNet applies its own rules.
+Restored on clean shutdown.
+
+.SH SECURITY
+
+.B Privilege model:
+NotTheNet starts as root to bind privileged ports and apply iptables rules.
+After all ports are bound, it drops privileges to
+.I nobody:nogroup
+using
+.BR setgroups (2),
+.BR setgid (2),
+and
+.BR setuid (2).
+
+.PP
+.B Log injection prevention:
+All untrusted input (hostnames, paths, IP addresses, email content, FTP
+commands) is sanitised before logging. ANSI escape sequences and ASCII
+control characters are stripped or replaced.
+
+.PP
+.B No shell injection:
+All
+.BR subprocess (3)
+calls use list arguments with
+.BR shell=False .
+No user-controlled data is ever passed to a shell.
+
+.PP
+.B Disk exhaustion protection:
+Uploaded files and captured emails are subject to per-file and total
+directory size caps.
+
+.PP
+.B TLS hardening:
+SSLv2, SSLv3, TLS 1.0, and TLS 1.1 are disabled. Only ECDHE+AEAD cipher
+suites are accepted.
+
+.PP
+See
+.B SECURITY.md
+and
+.B docs/security-hardening.md
+for the full security policy.
+
+.SH EXAMPLES
+
+Launch the GUI with the default config:
+.PP
+.nf
+.RS
+sudo notthenet
+.RE
+.fi
+
+.PP
+Headless mode with debug logging:
+.PP
+.nf
+.RS
+sudo notthenet \-\-nogui \-\-loglevel DEBUG
+.RE
+.fi
+
+.PP
+Use a specific config for a banking trojan analysis session:
+.PP
+.nf
+.RS
+sudo notthenet \-\-config configs/banking.json
+.RE
+.fi
+
+.PP
+Verify DNS is working after start:
+.PP
+.nf
+.RS
+dig @127.0.0.1 evil\-c2\-server.com A +short
+.RE
+.fi
+
+.SH DIAGNOSTICS
+
+Exit codes:
+
+.TP
+.B 0
+Clean shutdown (SIGTERM or SIGINT received in headless mode).
+
+.TP
+.B 1
+Failed to start (configuration error or all services failed to bind).
+Check
+.I logs/notthenet.log
+for details.
+
+.SH BUGS
+
+Report bugs at:
+.B https://github.com/retr0verride/NotTheNet/issues
+
+Report security vulnerabilities privately via GitHub Security Advisories:
+.B https://github.com/retr0verride/NotTheNet/security/advisories
+
+.SH SEE ALSO
+.BR iptables (8),
+.BR iptables\-save (8),
+.BR iptables\-restore (8),
+.BR dig (1),
+.BR nc (1),
+.BR ss (8)
+
+.SH AUTHORS
+NotTheNet Contributors.
+See
+.B https://github.com/retr0verride/NotTheNet
+
+.SH LICENSE
+MIT License. See the
+.B LICENSE
+file in the project root.
