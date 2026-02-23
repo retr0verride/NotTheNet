@@ -39,52 +39,79 @@ sudo notthenet --config /path/to/my-lab.json
 ## GUI Walkthrough
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│  NotTheNet v1.0.0   [▶ Start]  [■ Stop]  [Save Config]  [Load…]     │
-├───────────────────┬──────────────────────────────────────────────────┤
-│  ● General        │                                                  │
-│  ● DNS            │          Configuration Panel                     │
-│  ● HTTP           │          (changes per selected service)          │
-│  ● HTTPS          │                                                  │
-│  ● SMTP           │                                                  │
-│  ● POP3           │                                                  │
-│  ● IMAP           │                                                  │
-│  ● FTP            │                                                  │
-│  ● Catch-All      │                                                  │
-├───────────────────┴──────────────────────────────────────────────────┤
-│  Live Log                                                   [Clear]  │
-│  10:23:01 [INFO]  DNS service started on 0.0.0.0:53                  │
-│  10:23:01 [INFO]  HTTP service started on 0.0.0.0:80                 │
-│  ...                                                                 │
-└──────────────────────────────────────────────────────────────────────┘
+╔══════════════════════════════════════════════════════════════════════════╗
+║▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ accent line ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓║
+║  [Globe]  NotTheNet          │  ▶ Start  ■ Stop │ 💾 Save  📂 Load…      ║
+║           v1.0.0 · Fake...   │                  │                       ║
+╠══════════════════╦═══════════════════════════════════════════════════════╣
+║  SERVICES        ║                                                       ║
+║  ── CONFIG ────  ║         Configuration Panel                          ║
+║  ⚙  General  ●  ║         (content changes per selected service)        ║
+║  ── NETWORK ─── ║                                                       ║
+║  ◈  DNS      ●  ║                                                       ║
+║  ◈  HTTP     ●  ║                                                       ║
+║  ◈  HTTPS    ●  ║                                                       ║
+║  ◈  FTP      ●  ║                                                       ║
+║  ── MAIL ──────  ║                                                       ║
+║  ◈  SMTP     ●  ║                                                       ║
+║  ◈  POP3     ●  ║                                                       ║
+║  ◈  IMAP     ●  ║                                                       ║
+║  ── FALLBACK ── ║                                                       ║
+║  ◈  Catch-All ● ║                                                       ║
+╠══════════════════╩═══════════════════════════════════════════════════════╣
+║  LIVE LOG     [DEBUG] [INFO] [WARNING] [ERROR]              [✕ Clear]   ║
+║  10:23:01 [INFO]  notthenet.dns: DNS service started on 0.0.0.0:53      ║
+║  10:23:01 [INFO]  notthenet.http: HTTP service started on 0.0.0.0:80    ║
+╠══════════════════════════════════════════════════════════════════════════╣
+║  ● Running                              github.com/retr0verride/NotTheNet║
+╚══════════════════════════════════════════════════════════════════════════╝
 ```
 
 ### Toolbar
 
+The toolbar has three zones separated by dividers:
+
+| Zone | Contents |
+|------|----------|
+| **Left — Brand** | Canvas-rendered globe+prohibition icon, "NotTheNet" wordmark, version and tagline |
+| **Centre — Controls** | **▶ Start** (green), **■ Stop** (red), **💾 Save**, **📂 Load…** |
+| **Right** | Root warning label if not running as root |
+
+A 2 px teal accent line runs along the very top of the toolbar.
+
 | Button | Action |
 |--------|--------|
-| **▶ Start** | Applies all config panel values to memory, then starts all enabled services and iptables rules. Disabled while running. |
+| **▶ Start** | Applies all config panel values, starts all enabled services and iptables rules. Disabled while running. |
 | **■ Stop** | Gracefully stops all services and removes iptables rules. |
-| **Save Config** | Saves current GUI values to `config.json` (or the path passed with `--config`). |
-| **Load Config…** | Opens a file picker to load a different `.json` config file. |
+| **💾 Save** | Saves current GUI values to `config.json` (or the `--config` path). |
+| **📂 Load…** | Opens a file picker to load a different `.json` config file and rebuilds all panels. |
 
-A warning banner appears in the top-right if NotTheNet is not running as root.
+All buttons change shade on hover. A `⚠ Not root` warning appears on the right if not running as root.
 
 ### Service Sidebar
 
-Each entry in the sidebar represents a service or settings group. The dot (`●`) colour indicates status:
+Services are grouped into labelled categories:
+
+| Group | Services |
+|-------|---------|
+| **CONFIG** | General settings |
+| **NETWORK** | DNS, HTTP, HTTPS, FTP |
+| **MAIL** | SMTP, POP3, IMAP |
+| **FALLBACK** | Catch-All |
+
+The `●` dot on the right of each row shows runtime status:
 
 | Colour | Meaning |
 |--------|---------|
-| Grey | Not running / not applicable |
-| Green | Service is running successfully |
-| Red | Service failed to start (see log) |
+| Grey | Not started |
+| Green | Running successfully |
+| Red | Failed to start (check log) |
 
-Click any service name to open its configuration panel on the right.
+Click any row (or its dot) to open the configuration panel. The active row is highlighted with a darker background and bold text.
 
 ### Configuration Panels
 
-Each panel maps directly to a section in `config.json`. All fields are validated before starting. See the [Configuration Reference](configuration.md) for every field.
+Each panel maps directly to a section in `config.json`. All fields are validated when **▶ Start** is clicked. See the [Configuration Reference](configuration.md) for every field.
 
 **DNS panel extras:** The "Custom DNS Records" text box accepts one record per line in the format:
 ```
@@ -93,9 +120,11 @@ example.com = 127.0.0.1
 c2.evil.xyz = 10.0.0.5
 ```
 
+A hint label above the text box shows the expected format.
+
 ### Live Log
 
-The bottom panel streams all log output in real time. Lines are colour-coded:
+The log panel fills the lower portion of the window and is vertically resizable by dragging the sash. Lines are colour-coded:
 
 | Colour | Level |
 |--------|-------|
@@ -104,7 +133,7 @@ The bottom panel streams all log output in real time. Lines are colour-coded:
 | Red | ERROR |
 | Grey | DEBUG |
 
-The log is capped at 2,000 lines in the GUI (the file log has no display limit). Click **Clear** to wipe the display.
+**Level filter pills** (DEBUG / INFO / WARNING / ERROR) let you focus on a single log level — click a pill to show only that level, click it again to restore all output. The log is capped at 2,000 lines in the GUI display (the file log has no display limit). Click **✕ Clear** to wipe the display.
 
 ---
 

@@ -40,16 +40,32 @@ PAD = 8
 FIELD_WIDTH = 22
 LOG_MAX_LINES = 2000  # Cap displayed log lines to avoid memory creep
 
-# Colour scheme
-C_BG = "#1e1e2e"
-C_PANEL = "#2a2a3e"
-C_ACCENT = "#89b4fa"
-C_GREEN = "#a6e3a1"
-C_RED = "#f38ba8"
-C_TEXT = "#cdd6f4"
-C_DIM = "#6c7086"
-C_ENTRY_BG = "#313244"
-C_ENTRY_FG = "#cdd6f4"
+# ─── Colour scheme ──────────────────────────────────────────────────────────
+C_BG       = "#13131f"   # Window background
+C_PANEL    = "#1a1a2c"   # Sidebar / panel background
+C_SURFACE  = "#222235"   # Config page surface
+C_BORDER   = "#2d2d48"   # Subtle dividers
+C_ACCENT   = "#00d4aa"   # Primary teal
+C_ACCENT2  = "#00aaff"   # Secondary blue
+C_GREEN    = "#4ade80"   # Running / OK
+C_RED      = "#f87171"   # Error / stop
+C_ORANGE   = "#fb923c"   # Warning
+C_TEXT     = "#e2e8f0"   # Primary text
+C_DIM      = "#4a5568"   # Muted / secondary
+C_SUBTLE   = "#94a3b8"   # Sub-labels
+C_ENTRY_BG = "#111122"   # Input background
+C_ENTRY_FG = "#e2e8f0"   # Input foreground
+C_HOVER    = "#262640"   # Sidebar hover
+C_SELECTED = "#1a3a4f"   # Sidebar selected
+C_LOG_BG   = "#0c0c18"   # Log panel background
+
+
+# ─── Hover helper ────────────────────────────────────────────────────────────
+
+def _hover_bind(widget, normal_bg: str, hover_bg: str):
+    """Simulate button hover by swapping background colour on Enter/Leave."""
+    widget.bind("<Enter>", lambda _e: widget.configure(bg=hover_bg))
+    widget.bind("<Leave>", lambda _e: widget.configure(bg=normal_bg))
 
 
 # ─── Logging bridge: route Python log records → GUI queue ────────────────────
@@ -69,20 +85,25 @@ class _QueueHandler(logging.Handler):
 # ─── Helper widgets ──────────────────────────────────────────────────────────
 
 def _label(parent, text, **kw):
-    return tk.Label(parent, text=text, bg=C_PANEL, fg=C_TEXT, **kw)
+    bg = kw.pop("bg", C_SURFACE)
+    return tk.Label(parent, text=text, bg=bg, fg=C_TEXT, **kw)
 
 
 def _entry(parent, textvariable, width=FIELD_WIDTH):
-    return tk.Entry(
+    e = tk.Entry(
         parent,
         textvariable=textvariable,
         width=width,
         bg=C_ENTRY_BG,
         fg=C_ENTRY_FG,
-        insertbackground=C_TEXT,
+        insertbackground=C_ACCENT,
         relief="flat",
-        bd=4,
+        bd=6,
+        highlightthickness=1,
+        highlightbackground=C_BORDER,
+        highlightcolor=C_ACCENT,
     )
+    return e
 
 
 def _check(parent, text, variable):
@@ -90,11 +111,12 @@ def _check(parent, text, variable):
         parent,
         text=text,
         variable=variable,
-        bg=C_PANEL,
-        fg=C_TEXT,
+        bg=C_SURFACE,
+        fg=C_SUBTLE,
         selectcolor=C_ENTRY_BG,
-        activebackground=C_PANEL,
+        activebackground=C_SURFACE,
         activeforeground=C_TEXT,
+        font=("monospace", 9),
     )
 
 
@@ -103,13 +125,14 @@ def _section_frame(parent, title: str):
     frame = tk.LabelFrame(
         parent,
         text=f"  {title}  ",
-        bg=C_PANEL,
+        bg=C_SURFACE,
         fg=C_ACCENT,
+        font=("monospace", 9, "bold"),
         relief="flat",
-        bd=1,
-        highlightbackground=C_DIM,
+        bd=0,
+        highlightbackground=C_BORDER,
         highlightthickness=1,
-        padx=PAD,
+        padx=PAD + 2,
         pady=PAD,
     )
     return frame
@@ -117,24 +140,82 @@ def _section_frame(parent, title: str):
 
 def _row(parent, label: str, widget_factory, row: int, col_offset: int = 0):
     """Lay out a label + widget pair in a grid."""
-    _label(parent, label).grid(row=row, column=col_offset, sticky="e", padx=(0, 4), pady=3)
+    lbl = tk.Label(parent, text=label, bg=C_SURFACE, fg=C_SUBTLE,
+                   font=("monospace", 9), anchor="e")
+    lbl.grid(row=row, column=col_offset, sticky="e", padx=(0, 6), pady=4)
     w = widget_factory()
-    w.grid(row=row, column=col_offset + 1, sticky="w", pady=3)
+    w.grid(row=row, column=col_offset + 1, sticky="w", pady=4)
     return w
+
+
+# ─── Per-service configuration pages ─────────────────────────────────────────
+
+# ─── Tiny canvas globe icon ─────────────────────────────────────────────────
+
+class _GlobeCanvas(tk.Canvas):
+    """~46×46 px canvas that draws the NotTheNet globe+prohibition logo."""
+
+    SIZE = 46
+
+    def __init__(self, parent):
+        super().__init__(
+            parent,
+            width=self.SIZE, height=self.SIZE,
+            bg=C_BG, bd=0, highlightthickness=0,
+        )
+        self._draw()
+
+    def _draw(self):
+        cx, cy, r = 23, 23, 17   # globe circle centre + radius
+        pr = 21                  # prohibition circle radius
+        teal = "#00c8a0"
+        red  = "#ff3b3b"
+
+        # Latitude lines (horizontal)
+        self.create_line(cx - r, cy, cx + r, cy, fill=teal, width=1)
+        for dy, rw in ((6, r - 2), (12, r - 7)):
+            for sign in (-1, 1):
+                y = cy + sign * dy
+                self.create_arc(cx - rw, y - 4, cx + rw, y + 4,
+                                start=0, extent=180, style="arc",
+                                outline=teal, width=1)
+
+        # Longitude lines (vertical)
+        self.create_line(cx, cy - r, cx, cy + r, fill=teal, width=1)
+        self.create_oval(cx - 9, cy - r, cx + 9, cy + r,
+                         outline=teal, width=1)
+
+        # Globe outer circle
+        self.create_oval(cx - r, cy - r, cx + r, cy + r,
+                         outline=teal, width=2)
+
+        # Prohibition red circle
+        self.create_oval(cx - pr, cy - pr, cx + pr, cy + pr,
+                         outline=red, width=3)
+
+        # Prohibition slash (top-right → bottom-left, 45°)
+        import math
+        angle = math.radians(45)
+        x1 = cx + pr * math.cos(angle)
+        y1 = cy - pr * math.sin(angle)
+        x2 = cx - pr * math.cos(angle)
+        y2 = cy + pr * math.sin(angle)
+        self.create_line(x1, y1, x2, y2, fill=red, width=3,
+                         capstyle="round")
 
 
 # ─── Per-service configuration pages ─────────────────────────────────────────
 
 class _GeneralPage(tk.Frame):
     def __init__(self, parent, cfg: Config):
-        super().__init__(parent, bg=C_PANEL)
+        super().__init__(parent, bg=C_SURFACE)
         self.cfg = cfg
         self.vars: dict = {}
         self._build()
 
     def _build(self):
         f = _section_frame(self, "General Settings")
-        f.pack(fill="x", padx=PAD, pady=PAD)
+        f.pack(fill="x", padx=PAD + 4, pady=PAD + 4)
 
         fields = [
             ("Bind IP",       "bind_ip",      "0.0.0.0"),
@@ -160,7 +241,7 @@ class _GeneralPage(tk.Frame):
             v = tk.BooleanVar(value=bool(val))
             self.vars[key] = v
             _check(f, label, v).grid(
-                row=len(fields) + i, column=0, columnspan=2, sticky="w", pady=3
+                row=len(fields) + i, column=0, columnspan=2, sticky="w", pady=4
             )
 
     def apply_to_config(self):
@@ -172,7 +253,7 @@ class _ServicePage(tk.Frame):
     """Generic service config page (HTTP, HTTPS, SMTP, FTP, etc.)."""
 
     def __init__(self, parent, cfg: Config, section: str, fields: list, checks: list):
-        super().__init__(parent, bg=C_PANEL)
+        super().__init__(parent, bg=C_SURFACE)
         self.cfg = cfg
         self.section = section
         self.fields = fields
@@ -182,7 +263,7 @@ class _ServicePage(tk.Frame):
 
     def _build(self):
         f = _section_frame(self, self.section.upper() + " Service")
-        f.pack(fill="x", padx=PAD, pady=PAD)
+        f.pack(fill="x", padx=PAD + 4, pady=PAD + 4)
 
         for i, (label, key, default) in enumerate(self.fields):
             val = self.cfg.get(self.section, key) or default
@@ -197,7 +278,7 @@ class _ServicePage(tk.Frame):
             v = tk.BooleanVar(value=bool(val))
             self.vars[key] = v
             _check(f, label, v).grid(
-                row=len(self.fields) + j, column=0, columnspan=2, sticky="w", pady=3
+                row=len(self.fields) + j, column=0, columnspan=2, sticky="w", pady=4
             )
 
     def apply_to_config(self):
@@ -224,10 +305,16 @@ class _DNSPage(_ServicePage):
 
     def _build_custom_records(self):
         f2 = _section_frame(self, "Custom DNS Records  (name = IP)")
-        f2.pack(fill="both", expand=True, padx=PAD, pady=(0, PAD))
+        f2.pack(fill="both", expand=True, padx=PAD + 4, pady=(0, PAD + 4))
+        hint = tk.Label(f2, text="One entry per line:  example.com = 192.168.1.1",
+                        bg=C_SURFACE, fg=C_DIM, font=("monospace", 8))
+        hint.pack(anchor="w", pady=(0, 4))
         self._records_text = scrolledtext.ScrolledText(
             f2, height=6, bg=C_ENTRY_BG, fg=C_ENTRY_FG,
-            insertbackground=C_TEXT, relief="flat",
+            insertbackground=C_ACCENT, relief="flat",
+            font=("monospace", 9),
+            highlightthickness=1, highlightbackground=C_BORDER,
+            highlightcolor=C_ACCENT,
         )
         self._records_text.pack(fill="both", expand=True)
         # Populate from config
@@ -276,6 +363,7 @@ class NotTheNetApp(tk.Tk):
         )
         root_logger.addHandler(qh)
 
+        self._log_level_filter: str = ""   # empty = show all
         self._build_ui()
         self._poll_log_queue()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -283,107 +371,213 @@ class NotTheNetApp(tk.Tk):
     # ── UI construction ───────────────────────────────────────────────────────
 
     def _build_ui(self):
+        self._apply_ttk_styles()
         self._build_toolbar()
-        self._build_body()
-        self._build_log_panel()
+        self._build_main_pane()
         self._build_statusbar()
 
+    def _apply_ttk_styles(self):
+        style = ttk.Style(self)
+        style.theme_use("clam")
+        style.configure("Sash", sashthickness=5, background=C_BORDER)
+        style.configure("VSash", sashthickness=5, background=C_BORDER)
+        style.configure("HSash", sashthickness=5, background=C_BORDER)
+
     def _build_toolbar(self):
-        bar = tk.Frame(self, bg=C_BG, pady=6)
+        # Outer toolbar container
+        bar = tk.Frame(self, bg=C_BG)
         bar.pack(fill="x")
 
+        # Thin accent line at very top
+        tk.Frame(bar, bg=C_ACCENT, height=2).pack(fill="x")
+
+        inner = tk.Frame(bar, bg=C_BG, pady=8)
+        inner.pack(fill="x")
+
+        # Globe canvas icon
+        globe = _GlobeCanvas(inner)
+        globe.pack(side="left", padx=(PAD + 2, 6))
+
+        # Wordmark + version
+        name_frame = tk.Frame(inner, bg=C_BG)
+        name_frame.pack(side="left", padx=(0, 14))
         tk.Label(
-            bar, text="NotTheNet", font=("monospace", 16, "bold"),
-            bg=C_BG, fg=C_ACCENT
-        ).pack(side="left", padx=PAD)
+            name_frame, text="NotTheNet",
+            font=("monospace", 17, "bold"),
+            bg=C_BG, fg=C_ACCENT,
+        ).pack(anchor="sw")
         tk.Label(
-            bar, text=f"v{APP_VERSION}", font=("monospace", 9),
-            bg=C_BG, fg=C_DIM
-        ).pack(side="left", padx=(0, PAD))
+            name_frame, text=f"v{APP_VERSION}  ·  Fake Internet Simulator",
+            font=("monospace", 8),
+            bg=C_BG, fg=C_DIM,
+        ).pack(anchor="nw")
+
+        # Vertical divider
+        tk.Frame(inner, bg=C_BORDER, width=1).pack(side="left", fill="y", padx=8)
 
         # Buttons
-        btn_style = dict(relief="flat", bd=0, padx=12, pady=4,
-                         font=("monospace", 10, "bold"), cursor="hand2")
+        btn_style = dict(relief="flat", bd=0, padx=14, pady=5,
+                         font=("monospace", 9, "bold"), cursor="hand2")
+
         self._btn_start = tk.Button(
-            bar, text="▶  Start", bg=C_GREEN, fg="#1e1e2e",
+            inner, text="▶  Start", bg=C_GREEN, fg="#0c0c18",
             command=self._on_start, **btn_style
         )
-        self._btn_start.pack(side="left", padx=4)
+        self._btn_start.pack(side="left", padx=(0, 4))
+        _hover_bind(self._btn_start, C_GREEN, "#6ee89a")
 
         self._btn_stop = tk.Button(
-            bar, text="■  Stop", bg=C_RED, fg="#1e1e2e",
+            inner, text="■  Stop", bg=C_RED, fg="#0c0c18",
             command=self._on_stop, state="disabled", **btn_style
         )
-        self._btn_stop.pack(side="left", padx=4)
+        self._btn_stop.pack(side="left", padx=(0, 10))
+        _hover_bind(self._btn_stop, C_RED, "#fca5a5")
 
-        tk.Button(
-            bar, text="Save Config", bg=C_PANEL, fg=C_TEXT,
-            command=self._on_save, **btn_style
-        ).pack(side="left", padx=4)
+        # Vertical divider
+        tk.Frame(inner, bg=C_BORDER, width=1).pack(side="left", fill="y", padx=6)
 
-        tk.Button(
-            bar, text="Load Config…", bg=C_PANEL, fg=C_TEXT,
-            command=self._on_load, **btn_style
-        ).pack(side="left", padx=4)
+        sec_btn = dict(relief="flat", bd=0, padx=10, pady=5,
+                       font=("monospace", 9), cursor="hand2")
+        self._btn_save = tk.Button(
+            inner, text="💾  Save", bg=C_HOVER, fg=C_TEXT,
+            command=self._on_save, **sec_btn
+        )
+        self._btn_save.pack(side="left", padx=2)
+        _hover_bind(self._btn_save, C_HOVER, C_SELECTED)
 
-        # Root warning
-        import os
-        if os.name != "nt" and os.geteuid() != 0:
-            tk.Label(
-                bar,
-                text="⚠ Not root — ports <1024 may fail",
-                bg=C_BG, fg="#fab387",
-                font=("monospace", 9),
-            ).pack(side="right", padx=PAD)
+        self._btn_load = tk.Button(
+            inner, text="📂  Load…", bg=C_HOVER, fg=C_TEXT,
+            command=self._on_load, **sec_btn
+        )
+        self._btn_load.pack(side="left", padx=2)
+        _hover_bind(self._btn_load, C_HOVER, C_SELECTED)
 
-    def _build_body(self):
-        body = tk.PanedWindow(self, orient="horizontal", bg=C_BG, sashwidth=4)
-        body.pack(fill="both", expand=True, padx=PAD, pady=(0, PAD))
+        # Root warning (right side)
+        import os as _os
+        if _os.name != "nt" and _os.geteuid() != 0:
+            warn = tk.Label(
+                inner,
+                text="⚠  Not root — ports <1024 may fail",
+                bg=C_BG, fg=C_ORANGE,
+                font=("monospace", 8),
+            )
+            warn.pack(side="right", padx=PAD)
+
+        # Bottom border
+        tk.Frame(bar, bg=C_BORDER, height=1).pack(fill="x")
+
+    def _build_main_pane(self):
+        """Vertical split: top = body (sidebar + config), bottom = log panel."""
+        self._main_pane = tk.PanedWindow(
+            self, orient="vertical", bg=C_BG,
+            sashwidth=5, sashpad=0, sashrelief="flat",
+        )
+        self._main_pane.pack(fill="both", expand=True)
+
+        body_frame = tk.Frame(self._main_pane, bg=C_BG)
+        self._main_pane.add(body_frame, minsize=340)
+
+        log_frame_outer = tk.Frame(self._main_pane, bg=C_BG)
+        self._main_pane.add(log_frame_outer, minsize=120)
+
+        self._build_body(body_frame)
+        self._build_log_panel(log_frame_outer)
+
+    def _build_body(self, parent):
+        body = tk.PanedWindow(parent, orient="horizontal", bg=C_BG,
+                              sashwidth=5, sashpad=0, sashrelief="flat")
+        body.pack(fill="both", expand=True)
 
         # ── Left: service list ──
-        left = tk.Frame(body, bg=C_PANEL, width=140)
-        body.add(left, minsize=130)
+        left = tk.Frame(body, bg=C_PANEL)
+        body.add(left, minsize=148)
 
-        _label(left, " Services", font=("monospace", 10, "bold")).pack(
-            anchor="w", padx=PAD, pady=(PAD, 4)
-        )
-        ttk.Separator(left, orient="horizontal").pack(fill="x", padx=PAD)
+        # Sidebar header
+        hdr = tk.Frame(left, bg=C_PANEL, pady=8)
+        hdr.pack(fill="x")
+        tk.Label(
+            hdr, text="  SERVICES",
+            bg=C_PANEL, fg=C_DIM,
+            font=("monospace", 8, "bold"),
+        ).pack(anchor="w")
+        tk.Frame(left, bg=C_BORDER, height=1).pack(fill="x")
 
         self._service_btns: dict = {}
-        services = [
-            ("general", "General"),
-            ("dns",     "DNS"),
-            ("http",    "HTTP"),
-            ("https",   "HTTPS"),
-            ("smtp",    "SMTP"),
-            ("pop3",    "POP3"),
-            ("imap",    "IMAP"),
-            ("ftp",     "FTP"),
-            ("catch_all", "Catch-All"),
-        ]
-        for key, label in services:
-            indicator = tk.BooleanVar(value=False)
-            self._svc_vars[key] = indicator
-            btn = tk.Button(
-                left, text=f"● {label}",
-                bg=C_PANEL, fg=C_DIM,
-                relief="flat", anchor="w", padx=PAD,
-                font=("monospace", 10),
-                cursor="hand2",
-                command=lambda k=key: self._show_page(k),
-            )
-            btn.pack(fill="x", padx=4, pady=1)
-            self._service_btns[key] = btn
+
+        # Group: General
+        self._add_sidebar_section(left, "CONFIG")
+        self._add_sidebar_btn(left, "general", "⚙  General")
+
+        # Group: Network services
+        self._add_sidebar_section(left, "NETWORK")
+        for key, label in [
+            ("dns",   "◈  DNS"),
+            ("http",  "◈  HTTP"),
+            ("https", "◈  HTTPS"),
+            ("ftp",   "◈  FTP"),
+        ]:
+            self._add_sidebar_btn(left, key, label)
+
+        # Group: Mail services
+        self._add_sidebar_section(left, "MAIL")
+        for key, label in [
+            ("smtp", "◈  SMTP"),
+            ("pop3", "◈  POP3"),
+            ("imap", "◈  IMAP"),
+        ]:
+            self._add_sidebar_btn(left, key, label)
+
+        # Group: Catch-all
+        self._add_sidebar_section(left, "FALLBACK")
+        self._add_sidebar_btn(left, "catch_all", "◈  Catch-All")
 
         # ── Right: config pages ──
-        right = tk.Frame(body, bg=C_PANEL)
+        right = tk.Frame(body, bg=C_SURFACE)
         body.add(right, minsize=500)
 
-        self._page_container = tk.Frame(right, bg=C_PANEL)
+        self._page_container = tk.Frame(right, bg=C_SURFACE)
         self._page_container.pack(fill="both", expand=True)
 
         self._build_pages()
         self._show_page("general")
+
+    def _add_sidebar_section(self, parent, title: str):
+        """Small muted category header in the sidebar."""
+        f = tk.Frame(parent, bg=C_PANEL, pady=0)
+        f.pack(fill="x", pady=(6, 0))
+        tk.Label(
+            f, text=f"  {title}",
+            bg=C_PANEL, fg=C_DIM,
+            font=("monospace", 7, "bold"),
+        ).pack(anchor="w", padx=4)
+
+    def _add_sidebar_btn(self, parent, key: str, label: str):
+        """Add one sidebar service button with a status dot on the right."""
+        row = tk.Frame(parent, bg=C_PANEL, cursor="hand2")
+        row.pack(fill="x", pady=1)
+
+        dot = tk.Label(row, text="●", bg=C_PANEL, fg=C_DIM,
+                       font=("monospace", 7))
+        dot.pack(side="right", padx=(0, 8))
+
+        btn = tk.Label(
+            row, text=f"  {label}",
+            bg=C_PANEL, fg=C_SUBTLE,
+            font=("monospace", 9), anchor="w",
+        )
+        btn.pack(side="left", fill="x", expand=True, ipady=5)
+
+        def _click(_e=None):
+            self._show_page(key)
+
+        row.bind("<Button-1>", _click)
+        btn.bind("<Button-1>", _click)
+        dot.bind("<Button-1>", _click)
+        _hover_bind(row, C_PANEL, C_HOVER)
+        _hover_bind(btn, C_PANEL, C_HOVER)
+        _hover_bind(dot, C_PANEL, C_HOVER)
+
+        self._service_btns[key] = (row, btn, dot)
 
     def _build_pages(self):
         """Create one config page per service."""
@@ -455,52 +649,98 @@ class NotTheNetApp(tk.Tk):
         if key in self._pages:
             self._pages[key].pack(fill="both", expand=True)
 
-        for k, btn in self._service_btns.items():
+        for k, widgets in self._service_btns.items():
+            row, btn, dot = widgets
             if k == key:
-                btn.configure(bg=C_ACCENT, fg="#1e1e2e", font=("monospace", 10, "bold"))
+                row.configure(bg=C_SELECTED)
+                btn.configure(bg=C_SELECTED, fg=C_TEXT,
+                              font=("monospace", 9, "bold"))
+                dot.configure(bg=C_SELECTED)
             else:
-                btn.configure(bg=C_PANEL, fg=C_DIM, font=("monospace", 10))
+                row.configure(bg=C_PANEL)
+                btn.configure(bg=C_PANEL, fg=C_SUBTLE,
+                              font=("monospace", 9))
+                dot.configure(bg=C_PANEL)
 
-    def _build_log_panel(self):
-        log_frame = tk.Frame(self, bg=C_BG)
-        log_frame.pack(fill="x", padx=PAD, pady=(0, 2))
-
-        hdr = tk.Frame(log_frame, bg=C_BG)
+    def _build_log_panel(self, parent):
+        # Header bar
+        hdr = tk.Frame(parent, bg=C_BG, pady=4)
         hdr.pack(fill="x")
-        _label(hdr, " Live Log", font=("monospace", 9, "bold")).configure(bg=C_BG)
-        _label(hdr, " Live Log", font=("monospace", 9, "bold")).pack(side="left")
+        tk.Frame(parent, bg=C_BORDER, height=1).pack(fill="x")
+
+        tk.Label(
+            hdr, text="  LIVE LOG",
+            bg=C_BG, fg=C_DIM,
+            font=("monospace", 8, "bold"),
+        ).pack(side="left")
+
+        # Level filter pills
+        filter_frame = tk.Frame(hdr, bg=C_BG)
+        filter_frame.pack(side="left", padx=12)
+        self._log_filter_btns: dict = {}
+        for lvl, colour in [("DEBUG", C_DIM), ("INFO", C_SUBTLE),
+                            ("WARNING", C_ORANGE), ("ERROR", C_RED)]:
+            b = tk.Button(
+                filter_frame, text=lvl,
+                bg=C_HOVER, fg=colour,
+                relief="flat", bd=0, padx=6, pady=2,
+                font=("monospace", 7, "bold"), cursor="hand2",
+                command=lambda l=lvl: self._toggle_log_filter(l),
+            )
+            b.pack(side="left", padx=2)
+            _hover_bind(b, C_HOVER, C_SELECTED)
+            self._log_filter_btns[lvl] = b
+
         tk.Button(
-            hdr, text="Clear", bg=C_BG, fg=C_DIM, relief="flat",
+            hdr, text="✕ Clear",
+            bg=C_BG, fg=C_DIM, relief="flat",
             font=("monospace", 8), cursor="hand2",
-            command=lambda: self._log_widget.delete("1.0", "end"),
-        ).pack(side="right")
+            command=lambda: self._log_widget.configure(state="normal") or
+                            self._log_widget.delete("1.0", "end") or
+                            self._log_widget.configure(state="disabled"),
+        ).pack(side="right", padx=PAD)
 
         self._log_widget = scrolledtext.ScrolledText(
-            log_frame,
-            height=10,
-            bg="#11111b",
+            parent,
+            bg=C_LOG_BG,
             fg=C_TEXT,
             font=("monospace", 9),
             relief="flat",
             state="disabled",
+            wrap="none",
+            highlightthickness=0,
         )
-        self._log_widget.pack(fill="x")
+        self._log_widget.pack(fill="both", expand=True)
         self._log_widget.tag_config("ERROR",   foreground=C_RED)
-        self._log_widget.tag_config("WARNING", foreground="#fab387")
+        self._log_widget.tag_config("WARNING", foreground=C_ORANGE)
         self._log_widget.tag_config("INFO",    foreground=C_TEXT)
         self._log_widget.tag_config("DEBUG",   foreground=C_DIM)
+        self._log_widget.tag_config("HIDDEN",  elide=True)
+
+    def _toggle_log_filter(self, level: str):
+        """Toggle showing only one log level. Click again to clear filter."""
+        if self._log_level_filter == level:
+            self._log_level_filter = ""
+            for b in self._log_filter_btns.values():
+                b.configure(relief="flat", bd=0)
+        else:
+            self._log_level_filter = level
+            for lvl, b in self._log_filter_btns.items():
+                b.configure(relief=("sunken" if lvl == level else "flat"),
+                            bd=(1 if lvl == level else 0))
 
     def _build_statusbar(self):
-        bar = tk.Frame(self, bg=C_BG, height=22)
+        tk.Frame(self, bg=C_BORDER, height=1).pack(fill="x", side="bottom")
+        bar = tk.Frame(self, bg=C_BG, height=24)
         bar.pack(fill="x", side="bottom")
         self._status_label = tk.Label(
-            bar, text="● Stopped", bg=C_BG, fg=C_DIM,
-            font=("monospace", 9), anchor="w"
+            bar, text="●  Stopped", bg=C_BG, fg=C_DIM,
+            font=("monospace", 8), anchor="w"
         )
-        self._status_label.pack(side="left", padx=PAD)
+        self._status_label.pack(side="left", padx=(PAD + 2, 0))
         tk.Label(
-            bar, text="github.com/your-org/notthenet",
-            bg=C_BG, fg=C_DIM, font=("monospace", 9),
+            bar, text="github.com/retr0verride/NotTheNet",
+            bg=C_BG, fg=C_DIM, font=("monospace", 8),
         ).pack(side="right", padx=PAD)
 
     # ── Log polling ───────────────────────────────────────────────────────────
@@ -533,7 +773,12 @@ class NotTheNetApp(tk.Tk):
         elif "[DEBUG]" in upper:
             tag = "DEBUG"
 
-        self._log_widget.insert("end", msg + "\n", tag)
+        # Apply active level filter (hide non-matching lines)
+        tags = (tag,)
+        if self._log_level_filter and tag != self._log_level_filter:
+            tags = (tag, "HIDDEN")
+
+        self._log_widget.insert("end", msg + "\n", tags)
         self._log_widget.see("end")
         self._log_widget.configure(state="disabled")
 
@@ -559,28 +804,28 @@ class NotTheNetApp(tk.Tk):
             self.after(0, self._update_ui_after_start, ok)
 
         threading.Thread(target=_start_thread, daemon=True).start()
-        self._status_label.configure(text="● Starting…", fg="#fab387")
+        self._status_label.configure(text="●  Starting…", fg=C_ORANGE)
 
     def _update_ui_after_start(self, ok: bool):
         if ok:
             self._btn_start.configure(state="disabled")
             self._btn_stop.configure(state="normal")
-            self._status_label.configure(text="● Running", fg=C_GREEN)
+            self._status_label.configure(text="●  Running", fg=C_GREEN)
             self._update_service_indicators()
         else:
-            self._status_label.configure(text="● Failed — check log", fg=C_RED)
+            self._status_label.configure(text="●  Failed — check log", fg=C_RED)
 
     def _on_stop(self):
         if self._manager:
             threading.Thread(target=self._manager.stop, daemon=True).start()
         self._btn_start.configure(state="normal")
         self._btn_stop.configure(state="disabled")
-        self._status_label.configure(text="● Stopped", fg=C_DIM)
-        for key, btn in self._service_btns.items():
-            btn.configure(fg=C_DIM)
+        self._status_label.configure(text="●  Stopped", fg=C_DIM)
+        for key, (row, btn, dot) in self._service_btns.items():
+            dot.configure(fg=C_DIM)
 
     def _update_service_indicators(self):
-        """Refresh sidebar dots based on actual service status."""
+        """Refresh sidebar status dots based on actual service status."""
         if not self._manager:
             return
         status = self._manager.status()
@@ -590,12 +835,11 @@ class NotTheNetApp(tk.Tk):
             "ftp": "ftp", "catch_tcp": "catch_all",
         }
         for svc_key, page_key in mapping.items():
-            colour = C_GREEN if status.get(svc_key) else C_DIM
-            btn = self._service_btns.get(page_key)
-            if btn:
-                current_text = btn.cget("text")
-                label = current_text[2:]  # strip "● "
-                btn.configure(fg=colour)
+            colour = C_GREEN if status.get(svc_key) else C_RED
+            widgets = self._service_btns.get(page_key)
+            if widgets:
+                _row, _btn, dot = widgets
+                dot.configure(fg=colour)
 
     def _on_save(self):
         self._apply_all_pages_to_config()
