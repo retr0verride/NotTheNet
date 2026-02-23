@@ -633,6 +633,25 @@ class NotTheNetApp(tk.Tk):
             self.destroy()
 
 
+def _print_logo() -> None:
+    """Print the NotTheNet ASCII banner to stdout (CLI mode only)."""
+    CYAN = "\033[36m"
+    RESET = "\033[0m"
+    banner = (
+        f"{CYAN}"
+        "\n"
+        "  ███╗   ██╗ ██████╗ ████████╗    ████████╗██╗  ██╗███████╗    ███╗   ██╗███████╗████████╗\n"
+        "  ████╗  ██║██╔═══██╗╚══██╔══╝       ██║   ██║  ██║██╔════╝    ████╗  ██║██╔════╝╚══██╔══╝\n"
+        "  ██╔██╗ ██║██║   ██║   ██║          ██║   ███████║█████╗      ██╔██╗ ██║█████╗     ██║   \n"
+        "  ██║╚██╗██║██║   ██║   ██║          ██║   ██╔══██║██╔══╝      ██║╚██╗██║██╔══╝     ██║   \n"
+        "  ██║ ╚████║╚██████╔╝   ██║          ██║   ██║  ██║███████╗    ██║ ╚████║███████╗   ██║   \n"
+        "  ╚═╝  ╚═══╝ ╚═════╝    ╚═╝          ╚═╝   ╚═╝  ╚═╝╚══════╝    ╚═╝  ╚═══╝╚══════╝   ╚═╝  \n"
+        "                          Fake Internet Simulator  ·  Malware Analysis\n"
+        f"{RESET}"
+    )
+    print(banner)
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="NotTheNet — Fake Internet Simulator")
@@ -655,6 +674,7 @@ def main():
     if args.nogui:
         import signal
         import time
+        _print_logo()
         manager = ServiceManager(cfg)
         if not manager.start():
             sys.exit(1)

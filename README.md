@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" alt="NotTheNet — Fake Internet Simulator" width="480"/>
+</p>
+
 # NotTheNet — Fake Internet Simulator
 
 > **For malware analysis and sandboxed environments only.**  
