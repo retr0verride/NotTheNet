@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# NotTheNet GUI launcher — requests root privilege via pkexec, with
+# fallbacks for kdesudo / gksudo / xterm+sudo.
+#
+# Installed to /usr/local/bin/notthenet-gui by install.sh
+#
+# This script is referenced in the .desktop Exec= field so that
+# double-clicking the app icon prompts for the password graphically.
+
+VENV_PYTHON="VENV_PYTHON_PLACEHOLDER"
+SCRIPT="SCRIPT_PLACEHOLDER"
+
+# ── Pick an escalation method ────────────────────────────────────────
+if command -v pkexec &>/dev/null; then
+    exec pkexec --disable-internal-agent "$VENV_PYTHON" "$SCRIPT" "$@"
+elif command -v kdesudo &>/dev/null; then
+    exec kdesudo -- "$VENV_PYTHON" "$SCRIPT" "$@"
+elif command -v gksudo &>/dev/null; then
+    exec gksudo -- "$VENV_PYTHON" "$SCRIPT" "$@"
+elif command -v xterm &>/dev/null; then
+    exec xterm -e "sudo '$VENV_PYTHON' '$SCRIPT' $* || read -p 'Press enter to close…'"
+else
+    echo "No graphical sudo helper found (pkexec/kdesudo/gksudo/xterm)." >&2
+    echo "Run manually: sudo '$VENV_PYTHON' '$SCRIPT'" >&2
+    exit 1
+fi

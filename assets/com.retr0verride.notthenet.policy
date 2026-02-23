@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+
+<!--
+  NotTheNet polkit action
+  Installed by install.sh to /usr/share/polkit-1/actions/
+  Allows pkexec to present a named, descriptive authentication dialog
+  instead of a generic "Run program as superuser" prompt.
+-->
+
+<policyconfig>
+  <vendor>NotTheNet</vendor>
+  <vendor_url>https://github.com/retr0verride/NotTheNet</vendor_url>
+
+  <action id="com.retr0verride.notthenet.run">
+    <description>Run NotTheNet Fake Internet Simulator</description>
+    <message>NotTheNet needs root access to bind privileged ports and manage iptables rules for network simulation.</message>
+    <icon_name>notthenet</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">VENV_PYTHON_PLACEHOLDER</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+</policyconfig>

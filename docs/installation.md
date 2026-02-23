@@ -57,11 +57,51 @@ The install script will:
 5. Generate a self-signed TLS certificate (`certs/server.crt` / `certs/server.key`)
 6. Create log directories (`logs/`, `logs/emails/`, `logs/ftp_uploads/`)
 7. Install a launcher at `/usr/local/bin/notthenet`
+8. Install a clickable desktop icon (app menu + polkit password prompt)
 
-After install, the launcher is available system-wide:
+After install:
+
 ```bash
-sudo notthenet           # launch GUI
-sudo notthenet --nogui   # launch headless
+sudo notthenet           # launch GUI from terminal
+sudo notthenet --nogui   # headless mode
+```
+
+Or simply search for **NotTheNet** in the Kali application menu (or any GNOME/XFCE/KDE desktop) and click the icon — a graphical password prompt will appear via `pkexec`.
+
+---
+
+## Desktop Integration
+
+`install.sh` installs three things that make the app launchable from the desktop:
+
+| File installed | Purpose |
+|----------------|---------|
+| `/usr/share/icons/hicolor/scalable/apps/notthenet.svg` | SVG icon (all sizes) |
+| `/usr/share/icons/hicolor/128x128/apps/notthenet.png` | 128 px PNG icon |
+| `/usr/share/applications/notthenet.desktop` | Desktop entry (app menu, dock) |
+| `/usr/local/bin/notthenet-gui` | Wrapper that calls `pkexec` for the password prompt |
+| `/usr/share/polkit-1/actions/com.retr0verride.notthenet.policy` | Named polkit action (descriptive auth dialog) |
+
+### How privilege escalation works
+
+When you click the icon, `notthenet-gui` is called, which executes:
+
+```
+pkexec /path/to/venv/bin/python notthenet.py
+```
+
+This causes the desktop to show a **graphical password prompt** with the message *"NotTheNet needs root access to bind privileged ports and manage iptables rules."*
+
+If `pkexec` is not available, the wrapper falls back to `kdesudo` → `gksudo` → `xterm + sudo` in that order.
+
+### Manual desktop entry (if not installed by script)
+
+```bash
+# If you installed manually (non-root) and want to add the desktop entry later:
+sudo cp assets/notthenet.desktop /usr/share/applications/notthenet.desktop
+sudo sed -i "s|NOTTHENET_EXEC_PLACEHOLDER|/usr/local/bin/notthenet-gui|" \
+    /usr/share/applications/notthenet.desktop
+sudo update-desktop-database /usr/share/applications
 ```
 
 ---

@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.1
+Type=Application
+Name=NotTheNet
+GenericName=Fake Internet Simulator
+Comment=Simulate the internet for malware analysis in an isolated environment
+Exec=NOTTHENET_EXEC_PLACEHOLDER
+Icon=notthenet
+Terminal=false
+Categories=Security;Network;System;
+Keywords=malware;analysis;sandbox;fake;internet;dns;http;
+StartupNotify=true
+StartupWMClass=notthenet

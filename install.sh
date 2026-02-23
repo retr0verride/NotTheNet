@@ -8,7 +8,9 @@
 #   2. Creates a virtualenv in ./venv
 #   3. Installs pinned Python dependencies
 #   4. Generates a self-signed TLS certificate
-#   5. Creates the notthenet launcher in /usr/local/bin (optional)
+#   5. Installs desktop icon + .desktop file (click to launch from app menu)
+#   6. Installs polkit action (graphical password prompt via pkexec)
+#   7. Creates the notthenet launcher in /usr/local/bin (optional)
 #
 # OpenSSF notes:
 #   - Uses --require-hashes to verify package integrity
@@ -51,9 +53,10 @@ if command -v apt-get &>/dev/null; then
         python3-venv python3-dev \
         iptables iproute2 \
         openssl \
+        librsvg2-bin \
         > /dev/null
 elif command -v dnf &>/dev/null; then
-    dnf install -y python3-devel iptables iproute > /dev/null
+    dnf install -y python3-devel iptables iproute librsvg2-tools > /dev/null
 else
     warn "Unknown package manager; skipping system packages."
 fi
@@ -116,6 +119,69 @@ if [[ $EUID -eq 0 ]]; then
     info "Man page installed: man notthenet"
 fi
 
+# ── Install icon ───────────────────────────────────────────────────────────────
+if [[ $EUID -eq 0 ]]; then
+    ICON_SVG="${SCRIPT_DIR}/assets/logo.svg"
+
+    # Scalable SVG
+    ICON_SCALABLE="/usr/share/icons/hicolor/scalable/apps"
+    mkdir -p "$ICON_SCALABLE"
+    cp -f "$ICON_SVG" "${ICON_SCALABLE}/notthenet.svg"
+
+    # 128×128 PNG (rsvg-convert preferred; fall back to convert/inkscape)
+    ICON_128="/usr/share/icons/hicolor/128x128/apps"
+    mkdir -p "$ICON_128"
+    if command -v rsvg-convert &>/dev/null; then
+        rsvg-convert -w 128 -h 128 "$ICON_SVG" -o "${ICON_128}/notthenet.png"
+    elif command -v convert &>/dev/null; then
+        convert -background none -resize 128x128 "$ICON_SVG" "${ICON_128}/notthenet.png"
+    elif command -v inkscape &>/dev/null; then
+        inkscape --export-type=png --export-width=128 \
+                 --export-filename="${ICON_128}/notthenet.png" "$ICON_SVG" 2>/dev/null
+    else
+        warn "No SVG→PNG converter found (rsvg-convert/convert/inkscape); skipping PNG icon."
+    fi
+
+    gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
+    info "Icon installed: /usr/share/icons/hicolor/"
+fi
+
+# ── Install .desktop file + GUI launcher ──────────────────────────────────────
+if [[ $EUID -eq 0 ]]; then
+    # Write the GUI launcher with real paths baked in
+    GUI_LAUNCHER="/usr/local/bin/notthenet-gui"
+    sed \
+        -e "s|VENV_PYTHON_PLACEHOLDER|${VENV_DIR}/bin/python|g" \
+        -e "s|SCRIPT_PLACEHOLDER|${SCRIPT_DIR}/notthenet.py|g" \
+        "${SCRIPT_DIR}/assets/notthenet-gui-launcher" > "$GUI_LAUNCHER"
+    chmod 0755 "$GUI_LAUNCHER"
+    info "GUI launcher installed: $GUI_LAUNCHER"
+
+    # Write .desktop file with real Exec path
+    DESKTOP_FILE="/usr/share/applications/notthenet.desktop"
+    sed \
+        -e "s|NOTTHENET_EXEC_PLACEHOLDER|/usr/local/bin/notthenet-gui|g" \
+        "${SCRIPT_DIR}/assets/notthenet.desktop" > "$DESKTOP_FILE"
+    chmod 0644 "$DESKTOP_FILE"
+    update-desktop-database -q /usr/share/applications 2>/dev/null || true
+    info "Desktop entry installed: $DESKTOP_FILE"
+
+    # Install polkit action (gives pkexec a descriptive auth dialog)
+    POLKIT_DIR="/usr/share/polkit-1/actions"
+    if [[ -d "$POLKIT_DIR" ]]; then
+        sed \
+            -e "s|VENV_PYTHON_PLACEHOLDER|${VENV_DIR}/bin/python|g" \
+            "${SCRIPT_DIR}/assets/com.retr0verride.notthenet.policy" \
+            > "${POLKIT_DIR}/com.retr0verride.notthenet.policy"
+        chmod 0644 "${POLKIT_DIR}/com.retr0verride.notthenet.policy"
+        info "Polkit action installed: com.retr0verride.notthenet"
+    else
+        warn "polkit not found; pkexec dialog will use generic prompt."
+    fi
+else
+    warn "Skipping desktop integration (not root)."
+fi
+
 # ── Create /usr/local/bin launcher (optional) ─────────────────────────────────
 if [[ $EUID -eq 0 ]]; then
     LAUNCHER="/usr/local/bin/notthenet"
@@ -134,12 +200,11 @@ fi
 
 # ── Final message ─────────────────────────────────────────────────────────────
 echo ""
-echo -e "${GREEN}╔══════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║   NotTheNet installed successfully!              ║${NC}"
-echo -e "${GREEN}║                                                  ║${NC}"
-echo -e "${GREEN}║   GUI:       sudo notthenet                      ║${NC}"
-echo -e "${GREEN}║   Headless:  sudo notthenet --nogui              ║${NC}"
-echo -e "${GREEN}║   Man page:  man notthenet                       ║${NC}"
-echo -e "${GREEN}║   Docs:      ${SCRIPT_DIR}/docs/                    ║${NC}"
-echo -e "${GREEN}║   Config:    ${SCRIPT_DIR}/config.json              ║${NC}"
-echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}"
+echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║   NotTheNet installed successfully!                  ║${NC}"
+echo -e "${GREEN}║                                                      ║${NC}"
+echo -e "${GREEN}║   App menu:  Search 'NotTheNet' and click icon       ║${NC}"
+echo -e "${GREEN}║   GUI:       sudo notthenet                          ║${NC}"
+echo -e "${GREEN}║   Headless:  sudo notthenet --nogui                  ║${NC}"
+echo -e "${GREEN}║   Man page:  man notthenet                           ║${NC}"
+echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
