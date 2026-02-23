@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="../assets/logo.svg" alt="NotTheNet — Fake Internet Simulator" width="480"/>
+</p>
+
 # NotTheNet Documentation
 
 Welcome to the NotTheNet documentation hub. NotTheNet is a fake internet simulator for malware analysis — a modern, easy-to-configure alternative to INetSim and FakeNet-NG.

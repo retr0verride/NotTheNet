@@ -166,6 +166,18 @@ For automated pipelines, sandboxes without a display, or SSH sessions:
 sudo notthenet --nogui --config config.json
 ```
 
+On startup, an ASCII banner is printed to stdout:
+
+```
+  ███╗   ██╗ ██████╗ ████████╗    ████████╗██╗  ██╗███████╗    ███╗   ██╗███████╗████████╗
+  ████╗  ██║██╔═══██╗╚══██╔══╝       ██║   ██║  ██║██╔════╝    ████╗  ██║██╔════╝╚══██╔══╝
+  ██╔██╗ ██║██║   ██║   ██║          ██║   ███████║█████╗      ██╔██╗ ██║█████╗     ██║
+  ██║╚██╗██║██║   ██║   ██║          ██║   ██╔══██║██╔══╝      ██║╚██╗██║██╔══╝     ██║
+  ██║ ╚████║╚██████╔╝   ██║          ██║   ██║  ██║███████╗    ██║ ╚████║███████╗   ██║
+  ╚═╝  ╚═══╝ ╚═════╝    ╚═╝          ╚═╝   ╚═╝  ╚═╝╚══════╝    ╚═╝  ╚═══╝╚══════╝   ╚═╝
+                            Fake Internet Simulator  ·  Malware Analysis
+```
+
 In headless mode:
 - All output goes to stdout and `logs/notthenet.log`
 - `SIGINT` (Ctrl+C) and `SIGTERM` trigger a clean shutdown with iptables restore
