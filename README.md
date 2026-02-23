@@ -54,9 +54,37 @@ Man page available at [`man/notthenet.1`](man/notthenet.1) — install with `sud
 ## Installation
 
 ```bash
-git clone https://github.com/your-org/notthenet
-cd notthenet
+git clone https://github.com/retr0verride/NotTheNet
+cd NotTheNet
 sudo bash install.sh
+```
+
+---
+
+## Updating
+
+### GUI (easiest)
+
+Click **↑ Update** in the toolbar — it runs `git pull` and `pip install -r requirements.txt`, shows the output, and offers a **↺ Restart Now** button if new code was pulled.
+
+### Command line
+
+```bash
+cd NotTheNet
+git pull origin master
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+If the man page changed:
+```bash
+sudo gzip -c man/notthenet.1 > /usr/local/share/man/man1/notthenet.1.gz
+sudo mandb -q
+```
+
+To check if `config.json` format changed before overwriting:
+```bash
+diff config.json <(git show origin/master:config.json)
 ```
 
 ---
