@@ -295,30 +295,17 @@ def _section_frame(parent, title: str):
     return frame
 
 
-def _info_icon(parent, tip: str) -> tk.Label:
-    """Small ⓘ label that carries a tooltip. Returns the widget."""
-    lbl = tk.Label(
-        parent, text=" ⓘ",
-        bg=C_SURFACE, fg=C_DIM,
-        font=_f(9), cursor="hand2",
-    )
-    tooltip(lbl, tip)
-    lbl.bind("<Enter>", lambda _e: lbl.configure(fg=C_ACCENT))
-    lbl.bind("<Leave>", lambda _e: lbl.configure(fg=C_DIM))
-    return lbl
-
-
 def _row(parent, label: str, widget_factory, row: int,
          col_offset: int = 0, tip: str = ""):
-    """Lay out a label + widget pair in a grid, with an optional ⓘ info icon."""
+    """Lay out a label + widget pair in a grid, with an optional hover tooltip."""
     lbl = tk.Label(parent, text=label, bg=C_SURFACE, fg=C_SUBTLE,
                    font=_f(9), anchor="e")
     lbl.grid(row=row, column=col_offset, sticky="e", padx=(0, 6), pady=4)
     w = widget_factory()
     w.grid(row=row, column=col_offset + 1, sticky="w", pady=4)
     if tip:
-        icon = _info_icon(parent, tip)
-        icon.grid(row=row, column=col_offset + 2, sticky="w", padx=(2, 0))
+        tooltip(lbl, tip)
+        tooltip(w, tip)
     return w
 
 
