@@ -47,6 +47,8 @@ sudo bash notthenet-install.sh
 sudo notthenet
 ```
 
+> **Note:** Both options require cloning the repo first — there is no standalone download. The `.deb` is built locally from the source.
+
 Then click **▶ Start**.
 
 That's it. Every DNS query from the analysis machine now resolves to `127.0.0.1`, every HTTP/HTTPS request gets a `200 OK`, and all other TCP traffic hits the catch-all service.

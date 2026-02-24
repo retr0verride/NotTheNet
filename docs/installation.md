@@ -43,21 +43,6 @@
 
 The easiest way to install on Kali Linux or any Debian-based system.
 
-### Option A — download from the GitHub release
-
-```bash
-wget https://github.com/retr0verride/NotTheNet/releases/latest/download/notthenet_2026.02.24-1_all.deb
-sudo dpkg -i notthenet_2026.02.24-1_all.deb
-```
-
-If `dpkg` reports missing dependencies, run:
-
-```bash
-sudo apt --fix-broken install
-```
-
-### Option B — build the .deb yourself
-
 ```bash
 git clone https://github.com/retr0verride/NotTheNet.git
 cd NotTheNet
@@ -66,6 +51,12 @@ sudo dpkg -i notthenet_2026.02.24-1_all.deb
 ```
 
 `build-deb.sh` requires only `dpkg` (always present on Debian/Kali) and `rsync`.
+
+If `dpkg` reports missing dependencies, run:
+
+```bash
+sudo apt --fix-broken install
+```
 
 ### What gets installed
 
