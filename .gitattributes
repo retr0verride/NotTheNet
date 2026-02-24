@@ -1,0 +1,18 @@
+# Shell scripts must always use LF (Unix) line endings
+*.sh        text eol=lf
+# Launcher script (no extension)
+assets/notthenet-gui-launcher text eol=lf
+
+# Python and text files — normalise to LF
+*.py        text eol=lf
+*.md        text eol=lf
+*.json      text eol=lf
+*.toml      text eol=lf
+*.txt       text eol=lf
+
+# Binary files — no line-ending conversion
+*.png       binary
+*.ico       binary
+*.crt       binary
+*.key       binary
+*.pem       binary
