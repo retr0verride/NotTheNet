@@ -222,9 +222,13 @@ sudo rm -f /usr/share/applications/notthenet.desktop
 sudo rm -f /usr/share/icons/hicolor/scalable/apps/notthenet.svg
 sudo rm -f /usr/share/icons/hicolor/128x128/apps/notthenet.png
 
-# Refresh the desktop and icon caches
-sudo update-desktop-database /usr/share/applications/ 2>/dev/null || true
-sudo gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true
+# Remove the man page
+sudo rm -f /usr/local/share/man/man1/notthenet.1.gz
+
+# Refresh the desktop, icon, and man caches
+sudo update-desktop-database -q /usr/share/applications 2>/dev/null || true
+sudo gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
+sudo mandb -q 2>/dev/null || true
 
 # Remove the project directory
 # WARNING: this deletes all captured emails, FTP uploads, and logs
