@@ -83,6 +83,7 @@ Boot the ISO and run a standard Kali install. When complete, remove the ISO from
 Log in to Kali and identify both NICs:
 
 ```bash
+# List all network interfaces and their states
 ip link show
 # Example output:
 # 2: eth0: ... (this is vmbr0 — internet)
@@ -92,18 +93,24 @@ ip link show
 Assign a static IP to the lab interface persistently:
 
 ```bash
-# Using nmcli (persistent across reboots)
+# nmcli creates a persistent connection profile that survives reboots
+# type ethernet  — wired NIC
+# ifname eth1     — the interface name from ip link show above
+# con-name lab    — a human-readable label for this connection
+# ip4 10.0.0.1/24 — static IP; no gateway (Kali IS the gateway)
 sudo nmcli con add \
   type ethernet \
   ifname eth1 \
   con-name lab \
   ip4 10.0.0.1/24
 
+# Bring the new connection up immediately
 sudo nmcli con up lab
 ```
 
 Verify:
 ```bash
+# Show the IP address assigned to the lab interface
 ip addr show eth1
 # Should show: inet 10.0.0.1/24
 ```
@@ -113,20 +120,27 @@ ip addr show eth1
 NotTheNet's `gateway` iptables mode requires the kernel to forward packets between interfaces:
 
 ```bash
-# Apply immediately
+# Apply immediately (takes effect now, lost on reboot without the next step)
 sudo sysctl -w net.ipv4.ip_forward=1
 
-# Persist across reboots
+# Write to a drop-in config file so the setting persists after reboot
+# tee writes to the file AND prints to stdout so you can see what was written
 echo "net.ipv4.ip_forward=1" | sudo tee /etc/sysctl.d/99-notthenet.conf
+
+# Reload all sysctl configs from the drop-in directory to confirm it works
 sudo sysctl -p /etc/sysctl.d/99-notthenet.conf
 ```
 
 ### 2.5 Install NotTheNet
 
 ```bash
+# Clone the repository into ~/NotTheNet
 cd ~
 git clone https://github.com/retr0verride/NotTheNet
 cd NotTheNet
+
+# Run the install script as root — creates venv, installs deps,
+# generates TLS certs, installs desktop launcher and polkit policy
 sudo bash notthenet-install.sh
 ```
 
@@ -136,8 +150,11 @@ The installer creates a virtualenv, installs Python dependencies, generates TLS 
 
 Launch the GUI:
 ```bash
+# Run directly in the terminal (password prompt appears inline)
 sudo notthenet
-# Or from the app menu: NotTheNet (uses pkexec for privilege prompt)
+
+# Or launch from the app menu — uses pkexec so a graphical
+# password dialog appears instead of a terminal prompt
 ```
 
 Click **⚙ General** in the sidebar and set:
@@ -163,6 +180,11 @@ Click **💾 Save**, then **▶ Start**.
 The status indicator turns green and the log shows each service binding. Confirm iptables rules were applied:
 
 ```bash
+# -t nat        — inspect the NAT table
+# -L PREROUTING — list the PREROUTING chain (traffic redirection rules)
+# -n            — show IPs/ports as numbers, not hostnames (faster)
+# -v            — verbose: show packet/byte counters and interface names
+# grep NOTTHENET — filter to only NotTheNet's rules (all tagged with this comment)
 sudo iptables -t nat -L PREROUTING -n -v | grep NOTTHENET
 ```
 
@@ -296,6 +318,7 @@ Every query should return `10.0.0.1`. Check the NotTheNet DNS log entries appear
 
 From FlareVM (cmd or PowerShell — `curl.exe` is built into Windows 10+):
 ```cmd
+REM -i = include response headers in output (so you can see the status line)
 curl.exe -i http://google.com
 ```
 Expected: response starts with `HTTP/1.1 200 OK`. The `Server:` header will be whatever you configured (default: `Apache/2.4.51 (Debian)`).
@@ -303,7 +326,7 @@ Expected: response starts with `HTTP/1.1 200 OK`. The `Server:` header will be w
 ### 4.4 HTTPS
 
 ```cmd
-# -i shows response headers; -k skips certificate verification (self-signed cert)
+REM -i = include response headers   -k = skip TLS cert verification (self-signed cert is fine)
 curl.exe -ik https://google.com
 ```
 Expected: response starts with `HTTP/1.1 200 OK`. The TLS handshake will succeed with NotTheNet's auto-generated certificate.
@@ -311,6 +334,8 @@ Expected: response starts with `HTTP/1.1 200 OK`. The TLS handshake will succeed
 ### 4.5 SMTP
 
 ```cmd
+REM -s = silent (no progress bar)   -m 5 = give up after 5 seconds
+REM telnet:// opens a raw TCP connection so you see the server banner directly
 curl.exe -s -m 5 telnet://10.0.0.1:25
 ```
 Expected: the SMTP banner, e.g. `220 mail.example.com ESMTP Postfix` (matches whatever you set in the Banner field).
@@ -318,6 +343,7 @@ Expected: the SMTP banner, e.g. `220 mail.example.com ESMTP Postfix` (matches wh
 ### 4.6 FTP
 
 ```cmd
+REM Same flags — raw TCP to port 21 to read the FTP banner
 curl.exe -s -m 5 telnet://10.0.0.1:21
 ```
 Expected: the FTP banner, e.g. `220 FTP Server Ready` (matches whatever you set in the Banner field).
@@ -325,6 +351,7 @@ Expected: the FTP banner, e.g. `220 FTP Server Ready` (matches whatever you set 
 ### 4.7 Non-standard port (Catch-All)
 
 ```cmd
+REM Any port not handled by a named service is caught here
 curl.exe -s -m 5 telnet://10.0.0.1:4444
 curl.exe -s -m 5 telnet://10.0.0.1:8443
 ```
@@ -333,7 +360,8 @@ Expected: `200 OK` — caught by the TCP Catch-All service. These appear in the 
 ### 4.8 Confirm isolation (no real internet)
 
 ```cmd
-# This should FAIL — no route to the real internet
+REM This should FAIL — FlareVM has no route to 8.8.8.8 (Google DNS)
+REM If you see output here, vmbr0 is still attached to this VM
 curl.exe -s -m 5 telnet://8.8.8.8:53
 ```
 Expected: no output / command returns after 5 seconds. If a banner appears, FlareVM still has a route to the real internet — re-check that `vmbr0` is not attached.
@@ -349,20 +377,27 @@ Kali is the gateway for all FlareVM traffic — every packet passes through `eth
 Wireshark and tshark are included in Kali by default. If missing:
 
 ```bash
+# -y = answer yes to all prompts automatically
 sudo apt-get install -y wireshark tshark
 ```
 
 To allow non-root GUI captures:
 
 ```bash
-sudo dpkg-reconfigure wireshark-common   # select Yes
+# Reconfigure the wireshark package and choose Yes to allow non-root captures
+sudo dpkg-reconfigure wireshark-common
+
+# Add your user to the wireshark group
 sudo usermod -aG wireshark $USER
+
+# Apply the group change in the current shell without logging out
 newgrp wireshark
 ```
 
 ### 5.2 Live GUI capture
 
 ```bash
+# & runs wireshark in the background so the terminal stays usable
 sudo wireshark &
 ```
 
@@ -383,7 +418,11 @@ Select interface **eth1** (`vmbr1`, the lab-side NIC) and click the blue shark f
 `tshark` is better for long sessions — it writes directly to `.pcapng` without opening a GUI.
 
 ```bash
-# Capture all FlareVM traffic; rotate at 100 MB, keep last 5 files
+# -i eth1                — capture on the lab-side NIC (vmbr1)
+# -f "host 10.0.0.50"    — BPF filter: only packets to/from FlareVM
+# -b filesize:102400     — rotate to a new file every 100 MB (102400 KB)
+# -b files:5             — keep only the 5 most recent files (auto-delete older)
+# -w ...pcapng           — output filename; $(date ...) adds a timestamp
 sudo tshark -i eth1 \
   -f "host 10.0.0.50" \
   -b filesize:102400 -b files:5 \
@@ -393,6 +432,7 @@ sudo tshark -i eth1 \
 Stop with **Ctrl+C**. To target specific protocols only (smaller files):
 
 ```bash
+# BPF filter restricts capture to DNS, HTTP, HTTPS, SMTP, and FTP only
 sudo tshark -i eth1 \
   -f "host 10.0.0.50 and (port 53 or port 80 or port 443 or port 25 or port 21)" \
   -w ~/captures/flarevm-targeted.pcapng
@@ -403,17 +443,24 @@ sudo tshark -i eth1 \
 Extract useful fields from a saved capture without opening the GUI:
 
 ```bash
+# -r   = read from a saved file (not live capture)
+# -Y   = display filter (Wireshark syntax, applied after reading)
+# -T fields = output as tab-separated field values instead of full packet decode
+# -e   = field name to extract (can be repeated for multiple columns)
+
 # HTTP requests — method, host, URI
 tshark -r ~/captures/flarevm.pcapng \
   -Y "http.request" \
   -T fields -e http.request.method -e http.host -e http.request.uri
 
-# DNS queries only
+# DNS queries only (flags.response == 0 means it is a query, not a reply)
 tshark -r ~/captures/flarevm.pcapng \
   -Y "dns.flags.response == 0" \
   -T fields -e frame.time -e dns.qry.name
 
-# Follow a specific TCP stream (replace 0 with the stream index)
+# Follow a specific TCP stream and print as ASCII
+# -q suppresses the per-packet summary; -z follow,tcp,ascii,<stream index>
+# Replace 0 with the stream number shown in Wireshark's "tcp.stream" field
 tshark -r ~/captures/flarevm.pcapng -q -z follow,tcp,ascii,0
 ```
 
@@ -423,6 +470,8 @@ Serve the capture from Kali so it can be downloaded on any analysis workstation:
 
 ```bash
 cd ~/captures
+# -m http.server starts Python's built-in static file server on port 8080
+# Any file in the current directory is immediately downloadable via browser
 python3 -m http.server 8080
 ```
 
@@ -436,12 +485,14 @@ Browse to `http://10.0.0.1:8080/` from a Windows host, download the `.pcapng`, a
 
 On **Kali**, serve the sample over HTTP:
 ```bash
+# Serve the current directory over HTTP on port 8080
 cd /path/to/samples
 python3 -m http.server 8080
 ```
 
 On **FlareVM**, download it:
 ```cmd
+REM -o = save to this local path instead of printing to the screen
 curl.exe -o C:\Samples\sample.exe http://10.0.0.1:8080/sample.exe
 ```
 
@@ -481,13 +532,13 @@ Execute the sample on FlareVM. Watch:
 **On Kali:**
 
 ```bash
-# Full structured log
+# Print the full structured log to the terminal
 cat logs/notthenet.log
 
-# Emails received (SMTP)
+# List captured emails — each is saved as a .eml file with a UUID name
 ls logs/emails/
 
-# FTP uploads received
+# List files uploaded by the sample via FTP
 ls logs/ftp_uploads/
 ```
 
@@ -531,7 +582,7 @@ One record per line, `hostname = ip` format. These take precedence over the defa
 
 - Confirm FlareVM DNS is set to `10.0.0.1` (not auto/DHCP)
 - Confirm the DNS service is running in NotTheNet (green dot next to DNS in sidebar)
-- Test from Kali itself: `dig @127.0.0.1 test.com +short` — should return `127.0.0.1`
+- Test from Kali itself: `dig @127.0.0.1 test.com +short` — `@127.0.0.1` queries NotTheNet's DNS server directly; `+short` prints only the answer IP. Should return `127.0.0.1`
 
 ### HTTPS certificate errors breaking the sample
 
@@ -540,11 +591,14 @@ Some malware validates TLS certificates and will abandon connections if the cert
 ### NotTheNet won't start (port already in use)
 
 ```bash
-# Find what is using port 53
+# ss = socket statistics (modern replacement for netstat)
+# -t = TCP sockets   -u = UDP sockets   -l = listening only
+# -p = show process name/PID   -n = show port numbers not service names
 sudo ss -tulpn | grep :53
-# systemd-resolved commonly holds port 53 on Kali
+
+# systemd-resolved occupies port 53 by default on Kali — disable it permanently
+# --now = also stop the service immediately, not just at next boot
 sudo systemctl disable --now systemd-resolved
-sudo systemctl stop systemd-resolved
 ```
 
 Then retry **▶ Start** in NotTheNet.
