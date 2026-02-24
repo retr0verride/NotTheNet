@@ -3,7 +3,8 @@
 ## Table of Contents
 
 - [System Requirements](#system-requirements)
-- [Quick Install (Recommended)](#quick-install-recommended)
+- [.deb Package Install](#deb-package-install)
+- [Quick Install (Script)](#quick-install-script)
 - [Manual Install](#manual-install)
 - [Verifying the Install](#verifying-the-install)
 - [Upgrading](#upgrading)
@@ -38,7 +39,56 @@
 
 ---
 
-## Quick Install (Recommended)
+## .deb Package Install
+
+The easiest way to install on Kali Linux or any Debian-based system.
+
+### Option A — download from the GitHub release
+
+```bash
+wget https://github.com/retr0verride/NotTheNet/releases/latest/download/notthenet_2026.02.24-1_all.deb
+sudo dpkg -i notthenet_2026.02.24-1_all.deb
+```
+
+If `dpkg` reports missing dependencies, run:
+
+```bash
+sudo apt --fix-broken install
+```
+
+### Option B — build the .deb yourself
+
+```bash
+git clone https://github.com/retr0verride/NotTheNet.git
+cd NotTheNet
+bash build-deb.sh
+sudo dpkg -i notthenet_2026.02.24-1_all.deb
+```
+
+`build-deb.sh` requires only `dpkg` (always present on Debian/Kali) and `rsync`.
+
+### What gets installed
+
+| Path | Contents |
+|------|----------|
+| `/opt/notthenet/` | All project files + `venv/` (created by postinst) |
+| `/usr/bin/notthenet` | CLI launcher |
+| `/usr/local/bin/notthenet-gui` | Desktop icon launcher (via `pkexec`) |
+| `/usr/share/applications/notthenet.desktop` | App menu entry |
+| `/usr/share/icons/hicolor/` | Scalable SVG + 128 px PNG icon |
+| `/usr/share/polkit-1/actions/` | Named polkit action for the auth dialog |
+| `/usr/share/man/man1/notthenet.1.gz` | Man page |
+
+### Removing the package
+
+```bash
+sudo apt remove notthenet        # remove, keep /opt/notthenet config/certs
+sudo apt purge notthenet         # remove everything including /opt/notthenet
+```
+
+---
+
+## Quick Install (Script)
 
 ```bash
 # Clone the repository (run from your home directory)
