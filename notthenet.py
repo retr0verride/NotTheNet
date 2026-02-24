@@ -1,19 +1,19 @@
-"""
+﻿"""
 NotTheNet - Main GUI Application
 Tkinter-based configuration and control panel.
 
 Layout:
-  ┌─────────────────────────────────────────────────────┐
-  │  NotTheNet  [Start] [Stop] [●/○ status]            │
-  ├───────────────┬─────────────────────────────────────┤
-  │  Services     │  Config Panel (tabbed per service)  │
-  │  ○ DNS        │                                     │
-  │  ○ HTTP       │                                     │
-  │  ○ HTTPS      │                                     │
-  │  ...          │                                     │
-  ├───────────────┴─────────────────────────────────────┤
-  │  Live Log                                           │
-  └─────────────────────────────────────────────────────┘
+  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+  â”‚  NotTheNet  [Start] [Stop] [â—/â—‹ status]            â”‚
+  â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
+  â”‚  Services     â”‚  Config Panel (tabbed per service)  â”‚
+  â”‚  â—‹ DNS        â”‚                                     â”‚
+  â”‚  â—‹ HTTP       â”‚                                     â”‚
+  â”‚  â—‹ HTTPS      â”‚                                     â”‚
+  â”‚  ...          â”‚                                     â”‚
+  â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
+  â”‚  Live Log                                           â”‚
+  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 """
 
 import logging
@@ -33,16 +33,16 @@ from config import Config
 from service_manager import ServiceManager
 from utils.logging_utils import setup_logging
 
-# ─── Constants ────────────────────────────────────────────────────────────────
+# â”€â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-APP_TITLE = "NotTheNet — Fake Internet Simulator"
+APP_TITLE = "NotTheNet â€” Fake Internet Simulator"
 APP_VERSION = "1.0.0"
 PAD = 8
 FIELD_WIDTH = 22
 LOG_MAX_LINES = 2000  # Cap displayed log lines to avoid memory creep
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # Project root
 
-# ─── Colour scheme ──────────────────────────────────────────────────────────
+# â”€â”€â”€ Colour scheme â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 C_BG       = "#13131f"   # Window background
 C_PANEL    = "#1a1a2c"   # Sidebar / panel background
 C_SURFACE  = "#222235"   # Config page surface
@@ -62,98 +62,45 @@ C_SELECTED = "#1a3a4f"   # Sidebar selected
 C_LOG_BG   = "#0c0c18"   # Log panel background
 
 
-# ─── Zoom / font scale ───────────────────────────────────────────────────────
+# â”€â”€â”€ Zoom / font scale â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 _ZOOM_STEP = 0.15
 _ZOOM_MIN  = 0.70
 _ZOOM_MAX  = 2.00
 
-# Globe icon (64×64 RGBA PNG, base64-encoded) — shown in taskbar / window title
+# Globe + prohibition icon matching the NotTheNet logo (64x64 RGB PNG, base64-encoded)
 _APP_ICON_B64 = (
-    "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAYIklEQVR42u1bZ1iVZ7adf4kmQWNNYu+AgIBSpffee+8gSAelgygI"
-    "ShGkKCIqgr13Yzf2kjbRmN4nMWWSzDiZ3Osk6673/Q5ojEZMm+Q+nufZj3LOB+estfdeu7zf+ctfHj4ePh4+Hj5+p8czpmlqNCNa"
-    "AC2VVkArVf2bqnpevK72/wVwfxWoNtrVp8LXw6joRTwdsUHaU2Hr8KRVNoYFr8HQwA4M9V8BvcxjGOzVCHG96vfE7/f/swG3o3XR"
-    "bo6O34UxiXsxLvkALKvelf+OS96PsUl7MSZhN4Y6FWNE9FY8E7mJhHRLMqbnnsYQv+UY7N2EQR71goybqr9n90cH7kM7JQBPSD2M"
-    "KZknoEkwU+echUvzV9Cae452Fpo5p6GR/RwmZxzDSM9KjJu1X5IxMnabJOLp8HWYwWuHBrSTiGUyIga51+JJ50pBxinxPn804Pq0"
-    "fcK76lknoZ1/AfqlL8Kg/AqMKl5FYDdgsvA1GFdcg+H8K5gx72Xol7yAaQUXMSloCX/nBCamHsJ4RsbohF0YGcOIYIoY5F3AMKaG"
-    "Eg1LGQ11eNK1CgMd5wki9on3/SOALxibtE96VK/4BQnYYvE7sFnyIRyariN+D+DU+hkcmz/lz5/AtuFDWNW+C7NFb5KQV6Ed00Yi"
-    "LjBSTjFijmFCykGMTdzdJxIG2OQLIgr+W8AH03ZOSj8K3aLL0sMCtPOyz+HZcQO+a79FzimAGYDA9d8hYN1N+HZ+C69VN+DW9iUJ"
-    "+QSmGZtgkNIF3fgO6Bc/z/Q4A/XM45g4+6BMiVFMCeOiF1QkrPxhOrgsvJ2EneLz/J7gdYRKaxKhQfkrsK5/H65tf4df1/8gdAsQ"
-    "vQuY/wpQeRVIOgAk7Afi9vL5nUAYXw8kGd6rb8C2YC/Ms7fCKHUdjBdcIQmXoTVHkHBMRQLTIXozjAufhwE1YZjQBN8WDPJswCC3"
-    "xVITBjqUYoD13J6qofN7gBd1+rp23jmYVL5GT16HT+e/Eb5NAZp2DMim55v/BrR8DOSdB6iB8rl0vpZ0EIghQaGbALcFR2FftA8W"
-    "OduYNm/BmKzpF10iCacxJf0IJiTvw+i47TAteRmG+RcxPGiVTIUhPk2qVKjGk07zMdCuGAOscgQJ18Xn+609f10n/zxmVr0Bl2Vf"
-    "MLz/g1jmefpxBWzpS0DnDaD730DV6wAzAwsYCWV8vvASZFrMPgLEMyL8a8/BfcEx2Bfugx21wbz6dRjOewnT+Pc1s09g0myhB7sw"
-    "KmaLTAVDvsHQgBW3osC9hqkgoqAMA2zzoWaR2UOCzm+V81e1WcYEeNflXyBkk+LR3DME+DJQ/QZQ/x7ASAc5Qct1oImR0PABUPM2"
-    "U+JVgOIvr08lCWFNL8J38Wm4lh+Gc+t1+D6bBNcdUbDbEAyL1T4wXu4G/UYHTKuxgXN3AhxWx2JSsREm5htgfI4+xmToYvRsHYxK"
-    "1KJoauKZcHWomaX2pMPgX5uAnULpTSqv0fOfS/CznlW8TjGXwFs/BQ4TOCMdJ2id/wJW/xNo/zvJ+ES5ZuE1kvA8I4HiGLviVQQ3"
-    "XITXwpPwaP8SgUdnw3NvHBy3hMFqrR9M2z1g0OQE3TpbuKxLhMOaWNi1R2FiAQnInY6xmboYkzoNo2dpY2TcVIyI1MDTwZPxhEmS"
-    "FMZftdRNSjsMA9Zvx6aPpYgJzwvw5ANLPwJWfsWw/xY4R+AXaZQEbKVt+k55ftXXJIgRUfcOCbsCsAVA0uo3EdHyEvwWn4EPmQo9"
-    "mQGfA4lw2RYBm+4AmHV4wajVBXr1dtBeZAWnzjjYr4xWCJgzHeOyGQVpJCBZG6MSSEC0Bp4JnYKn/CficYPoX6dEimbDvOINeCz7"
-    "ByI2AxlHAaYpGhnWa28o4c5oBqMadCz+SruiMhYCvEi7QHuOdohG/cMGErKSUTG7613EtF1BUP0FMOVR+H4bsq41IPn5KsScLkPo"
-    "kXwE7MuG17ZUuG2cBee18XBYFQPbtkhYt4TBsiEE5rWBMKsOwMwKRkwZ06bQC4a57jBIc4GGZzl+cbMkOi6H+k8QuPZ7zNrHD0k0"
-    "NW8BHV8qHj6kAs/UBrUOlAHwZbxJe131nCDhnCo1+Cew+SZTgxGRvv4DxLVfRUjDJeSSoaIPViDn9aVIeXERYs/MQ9jRAgTuz4H3"
-    "9rS+ETCPBBQxauYydTJdoemzUHaMv6i3t6h4E5HPlSDz2hLM/2ItWghhA+EcxGs4i08I8BswtcHoBjkBUx5MfTA4QIz4nPY3Scr3"
-    "jIh/gW0BtjAtOv8BZG78CAkd1xDaeAlzWB2KP2xHzmsKAXFnyxF+rBCB+3LgsyMd7puS4dKV8EMCGgUBQewqSUClIMAXJsXeMMrz"
-    "gGGWG2akOEPDvQQ/e3YQg4fRclc4bQ1DyMl0pF4tR+mnzWj4bj3WYD92kIIjDPpzeJte/liCZ/UjNV/hGum4QvgvEv55vIPjeBXd"
-    "3wBtn1EM32VpfEUQ8CESVpIARkAQhSLqbC4CD6fAY1csHDaEwHK1L0yXu2NGoyOmLbaBVqUFHDoUAibkzVA0IF1VCZK0bglhiKID"
-    "wzzH4zG9EDlA/ayRVjQh5qu94bEnFlHncpH9VhUWfNXGKNiCbgb/bmb3ccbABbxLyIrn/y1D/2sS8HcS8BlT4yPS9DbD/yq6eMEy"
-    "lRDOp1hkbHgf8e2vkoCLCOz6BpGncxDwbDLcd0b3EmC8jJ5sUAiYqiLATkRAc5iKAIpgyh0ECCEMmIRhXuPxuH4Y+mt54YFHaTF/"
-    "T2cNtlkXIJU57lI+5r5Xg6obHViO7UyDo9iLS9KzgoAvVWFPJ0vwV+n9l5kil/ABTlMRDvOnNV8r3WENBWIehSGt+13Etr2C4Prz"
-    "CKCiRpzKht/BWXDbHgX79ewFOrxh3KoiYBEJqLCQVeAHBKSpCEi8OwFDXcagv7avIKDrQTc5Nw1bnGG/MQQBR1KQ+EIR8t+vQ/WN"
-    "VWhj8AsC9hC68Ow5hvgXqpz/p6wAn+Elgr+MD+VrJ0jSAdaIdl7U+D47RJbOYnaFKZ1vIbr1JQTUnIYfVTHsRAZ897MZ2hoJ265A"
-    "WKxkPje7QL/eHjrVVpi6wFwSYLssAtZNJCBL74cExGr+gIDhkoCxeEzHr2ep0r+vBASM4hBi0uYOx81hCDwyG0kvFvcSsIxVfh19"
-    "uovwhGdPUfvZ5xA2JBHPM+yF54U2nGQ8HCIdu6kErfR+LUvEfHaN+ZwPEpn/4Usvw7fqBLzJTvDRNHjviYfz5nDYrKWwrfCEURP7"
-    "gFo76FRZQbPcDPbt0bBpJQFLQzEuU09phGQf0EOA+i0NUBEw2HZUTxoE9JWANtF4mK7wgPPWCAQdTZUEzH2vFgu/bkczNqOTPt1G"
-    "6Pvp5zfxH9CxhA0J+iw1/zRJEZ4X4EWkbOZPDaITZF0sETMB637MspcZ/ufgVXEEHsuvy/z32BEDh/UhsFIJoAHDX6/GjgJoSQJm"
-    "YkqxMWxawmFFAizqgzGGAig6QdEIyXY4QhAw+V4EtPWVgKu6tTaY2e5JAsJlBCQ+X4TctxdhwRfL0fCf9VhJn65nDdhJuFcof6/j"
-    "fwn7OymKx/iMiAwR9iJKBPguPItFHIzmsWHIYxvMBRC9fwl+1SfgVnYALk0fwndfogx/u64ghr8PTJj/0+sdoMv812L+q5eZYnKh"
-    "EWyaSUAjCagLUlUAtsLxqk6Q84Boh5/yU6qA0IDbCLjap9X18KCVkAQwBJ2YAgGHkhF7IQ9Zry9E6SfNqPlmDVrZBq2WPcFRhrso"
-    "d1+xIP6Tz1yiOF6UwEWEbCQda9k1tJOqcgpfwVmlm0zktBRUexqe8w/DsWAX7OvfhufOWDhtDIPNGn/MXM5avtQZ+jL8rTF1vjnU"
-    "S0wxqcBQet+S3rdgDzA6+TYBjCIBYVPwdNBkDPdVCBjiLAgYKQlQkaB233n/qeAOOYHNZAqIcuSzPxFRZ3KR+ko58t+rYxS0of7b"
-    "LmrBVqwi3OeY72fZB5xnOyS8vYlxIIgRXl/FBFhOKhpvbpDgMwledJTRW7+HT+UxuBTvhXXuFlgvugbXLZGw7w6S4mfSQvVf4tjr"
-    "fY15DP8iY0zMM1B5PxjmiwNV4X9LAOUsEEgB9JmAYR7jMMRpDAbZ/IAAo/sK4FNBHbLuihps2x0Iz92xUqFFGmS/XoXijxpR+WU7"
-    "6khCCyEfpNAdZs4fZRKsYQysJikdTBFRLpu+2yTJqv66AxlHboEPYVfkVroftnO3wTxjPcwr/gpH5r71an+YtXne5n2qP8VPvcRE"
-    "en/CnBmwYgssvC9aYFn/Zfjflv+iAnhPwFA3EuA4GoOsf0BAwP0ISBUpIMqOUYsLrDv94bYtimmQgugzc5DychnmvLUYJX9bigpG"
-    "wuIbq+nf5xngQun/iubvN0vQjTfXo+6btVj0j1Wo+LwNpR8tBXediGYfHNL9L/iu/AJ2edthkbkBxslrYFJ2GTadATBf4QXjZlfM"
-    "kLlvC+0KS2iUzcRken9SniH3ANOl9y3ofbMq/1vl77bwl/kvBNB1LIY4kACrERhkOaKHgNT7jr4DzVMxLloHGilG0M+1xMwy9gOL"
-    "fOFB8QnqSED0hnQk7ZiD9P0lyDk8H3knFqLw1CIUn6mRVnR6MQpOVmPusUpkH5qHtH1FmLVjLoJY730qjsKVnu8Bb5LSienxbdCO"
-    "bIJ6cB0m+C7EGE5xI12K8bRjHobZZmOwVTqeNJuNATOToGYcjycMY/D4jCg8xi7vMb1gPDYtAP1Z6wXAfpru6KfujH6THfDoBGs8"
-    "MtYMj4w27rX7jsjirG4g32xMuBYmJ06HTqYZjArsYbXAHU61AfBqjUTwqkRErktF/JZsJO/KkwAzDpQg69kyaZkHS0lOMVL3FErg"
-    "8ZuzEbUuDZ7lz8K5eA/DfqsK/Jpe8Boh9ZjoV4WxXvMxypUDjFM+htvlYoh1JgZZpJKAZKiZJBB8LGd9gp8eTvCheEw3iOD9Cd4H"
-    "/aZ6op+GK/pNccKjk2zxyARLEjDzTgJK7xsBA0yTMDpUExNjdTE11QR6jALTEidYV7Is1gXCqyUCASvjEdaZLIHFbcpCwpYcJG7L"
-    "ReJWxQTomA0ZiOhOReiaZATyeoeCHbDO2QzzdG6Bk1epwC+V4Cf5V2Oc9wKMdi/DCOcCPGU/B0NtsjDYMl2CH2CaCDWjOBIQTe9H"
-    "0vuh9/C+i+L9iTZ4ZLwFHhlj8sARkDrYq4ENh4mcvvTr7GU9tlrtB8cNoXDfHg2/fUkIPpyKiJNZiDkzF/M/7kTFp12o/KwbSZeL"
-    "kXixCAkXChF3Lg/Rp3IRcTwLIYfTYF/7Bqyrr8J8wUswLr0I7QgBvk6CV5+9BxMTt2Nc7CaMjuzGiLA1zOd2CtpyDOUWeIjXEgzm"
-    "EnQQN8HTErdAJ34jdGK75TJ0gFWuXIiqzZwt12GPixQRETItsFf8bhPB+2pAwGCunCfmG8rOS5Qhg0YnWZetVvlJpXbbGgXv3fEI"
-    "OJCM4EOpyH+jFYVvL0fRO22IPJktAYcfy+RGJx1Bz86G//5Z8NmdAIuKlzmzX4Zh8Tno5z0H9aAaGfbjGPY94MdErcPI8E48E7xS"
-    "gh/m14yh3g0Y4lHLswCuwZ0rCH4Twa+DTvRaeSagZpkNNfM0PGGajCeM4hV94BjcExl3EHDfKmAk9u0TuHQUbaeowXqLbWVZmrlM"
-    "kOArOzVnNizu26LhtTMOGS/VIeuVJdIEWL+9SfDdkyhBe+2IhfuWKLhsioBRyXnMKDgNvTknoJ11iIJXibEUvNFuJQS/keC7MZKe"
-    "/xF4zzqCX4RBPA0S5wA6ceuhE9MF7ajV8jxAzTxD5f3EW97XFd73vhsB9+0D1ATLYtKaxCgQJUibfbg++3HDRpLQ6g6Ldm/Zrdl3"
-    "BTMiQpF0tgLJ5xci+cJCCdZtcyRcCdh5Yzic1ofBfm0QbNcEEPhx6GQfhlbGQYY8j8eZ76NcizDCqQCjI7puA78Mw3zvAO+qgBdn"
-    "ADox3QS/him0Ugl9rsKfMJ1F78cp+kDvP3YX7/epE+yZBcam6crV8+RC414S9BbbwYDdmXGTq4wGixXesOrwRdTRYkQfK0HM8VLY"
-    "dQb2ms0qf1h3+MnrzJd7YWr6AZnrk2ftZMhvY6krxDMsdULtR4SuInjmvL8A33RP8APti6Ed3Unx7IBWeBu9n66EvnGC3AQ/Pj3s"
-    "p7x/tc/ToBgxx2boYSI7L0GC5jwz2ZToVtuwQ7OHYYMTjJe6wrTFHcH75iBk/1yEHsiDeZuXNLNlntJMm91hQsKMG10U4AnbMD5u"
-    "E8bFbJBKL+r8UJa6pwPbCL71FniZ8z8GP8C2gOBXQTt8BbRCWxn6KarQZ3mcESErQ/97e7/P02CAeEMxa4/P0leRYASNUlM5lOhU"
-    "WilEMC1m1DvCcIkT/LdnSgvYkQWjBmdpBnzeoN4J02vsoc/oGU+RGxu9jirfhVEUOgF8CJucwRazMdyvBcN8lmIo1b5H8Hpy/sfg"
-    "2wl+Wa/q94a+KI2iLN4F/IPuA+RGSPTZY9MUEkQPPrnASE5kmkwJrfkWMiKmLbSGbpUNPDekwGvjbGkCrP4iO+hV20KXr4trdCqs"
-    "CHwt83w1RoR0yHAXwJ80T8ZAdnjC60O96lWlrorgKwm+XAFvp4AXit8DXiu4meBnKarPxkjs/mToa/vcC/zNB7rXSOzQRI89itOW"
-    "IGFcJknIncF+3ABTmBLqxSSidCamMjW0yi3gsiYBrp2J0rQXWErTKjeXNrXMjKSZEfhKPBO0Ak9T4Yf7t0jgA9ngDGB7O8SjhuCV"
-    "kB9EER7oWC6PvgfaFfWCH8ByJ8GHNGNqUIMKfLRK9UVH6PtT3u964K2weFMxZwsSRDqMoyZMyJ7OlDCQg8nkfCMVGSZwWBENx/ZY"
-    "aRolM2mm0tSLTKBeaIIpBcYEvkwJdd+lDPdGCVzNKFZ2dz1eH+S8gMDnMeRLFPC8AWKA9RwJXpQ74XkBfmpA7S3woiO8R97fRoDd"
-    "zzoXEDO2JIHpMGb2NIjqIHZxgogJOSoy5hpKQmzZIgsT/++1uYpNZPQI0CLHRagLj/e0tUK8JHDe8aF4XRXyNnlKl2eZJdVe5PzU"
-    "QIL3F+BFvY9Qgfe/H/hTP/tkSCtsuTxtMS33lcdP5lUcWRcFwrImCJYcS4VZLQnljB4Ka5XZNIZJE8/J15Zwx1fPPX9tMPRSdtN2"
-    "QXfWDglclC2RvzpxG5TuLmatUuOF2EUw3/n+WqEt9PxSgl8iwWv6VkPTu4Jnf/N48lMMdZd8Wt497RfdVSbO1sRRk0mxlzx8NJ2v"
-    "EGEmiKhWyLAgGcIsa4MkSMWCJEnytcWKiet1k7ZBN3ErbQuBi4EmSOav7OxEfWd3JxocLVnmevK9keDrCb7m54D/+WeDPafDgnlx"
-    "4ChOXk1KvOUhpCRiAYmo5AZnob9CyF1MPG+2MEC5htdOS9ik8vZ6qdrKNOevAt6h1Hfp9VZ6vUmV73XQ9FvMw84qgl8ADQ+Cdyv+"
-    "SeC3EfDLb6UTI6SotyIPRe8tFZk5KkRKipXIW1GuRJsqpjSazGeZ02UqK1UJW3GvssuGRdtXdm1S5ERbK3JdtrbJqhofr/T31AoN"
-    "Dk0aHmX3bHTukvu/3i104o6LJ4wT5YcTH1QhYo4iVIIM20ICK5Sh3GOSIGF8TYqaGF3F9YJA/q4A3k/M8Vxk3AKeogAXra1q+SGU"
-    "Xpz1i5NeddfCvoL/9e4Quf0eIdF1icFDEiGmMCq0JINqLQkRzYoQMJoCVAErXxdmmaOoOknsp+mhLDG4xen1eC/waKW11Ve2PkrI"
-    "5/cV/NXf5L7BnrvExIcTH1QSwdKkZpameNAiQwLTCmuTpmahAFUsQ7mGc7skj78ntzdTnOUKSwn124Hftu9jmvTkdB/AX/9N7xfs"
-    "uU9Qli9BhIgIpoZsS4UXOZwIcELAhEmCxMAiTLwuxlbp6US5upLrq0l2qlCPuGPVpXR2Dwj+t7tP8M47RYWKixoumxnhOXpQEkJv"
-    "CuUWJiNFGJ+TQ4vwshA1Xv/oRFu5uX10gpUywzPUbwG/Nc72hYDf7U7RO+8VFh9UfGjpNXpPCJZscEiKuEdHmNLtRaoan3BlZue1"
-    "cmk5zlyurmUre5dBpo/gf997he8skb0fhgBEWyoJETVeiBfLlvRsj01Tar9sX+lpsbX9KXB9AP/fuVv8bt8XuDeI/LtuaISJVfXP"
-    "Af+H+b7A3b4x8iBg7kXAva7/Q35j5Ke+M3Q/UHcj4M7r/jTfGbrft8buBu5OAnpe/1N/a+zh9wYfPh4+/jSP/wN15WVLXI5zhAAA"
-    "AABJRU5ErkJggg=="
+    "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"
 )
 
 # Populated by NotTheNetApp._init_fonts(); keyed by (base_size, bold: bool)
@@ -168,7 +115,7 @@ def _f(size: int, bold: bool = False):
     return ("monospace", size, "bold") if bold else ("monospace", size)
 
 
-# ─── Hover helper ────────────────────────────────────────────────────────────
+# â”€â”€â”€ Hover helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _hover_bind(widget, normal_bg: str, hover_bg: str):
     """Simulate button hover by swapping background colour on Enter/Leave."""
@@ -176,7 +123,7 @@ def _hover_bind(widget, normal_bg: str, hover_bg: str):
     widget.bind("<Leave>", lambda _e: widget.configure(bg=normal_bg))
 
 
-# ─── Tooltip ─────────────────────────────────────────────────────────────────
+# â”€â”€â”€ Tooltip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _Tooltip:
     """Dark-themed tooltip that appears after a short hover delay."""
@@ -245,7 +192,7 @@ def tooltip(widget: tk.Widget, text: str) -> None:
         _Tooltip(widget, text)
 
 
-# ─── Logging bridge: route Python log records → GUI queue ────────────────────
+# â”€â”€â”€ Logging bridge: route Python log records â†’ GUI queue â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _QueueHandler(logging.Handler):
     def __init__(self, log_queue: queue.Queue):
@@ -259,7 +206,7 @@ class _QueueHandler(logging.Handler):
             pass
 
 
-# ─── Helper widgets ──────────────────────────────────────────────────────────
+# â”€â”€â”€ Helper widgets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _label(parent, text, **kw):
     bg = kw.pop("bg", C_SURFACE)
@@ -317,9 +264,9 @@ def _section_frame(parent, title: str):
 
 
 def _info_icon(parent, tip: str) -> tk.Label:
-    """Small ⓘ label that carries a tooltip. Returns the widget."""
+    """Small â“˜ label that carries a tooltip. Returns the widget."""
     lbl = tk.Label(
-        parent, text=" ⓘ",
+        parent, text=" â“˜",
         bg=C_SURFACE, fg=C_DIM,
         font=_f(9), cursor="question_arrow",
     )
@@ -331,7 +278,7 @@ def _info_icon(parent, tip: str) -> tk.Label:
 
 def _row(parent, label: str, widget_factory, row: int,
          col_offset: int = 0, tip: str = ""):
-    """Lay out a label + widget pair in a grid, with an optional ⓘ info icon."""
+    """Lay out a label + widget pair in a grid, with an optional â“˜ info icon."""
     lbl = tk.Label(parent, text=label, bg=C_SURFACE, fg=C_SUBTLE,
                    font=_f(9), anchor="e")
     lbl.grid(row=row, column=col_offset, sticky="e", padx=(0, 6), pady=4)
@@ -343,12 +290,12 @@ def _row(parent, label: str, widget_factory, row: int,
     return w
 
 
-# ─── Per-service configuration pages ─────────────────────────────────────────
+# â”€â”€â”€ Per-service configuration pages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-# ─── Tiny canvas globe icon ─────────────────────────────────────────────────
+# â”€â”€â”€ Tiny canvas globe icon â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _GlobeCanvas(tk.Canvas):
-    """~46×46 px canvas that draws the NotTheNet globe+prohibition logo."""
+    """~46Ã—46 px canvas that draws the NotTheNet globe+prohibition logo."""
 
     SIZE = 46
 
@@ -388,7 +335,7 @@ class _GlobeCanvas(tk.Canvas):
         self.create_oval(cx - pr, cy - pr, cx + pr, cy + pr,
                          outline=red, width=3)
 
-        # Prohibition slash (top-right → bottom-left, 45°)
+        # Prohibition slash (top-right â†’ bottom-left, 45Â°)
         import math
         angle = math.radians(45)
         x1 = cx + pr * math.cos(angle)
@@ -399,7 +346,7 @@ class _GlobeCanvas(tk.Canvas):
                          capstyle="round")
 
 
-# ─── Per-service configuration pages ─────────────────────────────────────────
+# â”€â”€â”€ Per-service configuration pages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _GeneralPage(tk.Frame):
     def __init__(self, parent, cfg: Config):
@@ -566,7 +513,7 @@ class _DNSPage(_ServicePage):
         self.cfg.set("dns", "custom_records", records)
 
 
-# ─── Main Application Window ─────────────────────────────────────────────────
+# â”€â”€â”€ Main Application Window â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class NotTheNetApp(tk.Tk):
     def __init__(self, config_path: Optional[str] = None):
@@ -583,19 +530,19 @@ class NotTheNetApp(tk.Tk):
             self.iconphoto(True, _icon)
             self._icon = _icon  # keep a reference so GC doesn't drop it
         except Exception:
-            pass  # non-fatal — icon is cosmetic only
+            pass  # non-fatal â€” icon is cosmetic only
 
         self._cfg = Config(config_path or "config.json")
         self._log_queue: queue.Queue = queue.Queue()
         self._manager: Optional[ServiceManager] = None
-        self._svc_vars: dict = {}  # service name → BooleanVar (status indicator)
-        self._pages: dict = {}     # section name → page frame
+        self._svc_vars: dict = {}  # service name â†’ BooleanVar (status indicator)
+        self._pages: dict = {}     # section name â†’ page frame
 
         # Initialise zoom-aware fonts before any widget is built
         self._zoom_factor: float = float(self._cfg.get("ui", "zoom") or 1.0)
         self._init_fonts()
 
-        # Set up logging → queue bridge
+        # Set up logging â†’ queue bridge
         root_logger = logging.getLogger("notthenet")
         qh = _QueueHandler(self._log_queue)
         qh.setFormatter(
@@ -609,7 +556,7 @@ class NotTheNetApp(tk.Tk):
         self._poll_log_queue()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
-    # ── UI construction ───────────────────────────────────────────────────────
+    # â”€â”€ UI construction â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _init_fonts(self):
         """Create (or reconfigure) all named Font objects for the current zoom."""
@@ -682,7 +629,7 @@ class NotTheNetApp(tk.Tk):
             bg=C_BG, fg=C_ACCENT,
         ).pack(anchor="sw")
         tk.Label(
-            name_frame, text=f"v{APP_VERSION}  ·  Fake Internet Simulator",
+            name_frame, text=f"v{APP_VERSION}  Â·  Fake Internet Simulator",
             font=_f(8),
             bg=C_BG, fg=C_DIM,
         ).pack(anchor="nw")
@@ -695,7 +642,7 @@ class NotTheNetApp(tk.Tk):
                          font=_f(9, True), cursor="hand2")
 
         self._btn_start = tk.Button(
-            inner, text="▶  Start", bg=C_GREEN, fg="#0c0c18",
+            inner, text="â–¶  Start", bg=C_GREEN, fg="#0c0c18",
             command=self._on_start, **btn_style
         )
         self._btn_start.pack(side="left", padx=(0, 4))
@@ -706,7 +653,7 @@ class NotTheNetApp(tk.Tk):
                 "Requires root (or sudo).")
 
         self._btn_stop = tk.Button(
-            inner, text="■  Stop", bg=C_RED, fg="#0c0c18",
+            inner, text="â–   Stop", bg=C_RED, fg="#0c0c18",
             command=self._on_stop, state="disabled", **btn_style
         )
         self._btn_stop.pack(side="left", padx=(0, 10))
@@ -721,7 +668,7 @@ class NotTheNetApp(tk.Tk):
         sec_btn = dict(relief="flat", bd=0, padx=10, pady=5,
                        font=_f(9), cursor="hand2")
         self._btn_save = tk.Button(
-            inner, text="💾  Save", bg=C_HOVER, fg=C_TEXT,
+            inner, text="ðŸ’¾  Save", bg=C_HOVER, fg=C_TEXT,
             command=self._on_save, **sec_btn
         )
         self._btn_save.pack(side="left", padx=2)
@@ -729,7 +676,7 @@ class NotTheNetApp(tk.Tk):
         tooltip(self._btn_save, "Save current GUI settings to config.json.")
 
         self._btn_load = tk.Button(
-            inner, text="📂  Load…", bg=C_HOVER, fg=C_TEXT,
+            inner, text="ðŸ“‚  Loadâ€¦", bg=C_HOVER, fg=C_TEXT,
             command=self._on_load, **sec_btn
         )
         self._btn_load.pack(side="left", padx=2)
@@ -742,7 +689,7 @@ class NotTheNetApp(tk.Tk):
         tk.Frame(inner, bg=C_BORDER, width=1).pack(side="left", fill="y", padx=6)
 
         self._btn_update = tk.Button(
-            inner, text="↑  Update", bg=C_HOVER, fg=C_ACCENT2,
+            inner, text="â†‘  Update", bg=C_HOVER, fg=C_ACCENT2,
             command=self._on_update, **sec_btn
         )
         self._btn_update.pack(side="left", padx=2)
@@ -752,21 +699,21 @@ class NotTheNetApp(tk.Tk):
                 "reinstall Python dependencies (pip install -e .).\n"
                 "A restart prompt is shown if any files changed.")
 
-        # ── Zoom controls ──
+        # â”€â”€ Zoom controls â”€â”€
         tk.Frame(inner, bg=C_BORDER, width=1).pack(side="left", fill="y", padx=6)
 
         zoom_frame = tk.Frame(inner, bg=C_BG)
         zoom_frame.pack(side="left")
 
         btn_zoom_out = tk.Button(
-            zoom_frame, text="A−",
+            zoom_frame, text="Aâˆ’",
             bg=C_HOVER, fg=C_SUBTLE, relief="flat",
             padx=6, pady=3, font=_f(8), cursor="hand2",
             command=lambda: self._set_zoom(-_ZOOM_STEP),
         )
         btn_zoom_out.pack(side="left")
         _hover_bind(btn_zoom_out, C_HOVER, C_SELECTED)
-        tooltip(btn_zoom_out, "Zoom out  (Ctrl+−)")
+        tooltip(btn_zoom_out, "Zoom out  (Ctrl+âˆ’)")
 
         self._zoom_label = tk.Label(
             zoom_frame,
@@ -777,7 +724,7 @@ class NotTheNetApp(tk.Tk):
         self._zoom_label.pack(side="left")
         tooltip(self._zoom_label,
                 "Current zoom level.\n"
-                "Ctrl+= zoom in · Ctrl+− zoom out · Ctrl+0 reset")
+                "Ctrl+= zoom in Â· Ctrl+âˆ’ zoom out Â· Ctrl+0 reset")
 
         btn_zoom_in = tk.Button(
             zoom_frame, text="A+",
@@ -794,7 +741,7 @@ class NotTheNetApp(tk.Tk):
         if _os.name != "nt" and _os.geteuid() != 0:
             warn = tk.Label(
                 inner,
-                text="⚠  Not root — ports <1024 may fail",
+                text="âš   Not root â€” ports <1024 may fail",
                 bg=C_BG, fg=C_ORANGE,
                 font=_f(8),
             )
@@ -825,7 +772,7 @@ class NotTheNetApp(tk.Tk):
                               sashwidth=5, sashpad=0, sashrelief="flat")
         body.pack(fill="both", expand=True)
 
-        # ── Left: service list ──
+        # â”€â”€ Left: service list â”€â”€
         left = tk.Frame(body, bg=C_PANEL)
         body.add(left, minsize=148)
 
@@ -843,24 +790,24 @@ class NotTheNetApp(tk.Tk):
 
         # Group: General
         self._add_sidebar_section(left, "CONFIG")
-        self._add_sidebar_btn(left, "general", "⚙  General",
+        self._add_sidebar_btn(left, "general", "âš™  General",
                               "Global settings: bind IP, redirect IP,\n"
                               "network interface, log directory, and verbosity.")
 
         # Group: Network services
         self._add_sidebar_section(left, "NETWORK")
         for key, label, tip in [
-            ("dns",   "◈  DNS",
-             "Fake DNS server — resolves all hostnames to redirect_ip.\n"
+            ("dns",   "â—ˆ  DNS",
+             "Fake DNS server â€” resolves all hostnames to redirect_ip.\n"
              "Supports custom per-hostname overrides and PTR responses."),
-            ("http",  "◈  HTTP",
-             "Fake HTTP server — responds to all plaintext web requests\n"
+            ("http",  "â—ˆ  HTTP",
+             "Fake HTTP server â€” responds to all plaintext web requests\n"
              "with a configurable status code and body."),
-            ("https", "◈  HTTPS",
-             "Fake HTTPS server — TLS-encrypted HTTP with a self-signed cert.\n"
+            ("https", "â—ˆ  HTTPS",
+             "Fake HTTPS server â€” TLS-encrypted HTTP with a self-signed cert.\n"
              "Malware rarely validates the certificate."),
-            ("ftp",   "◈  FTP",
-             "Fake FTP server — accepts logins and optionally saves uploads\n"
+            ("ftp",   "â—ˆ  FTP",
+             "Fake FTP server â€” accepts logins and optionally saves uploads\n"
              "to disk with UUID filenames."),
         ]:
             self._add_sidebar_btn(left, key, label, tip)
@@ -868,23 +815,23 @@ class NotTheNetApp(tk.Tk):
         # Group: Mail services
         self._add_sidebar_section(left, "MAIL")
         for key, label, tip in [
-            ("smtp", "◈  SMTP",
-             "Fake SMTP server — accepts email submissions and optionally\n"
+            ("smtp", "â—ˆ  SMTP",
+             "Fake SMTP server â€” accepts email submissions and optionally\n"
              "saves them as .eml files for analysis."),
-            ("pop3", "◈  POP3",
-             "Fake POP3 server — announces an empty mailbox to connecting clients."),
-            ("imap", "◈  IMAP",
-             "Fake IMAP server — announces an empty INBOX to connecting clients."),
+            ("pop3", "â—ˆ  POP3",
+             "Fake POP3 server â€” announces an empty mailbox to connecting clients."),
+            ("imap", "â—ˆ  IMAP",
+             "Fake IMAP server â€” announces an empty INBOX to connecting clients."),
         ]:
             self._add_sidebar_btn(left, key, label, tip)
 
         # Group: Catch-all
         self._add_sidebar_section(left, "FALLBACK")
-        self._add_sidebar_btn(left, "catch_all", "◈  Catch-All",
-                              "TCP/UDP catch-all — iptables redirects all traffic\n"
+        self._add_sidebar_btn(left, "catch_all", "â—ˆ  Catch-All",
+                              "TCP/UDP catch-all â€” iptables redirects all traffic\n"
                               "not handled by specific services to these ports.")
 
-        # ── Right: config pages ──
+        # â”€â”€ Right: config pages â”€â”€
         right = tk.Frame(body, bg=C_SURFACE)
         body.add(right, minsize=500)
 
@@ -909,7 +856,7 @@ class NotTheNetApp(tk.Tk):
         row = tk.Frame(parent, bg=C_PANEL, cursor="hand2")
         row.pack(fill="x", pady=1)
 
-        dot = tk.Label(row, text="●", bg=C_PANEL, fg=C_DIM,
+        dot = tk.Label(row, text="â—", bg=C_PANEL, fg=C_DIM,
                        font=_f(7))
         dot.pack(side="right", padx=(0, 8))
 
@@ -1053,7 +1000,7 @@ class NotTheNetApp(tk.Tk):
              "to the TCP catch-all port above."),
             ("Redirect UDP (catch-all)", "redirect_udp", False,
              "Add an iptables REDIRECT rule to send all unmatched UDP traffic\n"
-             "to the UDP catch-all port. Use with caution — may disrupt UDP services."),
+             "to the UDP catch-all port. Use with caution â€” may disrupt UDP services."),
         ]
         self._pages["catch_all"] = _ServicePage(
             self._page_container, self._cfg, "catch_all", catch_fields, catch_checks
@@ -1116,7 +1063,7 @@ class NotTheNetApp(tk.Tk):
             self._log_filter_btns[lvl] = b
 
         clear_btn = tk.Button(
-            hdr, text="✕ Clear",
+            hdr, text="âœ• Clear",
             bg=C_BG, fg=C_DIM, relief="flat",
             font=_f(8), cursor="hand2",
             command=lambda: self._log_widget.configure(state="normal") or
@@ -1160,7 +1107,7 @@ class NotTheNetApp(tk.Tk):
         bar = tk.Frame(self, bg=C_BG, height=24)
         bar.pack(fill="x", side="bottom")
         self._status_label = tk.Label(
-            bar, text="●  Stopped", bg=C_BG, fg=C_DIM,
+            bar, text="â—  Stopped", bg=C_BG, fg=C_DIM,
             font=_f(8), anchor="w"
         )
         self._status_label.pack(side="left", padx=(PAD + 2, 0))
@@ -1169,7 +1116,7 @@ class NotTheNetApp(tk.Tk):
             bg=C_BG, fg=C_DIM, font=_f(8),
         ).pack(side="right", padx=PAD)
 
-    # ── Log polling ───────────────────────────────────────────────────────────
+    # â”€â”€ Log polling â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _poll_log_queue(self):
         """Drain the log queue into the GUI log widget every 100 ms."""
@@ -1208,7 +1155,7 @@ class NotTheNetApp(tk.Tk):
         self._log_widget.see("end")
         self._log_widget.configure(state="disabled")
 
-    # ── Service control ───────────────────────────────────────────────────────
+    # â”€â”€ Service control â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _apply_all_pages_to_config(self):
         for page in self._pages.values():
@@ -1230,23 +1177,23 @@ class NotTheNetApp(tk.Tk):
             self.after(0, self._update_ui_after_start, ok)
 
         threading.Thread(target=_start_thread, daemon=True).start()
-        self._status_label.configure(text="●  Starting…", fg=C_ORANGE)
+        self._status_label.configure(text="â—  Startingâ€¦", fg=C_ORANGE)
 
     def _update_ui_after_start(self, ok: bool):
         if ok:
             self._btn_start.configure(state="disabled")
             self._btn_stop.configure(state="normal")
-            self._status_label.configure(text="●  Running", fg=C_GREEN)
+            self._status_label.configure(text="â—  Running", fg=C_GREEN)
             self._update_service_indicators()
         else:
-            self._status_label.configure(text="●  Failed — check log", fg=C_RED)
+            self._status_label.configure(text="â—  Failed â€” check log", fg=C_RED)
 
     def _on_stop(self):
         if self._manager:
             threading.Thread(target=self._manager.stop, daemon=True).start()
         self._btn_start.configure(state="normal")
         self._btn_stop.configure(state="disabled")
-        self._status_label.configure(text="●  Stopped", fg=C_DIM)
+        self._status_label.configure(text="â—  Stopped", fg=C_DIM)
         for _key, (_row, _btn, dot) in self._service_btns.items():
             dot.configure(fg=C_DIM)
 
@@ -1272,7 +1219,7 @@ class NotTheNetApp(tk.Tk):
         if self._cfg.save():
             messagebox.showinfo("Saved", f"Config saved to:\n{self._cfg.config_path}")
         else:
-            messagebox.showerror("Error", "Failed to save config — check log.")
+            messagebox.showerror("Error", "Failed to save config â€” check log.")
 
     def _on_load(self):
         path = filedialog.askopenfilename(
@@ -1304,8 +1251,8 @@ class NotTheNetApp(tk.Tk):
         ):
             return
 
-        self._btn_update.configure(state="disabled", text="↑  Updating…")
-        self._status_label.configure(text="↑  Checking for updates…", fg=C_ACCENT2)
+        self._btn_update.configure(state="disabled", text="â†‘  Updatingâ€¦")
+        self._status_label.configure(text="â†‘  Checking for updatesâ€¦", fg=C_ACCENT2)
 
         def _run():
             import subprocess
@@ -1313,7 +1260,7 @@ class NotTheNetApp(tk.Tk):
             results = []
             changed = False
 
-            # ── Step 1: git pull ──────────────────────────────────────────
+            # â”€â”€ Step 1: git pull â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             try:
                 proc = subprocess.run(
                     ["git", "pull", "origin", "master"],
@@ -1324,9 +1271,9 @@ class NotTheNetApp(tk.Tk):
                 changed = proc.returncode == 0 and "Already up to date." not in output
             except FileNotFoundError:
                 results.append(("git pull", -1,
-                                 "git not found — is git installed?"))
+                                 "git not found â€” is git installed?"))
 
-            # ── Step 2: pip install ───────────────────────────────────────
+            # â”€â”€ Step 2: pip install â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             try:
                 proc = subprocess.run(
                     [_sys.executable, "-m", "pip", "install",
@@ -1345,10 +1292,10 @@ class NotTheNetApp(tk.Tk):
 
     def _show_update_result(self, results: list, changed: bool):
         """Display update output in a scrollable dialog."""
-        self._btn_update.configure(state="normal", text="↑  Update")
+        self._btn_update.configure(state="normal", text="â†‘  Update")
         all_ok = all(rc == 0 for _, rc, _ in results)
         self._status_label.configure(
-            text="● Running" if (self._manager and self._manager.running) else "●  Stopped",
+            text="â— Running" if (self._manager and self._manager.running) else "â—  Stopped",
             fg=C_GREEN if (self._manager and self._manager.running) else C_DIM,
         )
 
@@ -1367,10 +1314,10 @@ class NotTheNetApp(tk.Tk):
         # Header
         header_color = C_GREEN if (all_ok and changed) else (C_ACCENT if all_ok else C_RED)
         header_text = (
-            "✔  Updated successfully — restart to apply changes."
+            "âœ”  Updated successfully â€” restart to apply changes."
             if (all_ok and changed) else
-            "✔  Already up to date." if all_ok else
-            "✘  Update encountered errors."
+            "âœ”  Already up to date." if all_ok else
+            "âœ˜  Update encountered errors."
         )
         tk.Label(
             dlg, text=header_text,
@@ -1395,7 +1342,7 @@ class NotTheNetApp(tk.Tk):
         txt.tag_config("body",    foreground=C_SUBTLE)
 
         for step, returncode, output in results:
-            txt.insert("end", f"── {step} ", "header")
+            txt.insert("end", f"â”€â”€ {step} ", "header")
             status = "(OK)" if returncode == 0 else f"(exit {returncode})"
             txt.insert("end", status + "\n", "ok" if returncode == 0 else "err")
             if output:
@@ -1421,7 +1368,7 @@ class NotTheNetApp(tk.Tk):
                 self.destroy()
 
             tk.Button(
-                btn_frame, text="↺  Restart Now",
+                btn_frame, text="â†º  Restart Now",
                 bg=C_GREEN, fg="#0c0c18",
                 relief="flat", padx=12, pady=4,
                 font=_f(9, True), cursor="hand2",
@@ -1455,13 +1402,13 @@ def _print_logo() -> None:
     banner = (
         f"{CYAN}"
         "\n"
-        "  ███╗   ██╗ ██████╗ ████████╗    ████████╗██╗  ██╗███████╗    ███╗   ██╗███████╗████████╗\n"
-        "  ████╗  ██║██╔═══██╗╚══██╔══╝       ██║   ██║  ██║██╔════╝    ████╗  ██║██╔════╝╚══██╔══╝\n"
-        "  ██╔██╗ ██║██║   ██║   ██║          ██║   ███████║█████╗      ██╔██╗ ██║█████╗     ██║   \n"
-        "  ██║╚██╗██║██║   ██║   ██║          ██║   ██╔══██║██╔══╝      ██║╚██╗██║██╔══╝     ██║   \n"
-        "  ██║ ╚████║╚██████╔╝   ██║          ██║   ██║  ██║███████╗    ██║ ╚████║███████╗   ██║   \n"
-        "  ╚═╝  ╚═══╝ ╚═════╝    ╚═╝          ╚═╝   ╚═╝  ╚═╝╚══════╝    ╚═╝  ╚═══╝╚══════╝   ╚═╝  \n"
-        "                          Fake Internet Simulator  ·  Malware Analysis\n"
+        "  â–ˆâ–ˆâ–ˆâ•—   â–ˆâ–ˆâ•— â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•— â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—    â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—â–ˆâ–ˆâ•—  â–ˆâ–ˆâ•—â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—    â–ˆâ–ˆâ–ˆâ•—   â–ˆâ–ˆâ•—â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—\n"
+        "  â–ˆâ–ˆâ–ˆâ–ˆâ•—  â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•”â•â•â•â–ˆâ–ˆâ•—â•šâ•â•â–ˆâ–ˆâ•”â•â•â•       â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•‘  â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•”â•â•â•â•â•    â–ˆâ–ˆâ–ˆâ–ˆâ•—  â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•”â•â•â•â•â•â•šâ•â•â–ˆâ–ˆâ•”â•â•â•\n"
+        "  â–ˆâ–ˆâ•”â–ˆâ–ˆâ•— â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•‘          â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•‘â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—      â–ˆâ–ˆâ•”â–ˆâ–ˆâ•— â–ˆâ–ˆâ•‘â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—     â–ˆâ–ˆâ•‘   \n"
+        "  â–ˆâ–ˆâ•‘â•šâ–ˆâ–ˆâ•—â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•‘          â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•”â•â•â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•”â•â•â•      â–ˆâ–ˆâ•‘â•šâ–ˆâ–ˆâ•—â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•”â•â•â•     â–ˆâ–ˆâ•‘   \n"
+        "  â–ˆâ–ˆâ•‘ â•šâ–ˆâ–ˆâ–ˆâ–ˆâ•‘â•šâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•”â•   â–ˆâ–ˆâ•‘          â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•‘  â–ˆâ–ˆâ•‘â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—    â–ˆâ–ˆâ•‘ â•šâ–ˆâ–ˆâ–ˆâ–ˆâ•‘â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—   â–ˆâ–ˆâ•‘   \n"
+        "  â•šâ•â•  â•šâ•â•â•â• â•šâ•â•â•â•â•â•    â•šâ•â•          â•šâ•â•   â•šâ•â•  â•šâ•â•â•šâ•â•â•â•â•â•â•    â•šâ•â•  â•šâ•â•â•â•â•šâ•â•â•â•â•â•â•   â•šâ•â•  \n"
+        "                          Fake Internet Simulator  Â·  Malware Analysis\n"
         f"{RESET}"
     )
     print(banner)
@@ -1469,7 +1416,7 @@ def _print_logo() -> None:
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="NotTheNet — Fake Internet Simulator")
+    parser = argparse.ArgumentParser(description="NotTheNet â€” Fake Internet Simulator")
     parser.add_argument("--config", default="config.json", help="Path to config JSON")
     parser.add_argument("--nogui", action="store_true",
                         help="Run headless (CLI mode, no GUI)")
@@ -1498,7 +1445,7 @@ def main():
         stop_event = threading.Event()
 
         def _sig_handler(sig, frame):
-            logger.info(f"Signal {sig} received; shutting down…")
+            logger.info(f"Signal {sig} received; shutting downâ€¦")
             stop_event.set()
 
         signal.signal(signal.SIGINT, _sig_handler)
