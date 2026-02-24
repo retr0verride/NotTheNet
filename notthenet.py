@@ -76,6 +76,24 @@ _PANE_LOG_MIN    = 120   # main pane: log panel
 _PANE_SIDE_MIN   = 148   # body pane: sidebar
 _PANE_CONFIG_MIN = 500   # body pane: config area
 
+# NotTheNet globe+prohibition window icon (64x64 RGBA PNG, base64-encoded)
+_APP_ICON_B64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAC/0lEQVR4nO1bvXEsIQwGzabbgF/q"
+    "4FIX4UZeES9wAS9wEW7ERTjdwKkrcAH2EOwMwyD0g8Qyw33Z3YHQ96EVOmDjvj/8hIUBYXFAWBwQ"
+    "FgeExbGNHOx4emS3vX18hhGI3quAhPQVYkQPASxIjxIjWgrAIc4hYGVnqAAH4rSFo562Y68Ans6N"
+    "GCv2CFBzaET2thw3agUonRi1bLV80PgRNQL0kP9+/0+22Z9f1L5I/YlSATTkOaR7xOgRIUoEkJLH"
+    "iOekUpvyM9Wn5RPXN/F/gaODfHL+JEDNaN6OEqZVL3CLsS0o0CJfEs+/5z7bqd3Z/uyTPp+2v/69"
+    "oX5Jq1DgNMqNepPP+9fstciX/nHEAKoBV1GMvCVq5BPh1qRQ/oPEAWygFnnN7Oe2Tts1In9e/4r8"
+    "FAtwCJ8nr5mXkOf2F0fAjZj90WGfJ8chy6CGfE/4cwocSoQuAQ5m5p+5zuesCBCU8Ax9CfneKIAw"
+    "ERLx3oRnIsAhzP419aXPf6umL4ui1rjSMYDqVAs96/DHQp77zLceA8oGhIuBLXOjABZGsBD1zPS9"
+    "S6x5BOxCEWYgj26IUDVAT+GBhb1Vpq8J0+KzWQ9GJUls5qkZ5VSdGkBwAJaVtWu8Z9G1BUfkeUGS"
+    "7UvhtEl2iuPxL2QHJ5/5GuFRAKpBLWzLEMdmh6ruyg3QciOUQjk+N+eQAtwMChHN9pX3slcbG4ID"
+    "rjoz1AC0HfPHgNq78yBfjquNEMB+kG4vJwdGk6fA2dSBHkfyKMDI9y5ftaOzMgn35AfgNsSiIA0+"
+    "6h+dhLzJ0diNcdTkNfM5SrJS263J2CSGEtnTGCZMKnCwMz1uuLYKI44tyY5W5ByPl8mkRR5zWjJ7"
+    "5QqT26nZp/w1uR9wNFTNB5EekHK/9yBv8l+gHKQW+ucjwV2+sIih+mouaMaeCJjhhgjm35ArMrPe"
+    "ERp6SWq2W2JDrsnNek9Q40O83xTd73eFfzzCcZnb4jmWfl8gx7JvjNSw5DtDGJZ8a2x2QFgcEBYH"
+    "XO3A1fgF9DBZrZ2pzfAAAAAASUVORK5CYII="
+)
 
 # Populated by NotTheNetApp._init_fonts(); keyed by (base_size, bold: bool)
 _F: dict = {}
@@ -518,6 +536,14 @@ class NotTheNetApp(tk.Tk):
         self.title(APP_TITLE)
         self.configure(bg=C_BG)
         self.resizable(True, True)
+
+        # Window / taskbar icon
+        try:
+            _icon = tk.PhotoImage(data=_APP_ICON_B64)
+            self.iconphoto(True, _icon)
+            self._icon = _icon  # keep reference so GC does not drop it
+        except Exception:
+            pass  # non-fatal -- icon is cosmetic only
 
         self._cfg = Config(config_path or "config.json")
         self._log_queue: queue.Queue = queue.Queue()
