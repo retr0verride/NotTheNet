@@ -194,17 +194,48 @@ echo "QUIT" | nc 127.0.0.1 21
 
 ## Upgrading
 
+### One-command update
+
+A convenience script is included. Run it from anywhere inside the repo:
+
 ```bash
-cd NotTheNet
-git pull origin master
-source venv/bin/activate
-pip install -r requirements.txt
+cd ~/NotTheNet
+sudo bash update.sh
 ```
 
-If a new `config.json` format is released, compare your existing config against the new default:
+The script will:
+1. Stop NotTheNet if it is running
+2. Pull the latest code from GitHub
+3. Re-install the package (picks up dependency or entry-point changes)
+4. Print the new version number
+
+### Manual steps
+
+If you prefer to do it yourself:
+
+```bash
+cd ~/NotTheNet
+
+# 1. Pull latest changes
+git pull origin master
+
+# 2. Re-install (safe to run every time — no-op if nothing changed)
+source venv/bin/activate
+pip install -e . --quiet
+
+# 3. Confirm the new version
+python -c "import notthenet; print(notthenet.APP_VERSION)"
+```
+
+### Config file changes
+
+New releases may add keys to `config.json`. Your existing config is never overwritten automatically. To see what changed:
+
 ```bash
 diff config.json <(git show origin/master:config.json)
 ```
+
+Copy any new keys you want into your local `config.json`, or delete it and let NotTheNet regenerate it with defaults on next launch.
 
 ---
 
