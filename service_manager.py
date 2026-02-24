@@ -14,7 +14,7 @@ from services.ftp_server import FTPService
 from services.http_server import HTTPService, HTTPSService
 from services.mail_server import IMAPService, POP3Service, SMTPService
 from utils.cert_utils import ensure_certs
-from utils.privilege import drop_privileges, require_root_or_warn
+from utils.privilege import require_root_or_warn
 from utils.validators import validate_config
 
 logger = logging.getLogger(__name__)
@@ -108,9 +108,6 @@ class ServiceManager:
         # --- Apply iptables rules after all services are bound ---
         if self.config.get("general", "auto_iptables"):
             self._apply_iptables()
-
-        # --- Drop privileges now that low ports are bound ---
-        drop_privileges()
 
         self._running = len(started) > 0
         logger.info(f"NotTheNet started: {', '.join(started) if started else 'none'}")
