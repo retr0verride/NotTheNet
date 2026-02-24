@@ -39,6 +39,29 @@ _SECURE_CIPHERS = (
     "!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!3DES"
 )
 
+_DEFAULT_BODY = "<html><body><h1>200 OK</h1></body></html>"
+
+
+def _load_response_body(config: dict) -> str:
+    """
+    Resolve the HTTP response body from config.
+    If 'response_body_file' is set, load the file contents (relative to the
+    project root).  Falls back to the 'response_body' string if the file is
+    missing or unreadable.
+    """
+    file_path = config.get("response_body_file", "").strip()
+    if file_path:
+        # Resolve relative to project root (directory of this file's parent)
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        abs_path = os.path.join(project_root, file_path)
+        try:
+            with open(abs_path, encoding="utf-8") as fh:
+                return fh.read()
+        except OSError as exc:
+            logger.warning(f"response_body_file '{abs_path}' could not be read: {exc}; "
+                           "falling back to response_body string.")
+    return config.get("response_body", _DEFAULT_BODY)
+
 
 def _make_handler(response_code: int, response_body: str, server_header: str, log_requests: bool):
     """Factory: create a BaseHTTPRequestHandler subclass with captured config."""
@@ -110,9 +133,7 @@ class HTTPService:
         self.port = int(config.get("port", 80))
         self.bind_ip = bind_ip
         self.response_code = int(config.get("response_code", 200))
-        self.response_body = config.get(
-            "response_body", "<html><body><h1>200 OK</h1></body></html>"
-        )
+        self.response_body = _load_response_body(config)
         self.server_header = config.get("server_header", "Apache/2.4.51")
         self.log_requests = config.get("log_requests", True)
         self._server: Optional[_ThreadedServer] = None
@@ -159,9 +180,7 @@ class HTTPSService:
         self.cert_file = config.get("cert_file", "certs/server.crt")
         self.key_file = config.get("key_file", "certs/server.key")
         self.response_code = int(config.get("response_code", 200))
-        self.response_body = config.get(
-            "response_body", "<html><body><h1>200 OK</h1></body></html>"
-        )
+        self.response_body = _load_response_body(config)
         self.server_header = config.get("server_header", "Apache/2.4.51")
         self.log_requests = config.get("log_requests", True)
         self._server: Optional[_ThreadedServer] = None

@@ -955,6 +955,10 @@ class NotTheNetApp(tk.Tk):
             ("Response Body",   "response_body",  "<html><body>OK</body></html>",
              "HTML/text body returned in every HTTP response.\n"
              "Malware may check this content for specific strings."),
+            ("Response Body File", "response_body_file", "",
+             "Path to an HTML file to serve instead of the Response Body field above.\n"
+             "Relative to the NotTheNet project root (e.g. assets/notthenet-page.html).\n"
+             "Leave blank to use the Response Body string."),
             ("Server Header",   "server_header",  "Apache/2.4.51",
              "Value of the 'Server:' response header.\n"
              "Spoofing a real server (Apache, nginx) may satisfy malware fingerprinting checks."),
@@ -978,6 +982,10 @@ class NotTheNetApp(tk.Tk):
              ["200", "301", "302", "400", "403", "404", "500", "503"]),
             ("Response Body",   "response_body",  "<html><body>OK</body></html>",
              "HTML/text body returned inside every HTTPS response."),
+            ("Response Body File", "response_body_file", "",
+             "Path to an HTML file to serve instead of the Response Body field above.\n"
+             "Relative to the NotTheNet project root (e.g. assets/notthenet-page.html).\n"
+             "Leave blank to use the Response Body string."),
             ("Server Header",   "server_header",  "Apache/2.4.51",
              "Value of the 'Server:' response header inside the TLS tunnel."),
         ]

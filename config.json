@@ -21,6 +21,7 @@
     "enabled": true,
     "port": 80,
     "response_code": 200,
+    "response_body_file": "assets/notthenet-page.html",
     "response_body": "<html><body><h1>200 OK</h1></body></html>",
     "server_header": "Apache/2.4.51 (Debian)",
     "log_requests": true
@@ -31,6 +32,7 @@
     "cert_file": "certs/server.crt",
     "key_file": "certs/server.key",
     "response_code": 200,
+    "response_body_file": "assets/notthenet-page.html",
     "response_body": "<html><body><h1>200 OK</h1></body></html>",
     "server_header": "Apache/2.4.51 (Debian)",
     "log_requests": true

@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NotTheNet</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0d0d1a;
+      color: #e2e8f0;
+      font-family: 'Courier New', Courier, monospace;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .card {
+      background: #13131f;
+      border: 1px solid #2d2d48;
+      border-radius: 12px;
+      padding: 48px 56px;
+      max-width: 560px;
+      width: 90%;
+      text-align: center;
+      box-shadow: 0 0 60px rgba(0, 212, 170, 0.08);
+    }
+
+    /* Globe + prohibition SVG */
+    .logo {
+      width: 88px;
+      height: 88px;
+      margin: 0 auto 28px;
+    }
+
+    h1 {
+      font-size: 2rem;
+      font-weight: bold;
+      color: #00d4aa;
+      letter-spacing: 0.05em;
+      margin-bottom: 8px;
+    }
+
+    .tagline {
+      color: #94a3b8;
+      font-size: 0.85rem;
+      margin-bottom: 32px;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: #0f2e26;
+      border: 1px solid #00d4aa44;
+      border-radius: 999px;
+      padding: 8px 20px;
+      font-size: 0.9rem;
+      color: #4ade80;
+      margin-bottom: 36px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #4ade80;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 32px;
+    }
+
+    .tile {
+      background: #1a1a2c;
+      border: 1px solid #2d2d48;
+      border-radius: 8px;
+      padding: 14px;
+    }
+
+    .tile-label {
+      font-size: 0.7rem;
+      color: #4a5568;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 4px;
+    }
+
+    .tile-value {
+      font-size: 0.9rem;
+      color: #00aaff;
+    }
+
+    .footer {
+      font-size: 0.72rem;
+      color: #2d2d48;
+    }
+
+    .footer a {
+      color: #4a5568;
+      text-decoration: none;
+    }
+
+    .footer a:hover { color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div class="card">
+
+    <!-- Globe + prohibition SVG logo -->
+    <svg class="logo" viewBox="0 0 88 88" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <!-- Globe latitudes -->
+      <circle cx="44" cy="44" r="22" stroke="#00c8a0" stroke-width="2"/>
+      <line x1="22" y1="44" x2="66" y2="44" stroke="#00c8a0" stroke-width="1"/>
+      <ellipse cx="44" cy="44" rx="11" ry="22" stroke="#00c8a0" stroke-width="1"/>
+      <!-- Upper latitude arc -->
+      <path d="M28 33 Q44 27 60 33" stroke="#00c8a0" stroke-width="1" fill="none"/>
+      <!-- Lower latitude arc -->
+      <path d="M28 55 Q44 61 60 55" stroke="#00c8a0" stroke-width="1" fill="none"/>
+      <!-- Prohibition circle -->
+      <circle cx="44" cy="44" r="30" stroke="#e53e3e" stroke-width="3.5"/>
+      <!-- Prohibition slash -->
+      <line x1="65" y1="23" x2="23" y2="65" stroke="#e53e3e" stroke-width="3.5" stroke-linecap="round"/>
+    </svg>
+
+    <h1>NotTheNet</h1>
+    <p class="tagline">Fake Internet Simulator &mdash; Traffic Intercepted</p>
+
+    <div class="status-badge">
+      <div class="dot"></div>
+      Running &amp; Intercepting
+    </div>
+
+    <div class="grid">
+      <div class="tile">
+        <div class="tile-label">DNS</div>
+        <div class="tile-value">Redirected</div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">HTTP / HTTPS</div>
+        <div class="tile-value">Intercepted</div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">SMTP / POP3 / IMAP</div>
+        <div class="tile-value">Captured</div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">FTP &amp; Catch-All</div>
+        <div class="tile-value">Active</div>
+      </div>
+    </div>
+
+    <p class="footer">
+      No real internet &mdash; all traffic stays local.<br>
+      <a href="https://github.com/retr0verride/NotTheNet" target="_blank">github.com/retr0verride/NotTheNet</a>
+    </p>
+
+  </div>
+</body>
+</html>
