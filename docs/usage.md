@@ -86,7 +86,6 @@ A 2 px teal accent line runs along the very top of the toolbar.
 | **■ Stop** | Gracefully stops all services and removes iptables rules. |
 | **💾 Save** | Saves current GUI values to `config.json` (or the `--config` path). |
 | **📂 Load…** | Opens a file picker to load a different `.json` config file and rebuilds all panels. |
-| **↑ Update** | Checks for updates from GitHub and reinstalls dependencies — see [Updating](#updating) below. |
 
 All buttons change shade on hover. A `⚠ Not root` warning appears on the right if not running as root.
 
@@ -188,34 +187,6 @@ Load them from the GUI via **Load Config…** or from the command line:
 ```bash
 sudo notthenet --config configs/banking-trojan.json
 ```
-
----
-
-## Updating
-
-The **↑ Update** button in the toolbar checks for and applies updates without leaving the GUI.
-
-### What it does
-
-1. Runs `git pull origin master` — fetches and merges the latest code from GitHub
-2. Runs `pip install -r requirements.txt` — installs any new or updated dependencies
-3. Shows a scrollable output dialog with the result of each step
-
-### Result dialog
-
-| Outcome | Header shown | Action available |
-|---------|-------------|------------------|
-| New code pulled | ✔ Updated successfully — restart to apply | **↺ Restart Now** button |
-| Already current | ✔ Already up to date | Close |
-| Error | ✘ Update encountered errors | Close (check output for details) |
-
-If **↺ Restart Now** is clicked, any running services are stopped cleanly before the process relaunches.
-
-### Notes
-
-- Running services are **not interrupted** during the pull/install steps — only a restart replaces the running code
-- `git` must be available on `PATH` (it is on all standard Kali installs)
-- To update from the command line instead: see the [Installation guide — Upgrading](installation.md#upgrading)
 
 ---
 
