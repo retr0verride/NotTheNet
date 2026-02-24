@@ -41,7 +41,8 @@
 ## Quick Install (Recommended)
 
 ```bash
-# Clone the repository
+# Clone the repository (run from your home directory)
+cd ~
 git clone https://github.com/retr0verride/NotTheNet.git
 cd NotTheNet
 

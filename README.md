@@ -57,6 +57,7 @@ Man page available at [`man/notthenet.1`](man/notthenet.1) — install with `sud
 ## Installation
 
 ```bash
+cd ~
 git clone https://github.com/retr0verride/NotTheNet
 cd NotTheNet
 sudo bash notthenet-install.sh

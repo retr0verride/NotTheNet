@@ -111,6 +111,7 @@ sudo sysctl -p /etc/sysctl.d/99-notthenet.conf
 ### Install NotTheNet
 
 ```bash
+cd ~
 git clone https://github.com/retr0verride/NotTheNet
 cd NotTheNet
 sudo bash notthenet-install.sh
@@ -468,6 +469,7 @@ sudo sysctl -p /etc/sysctl.d/99-notthenet.conf
 ### 2.5 Install NotTheNet
 
 ```bash
+cd ~
 git clone https://github.com/retr0verride/NotTheNet
 cd NotTheNet
 sudo bash notthenet-install.sh
