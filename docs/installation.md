@@ -320,6 +320,10 @@ pip uninstall -y notthenet 2>/dev/null || true
 # ── 7. Remove the project directory (logs, captures, venv, certs, and all) ───
 # WARNING: this permanently deletes all captured emails, FTP uploads, TLS
 # certificates, and logs stored inside the project folder.
+#
+# chmod first: .git/objects files are read-only (444) by default and cause
+# "Permission denied" errors with plain rm -rf even under sudo.
+chmod -R u+w "$NOTTHENET_DIR"
 cd "$(dirname "$NOTTHENET_DIR")" && rm -rf "$NOTTHENET_DIR"
 ```
 
