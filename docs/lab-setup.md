@@ -271,10 +271,10 @@ Run these from **FlareVM PowerShell** before detonating anything.
 | DNS | `nslookup evil-c2.com` | Resolves to `10.0.0.1` |
 | HTTP | `curl.exe http://google.com` | `200 OK` |
 | HTTPS | `curl.exe -k https://google.com` | `200 OK` |
-| SMTP | `Test-NetConnection 10.0.0.1 -Port 25` | `TcpTestSucceeded: True` |
-| FTP | `Test-NetConnection 10.0.0.1 -Port 21` | `TcpTestSucceeded: True` |
-| Catch-All | `Test-NetConnection 10.0.0.1 -Port 4444` | `TcpTestSucceeded: True` |
-| **Isolation** | `Test-NetConnection 8.8.8.8 -Port 53` | **Must FAIL / timeout** |
+| SMTP | `curl.exe -s --connect-timeout 5 telnet://10.0.0.1:25` | `Connected to 10.0.0.1` |
+| FTP | `curl.exe -s --connect-timeout 5 telnet://10.0.0.1:21` | `Connected to 10.0.0.1` |
+| Catch-All | `curl.exe -s --connect-timeout 5 telnet://10.0.0.1:4444` | `Connected to 10.0.0.1` |
+| **Isolation** | `curl.exe -s --connect-timeout 5 telnet://8.8.8.8:53` | **Must FAIL / timeout** |
 
 Check the NotTheNet live log after each test — every connection should appear with its service label and source IP.
 
@@ -685,33 +685,33 @@ Expected: `200 OK`. The TLS handshake will succeed with NotTheNet's auto-generat
 
 ### 4.5 SMTP
 
-```powershell
-Test-NetConnection -ComputerName 10.0.0.1 -Port 25
+```cmd
+curl.exe -v --connect-timeout 5 telnet://10.0.0.1:25
 ```
-Expected: `TcpTestSucceeded: True`.
+Expected: `* Connected to 10.0.0.1 port 25` in the output.
 
 ### 4.6 FTP
 
-```powershell
-Test-NetConnection -ComputerName 10.0.0.1 -Port 21
+```cmd
+curl.exe -v --connect-timeout 5 telnet://10.0.0.1:21
 ```
-Expected: `TcpTestSucceeded: True`.
+Expected: `* Connected to 10.0.0.1 port 21` in the output.
 
 ### 4.7 Non-standard port (Catch-All)
 
-```powershell
-Test-NetConnection -ComputerName 10.0.0.1 -Port 4444
-Test-NetConnection -ComputerName 10.0.0.1 -Port 8443
+```cmd
+curl.exe -v --connect-timeout 5 telnet://10.0.0.1:4444
+curl.exe -v --connect-timeout 5 telnet://10.0.0.1:8443
 ```
-Expected: `TcpTestSucceeded: True` — caught by the TCP Catch-All service. These appear in the NotTheNet log as `catch_all` entries.
+Expected: `* Connected to 10.0.0.1` — caught by the TCP Catch-All service. These appear in the NotTheNet log as `catch_all` entries.
 
 ### 4.8 Confirm isolation (no real internet)
 
-```powershell
+```cmd
 # This should FAIL — no route to the real internet
-Test-NetConnection -ComputerName 8.8.8.8 -Port 53
+curl.exe -v --connect-timeout 5 telnet://8.8.8.8:53
 ```
-Expected: timeout / `TcpTestSucceeded: False`. If this succeeds, FlareVM still has a route to the real internet — re-check that `vmbr0` is not attached.
+Expected: connection timeout / `Failed to connect`. If it succeeds, FlareVM still has a route to the real internet — re-check that `vmbr0` is not attached.
 
 ---
 
