@@ -1344,47 +1344,78 @@ def _print_logo() -> None:
 
 def main():
     import argparse
+    import traceback
+
+    # Resolve the project root from this file's location so that all relative
+    # paths (config, logs, certs) work correctly when the process is launched
+    # via pkexec / a .desktop icon, which may start with a different CWD.
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(_script_dir)
+
+    _default_config = os.path.join(_script_dir, "config.json")
+
     parser = argparse.ArgumentParser(description="NotTheNet — Fake Internet Simulator")
-    parser.add_argument("--config", default="config.json", help="Path to config JSON")
+    parser.add_argument("--config", default=_default_config, help="Path to config JSON")
     parser.add_argument("--nogui", action="store_true",
                         help="Run headless (CLI mode, no GUI)")
     parser.add_argument("--loglevel", default=None,
                         help="Override log level (DEBUG/INFO/WARNING/ERROR)")
     args = parser.parse_args()
 
-    cfg = Config(args.config)
-    log_level = args.loglevel or cfg.get("general", "log_level") or "INFO"
-    setup_logging(
-        log_dir=cfg.get("general", "log_dir") or "logs",
-        log_level=log_level,
-        log_to_file=bool(cfg.get("general", "log_to_file")),
-        name="notthenet",
-    )
+    # When launched without a terminal (e.g. via desktop icon + pkexec),
+    # any unhandled exception is completely invisible.  Catch everything and
+    # append a crash report to a known log file so the user has something to
+    # inspect when the program appears to "do nothing".
+    _crash_log = os.path.join(_script_dir, "logs", "notthenet-crash.log")
+    try:
+        os.makedirs(os.path.join(_script_dir, "logs"), exist_ok=True)
+    except OSError:
+        pass
 
-    if args.nogui:
-        import signal
-        _print_logo()
-        manager = ServiceManager(cfg)
-        if not manager.start():
-            sys.exit(1)
-        logger = logging.getLogger("notthenet")
-        logger.info("Running in headless mode. Press Ctrl+C to stop.")
+    try:
+        cfg = Config(args.config)
+        log_level = args.loglevel or cfg.get("general", "log_level") or "INFO"
+        setup_logging(
+            log_dir=cfg.get("general", "log_dir") or os.path.join(_script_dir, "logs"),
+            log_level=log_level,
+            log_to_file=bool(cfg.get("general", "log_to_file")),
+            name="notthenet",
+        )
 
-        stop_event = threading.Event()
+        if args.nogui:
+            import signal
+            _print_logo()
+            manager = ServiceManager(cfg)
+            if not manager.start():
+                sys.exit(1)
+            logger = logging.getLogger("notthenet")
+            logger.info("Running in headless mode. Press Ctrl+C to stop.")
 
-        def _sig_handler(sig, frame):
-            logger.info(f"Signal {sig} received; shutting down…")
-            stop_event.set()
+            stop_event = threading.Event()
 
-        signal.signal(signal.SIGINT, _sig_handler)
-        signal.signal(signal.SIGTERM, _sig_handler)
+            def _sig_handler(sig, frame):
+                logger.info(f"Signal {sig} received; shutting down…")
+                stop_event.set()
 
-        stop_event.wait()
-        manager.stop()
-        sys.exit(0)
-    else:
-        app = NotTheNetApp(config_path=args.config)
-        app.mainloop()
+            signal.signal(signal.SIGINT, _sig_handler)
+            signal.signal(signal.SIGTERM, _sig_handler)
+
+            stop_event.wait()
+            manager.stop()
+            sys.exit(0)
+        else:
+            app = NotTheNetApp(config_path=args.config)
+            app.mainloop()
+
+    except Exception:
+        import datetime
+        try:
+            with open(_crash_log, "a", encoding="utf-8") as _cf:
+                _cf.write(f"\n--- CRASH {datetime.datetime.now().isoformat()} ---\n")
+                traceback.print_exc(file=_cf)
+        except OSError:
+            pass
+        raise
 
 
 if __name__ == "__main__":
