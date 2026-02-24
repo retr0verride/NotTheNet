@@ -23,6 +23,7 @@ import sys
 import threading
 import tkinter as tk
 from tkinter import ttk, scrolledtext, filedialog, messagebox
+from tkinter import font as _tkfont
 from typing import Optional
 
 # Allow running from project root
@@ -59,6 +60,23 @@ C_ENTRY_FG = "#e2e8f0"   # Input foreground
 C_HOVER    = "#262640"   # Sidebar hover
 C_SELECTED = "#1a3a4f"   # Sidebar selected
 C_LOG_BG   = "#0c0c18"   # Log panel background
+
+
+# ─── Zoom / font scale ───────────────────────────────────────────────────────
+
+_ZOOM_STEP = 0.15
+_ZOOM_MIN  = 0.70
+_ZOOM_MAX  = 2.00
+# Populated by NotTheNetApp._init_fonts(); keyed by (base_size, bold: bool)
+_F: dict = {}
+
+
+def _f(size: int, bold: bool = False):
+    """Return the named Font for *size* / *bold*, or a fallback tuple."""
+    key = (size, bold)
+    if key in _F:
+        return _F[key]
+    return ("monospace", size, "bold") if bold else ("monospace", size)
 
 
 # ─── Hover helper ────────────────────────────────────────────────────────────
@@ -121,7 +139,7 @@ class _Tooltip:
             text=self._text,
             bg="#1e1e32",
             fg=C_TEXT,
-            font=("monospace", 8),
+            font=_f(8),
             wraplength=self._WRAP,
             justify="left",
         ).pack()
@@ -156,7 +174,7 @@ class _QueueHandler(logging.Handler):
 
 def _label(parent, text, **kw):
     bg = kw.pop("bg", C_SURFACE)
-    return tk.Label(parent, text=text, bg=bg, fg=C_TEXT, **kw)
+    return tk.Label(parent, text=text, bg=bg, fg=C_TEXT, font=_f(9), **kw)
 
 
 def _entry(parent, textvariable, width=FIELD_WIDTH):
@@ -169,6 +187,7 @@ def _entry(parent, textvariable, width=FIELD_WIDTH):
         insertbackground=C_ACCENT,
         relief="flat",
         bd=6,
+        font=_f(9),
         highlightthickness=1,
         highlightbackground=C_BORDER,
         highlightcolor=C_ACCENT,
@@ -186,7 +205,7 @@ def _check(parent, text, variable):
         selectcolor=C_ENTRY_BG,
         activebackground=C_SURFACE,
         activeforeground=C_TEXT,
-        font=("monospace", 9),
+        font=_f(9),
     )
 
 
@@ -197,7 +216,7 @@ def _section_frame(parent, title: str):
         text=f"  {title}  ",
         bg=C_SURFACE,
         fg=C_ACCENT,
-        font=("monospace", 9, "bold"),
+        font=_f(9, True),
         relief="flat",
         bd=0,
         highlightbackground=C_BORDER,
@@ -212,7 +231,7 @@ def _row(parent, label: str, widget_factory, row: int,
          col_offset: int = 0, tip: str = ""):
     """Lay out a label + widget pair in a grid. Attach optional tooltip."""
     lbl = tk.Label(parent, text=label, bg=C_SURFACE, fg=C_SUBTLE,
-                   font=("monospace", 9), anchor="e")
+                   font=_f(9), anchor="e")
     lbl.grid(row=row, column=col_offset, sticky="e", padx=(0, 6), pady=4)
     w = widget_factory()
     w.grid(row=row, column=col_offset + 1, sticky="w", pady=4)
@@ -409,12 +428,12 @@ class _DNSPage(_ServicePage):
         f2 = _section_frame(self, "Custom DNS Records  (name = IP)")
         f2.pack(fill="both", expand=True, padx=PAD + 4, pady=(0, PAD + 4))
         hint = tk.Label(f2, text="One entry per line:  example.com = 192.168.1.1",
-                        bg=C_SURFACE, fg=C_DIM, font=("monospace", 8))
+                        bg=C_SURFACE, fg=C_DIM, font=_f(8))
         hint.pack(anchor="w", pady=(0, 4))
         self._records_text = scrolledtext.ScrolledText(
             f2, height=6, bg=C_ENTRY_BG, fg=C_ENTRY_FG,
             insertbackground=C_ACCENT, relief="flat",
-            font=("monospace", 9),
+            font=_f(9),
             highlightthickness=1, highlightbackground=C_BORDER,
             highlightcolor=C_ACCENT,
         )
@@ -456,6 +475,10 @@ class NotTheNetApp(tk.Tk):
         self._svc_vars: dict = {}  # service name → BooleanVar (status indicator)
         self._pages: dict = {}     # section name → page frame
 
+        # Initialise zoom-aware fonts before any widget is built
+        self._zoom_factor: float = float(self._cfg.get("ui", "zoom") or 1.0)
+        self._init_fonts()
+
         # Set up logging → queue bridge
         root_logger = logging.getLogger("notthenet")
         qh = _QueueHandler(self._log_queue)
@@ -472,11 +495,45 @@ class NotTheNetApp(tk.Tk):
 
     # ── UI construction ───────────────────────────────────────────────────────
 
+    def _init_fonts(self):
+        """Create (or reconfigure) all named Font objects for the current zoom."""
+        scale = self._zoom_factor
+        for sz in (7, 8, 9, 10, 17):
+            for bold in (False, True):
+                key = (sz, bold)
+                pt = max(6, round(sz * scale))
+                if key in _F:
+                    _F[key].configure(size=pt)
+                else:
+                    _F[key] = _tkfont.Font(
+                        family="monospace",
+                        size=pt,
+                        weight="bold" if bold else "normal",
+                    )
+
+    def _set_zoom(self, delta: float):
+        """Step the UI font scale by *delta* and persist it."""
+        new = max(_ZOOM_MIN, min(_ZOOM_MAX, self._zoom_factor + delta))
+        if new == self._zoom_factor:
+            return
+        self._zoom_factor = new
+        self._init_fonts()
+        # Update zoom label in toolbar if it exists
+        if hasattr(self, "_zoom_label"):
+            pct = round(new * 100)
+            self._zoom_label.configure(text=f"{pct}%")
+        self._cfg.set("ui", "zoom", round(new, 2))
+        self._cfg.save()
+
     def _build_ui(self):
         self._apply_ttk_styles()
         self._build_toolbar()
         self._build_main_pane()
         self._build_statusbar()
+        # Keyboard zoom shortcuts
+        self.bind_all("<Control-equal>",  lambda _e: self._set_zoom(+_ZOOM_STEP))
+        self.bind_all("<Control-minus>",  lambda _e: self._set_zoom(-_ZOOM_STEP))
+        self.bind_all("<Control-0>",      lambda _e: self._set_zoom(1.0 - self._zoom_factor))
 
     def _apply_ttk_styles(self):
         style = ttk.Style(self)
@@ -505,12 +562,12 @@ class NotTheNetApp(tk.Tk):
         name_frame.pack(side="left", padx=(0, 14))
         tk.Label(
             name_frame, text="NotTheNet",
-            font=("monospace", 17, "bold"),
+            font=_f(17, True),
             bg=C_BG, fg=C_ACCENT,
         ).pack(anchor="sw")
         tk.Label(
             name_frame, text=f"v{APP_VERSION}  ·  Fake Internet Simulator",
-            font=("monospace", 8),
+            font=_f(8),
             bg=C_BG, fg=C_DIM,
         ).pack(anchor="nw")
 
@@ -519,7 +576,7 @@ class NotTheNetApp(tk.Tk):
 
         # Buttons
         btn_style = dict(relief="flat", bd=0, padx=14, pady=5,
-                         font=("monospace", 9, "bold"), cursor="hand2")
+                         font=_f(9, True), cursor="hand2")
 
         self._btn_start = tk.Button(
             inner, text="▶  Start", bg=C_GREEN, fg="#0c0c18",
@@ -546,7 +603,7 @@ class NotTheNetApp(tk.Tk):
         tk.Frame(inner, bg=C_BORDER, width=1).pack(side="left", fill="y", padx=6)
 
         sec_btn = dict(relief="flat", bd=0, padx=10, pady=5,
-                       font=("monospace", 9), cursor="hand2")
+                       font=_f(9), cursor="hand2")
         self._btn_save = tk.Button(
             inner, text="💾  Save", bg=C_HOVER, fg=C_TEXT,
             command=self._on_save, **sec_btn
@@ -579,6 +636,43 @@ class NotTheNetApp(tk.Tk):
                 "reinstall Python dependencies (pip install -e .).\n"
                 "A restart prompt is shown if any files changed.")
 
+        # ── Zoom controls ──
+        tk.Frame(inner, bg=C_BORDER, width=1).pack(side="left", fill="y", padx=6)
+
+        zoom_frame = tk.Frame(inner, bg=C_BG)
+        zoom_frame.pack(side="left")
+
+        btn_zoom_out = tk.Button(
+            zoom_frame, text="A−",
+            bg=C_HOVER, fg=C_SUBTLE, relief="flat",
+            padx=6, pady=3, font=_f(8), cursor="hand2",
+            command=lambda: self._set_zoom(-_ZOOM_STEP),
+        )
+        btn_zoom_out.pack(side="left")
+        _hover_bind(btn_zoom_out, C_HOVER, C_SELECTED)
+        tooltip(btn_zoom_out, "Zoom out  (Ctrl+−)")
+
+        self._zoom_label = tk.Label(
+            zoom_frame,
+            text=f"{round(self._zoom_factor * 100)}%",
+            bg=C_BG, fg=C_DIM,
+            font=_f(8), width=4,
+        )
+        self._zoom_label.pack(side="left")
+        tooltip(self._zoom_label,
+                "Current zoom level.\n"
+                "Ctrl+= zoom in · Ctrl+− zoom out · Ctrl+0 reset")
+
+        btn_zoom_in = tk.Button(
+            zoom_frame, text="A+",
+            bg=C_HOVER, fg=C_SUBTLE, relief="flat",
+            padx=6, pady=3, font=_f(8), cursor="hand2",
+            command=lambda: self._set_zoom(+_ZOOM_STEP),
+        )
+        btn_zoom_in.pack(side="left")
+        _hover_bind(btn_zoom_in, C_HOVER, C_SELECTED)
+        tooltip(btn_zoom_in, "Zoom in  (Ctrl+=)")
+
         # Root warning (right side)
         import os as _os
         if _os.name != "nt" and _os.geteuid() != 0:
@@ -586,7 +680,7 @@ class NotTheNetApp(tk.Tk):
                 inner,
                 text="⚠  Not root — ports <1024 may fail",
                 bg=C_BG, fg=C_ORANGE,
-                font=("monospace", 8),
+                font=_f(8),
             )
             warn.pack(side="right", padx=PAD)
 
@@ -625,7 +719,7 @@ class NotTheNetApp(tk.Tk):
         tk.Label(
             hdr, text="  SERVICES",
             bg=C_PANEL, fg=C_DIM,
-            font=("monospace", 8, "bold"),
+            font=_f(8, True),
         ).pack(anchor="w")
         tk.Frame(left, bg=C_BORDER, height=1).pack(fill="x")
 
@@ -691,7 +785,7 @@ class NotTheNetApp(tk.Tk):
         tk.Label(
             f, text=f"  {title}",
             bg=C_PANEL, fg=C_DIM,
-            font=("monospace", 7, "bold"),
+            font=_f(7, True),
         ).pack(anchor="w", padx=4)
 
     def _add_sidebar_btn(self, parent, key: str, label: str, tip: str = ""):
@@ -700,13 +794,13 @@ class NotTheNetApp(tk.Tk):
         row.pack(fill="x", pady=1)
 
         dot = tk.Label(row, text="●", bg=C_PANEL, fg=C_DIM,
-                       font=("monospace", 7))
+                       font=_f(7))
         dot.pack(side="right", padx=(0, 8))
 
         btn = tk.Label(
             row, text=f"  {label}",
             bg=C_PANEL, fg=C_SUBTLE,
-            font=("monospace", 9), anchor="w",
+            font=_f(9), anchor="w",
         )
         btn.pack(side="left", fill="x", expand=True, ipady=5)
 
@@ -861,12 +955,12 @@ class NotTheNetApp(tk.Tk):
             if k == key:
                 row.configure(bg=C_SELECTED)
                 btn.configure(bg=C_SELECTED, fg=C_TEXT,
-                              font=("monospace", 9, "bold"))
+                              font=_f(9, True))
                 dot.configure(bg=C_SELECTED)
             else:
                 row.configure(bg=C_PANEL)
                 btn.configure(bg=C_PANEL, fg=C_SUBTLE,
-                              font=("monospace", 9))
+                              font=_f(9))
                 dot.configure(bg=C_PANEL)
 
     def _build_log_panel(self, parent):
@@ -878,7 +972,7 @@ class NotTheNetApp(tk.Tk):
         tk.Label(
             hdr, text="  LIVE LOG",
             bg=C_BG, fg=C_DIM,
-            font=("monospace", 8, "bold"),
+            font=_f(8, True),
         ).pack(side="left")
 
         # Level filter pills
@@ -897,7 +991,7 @@ class NotTheNetApp(tk.Tk):
                 filter_frame, text=lvl,
                 bg=C_HOVER, fg=colour,
                 relief="flat", bd=0, padx=6, pady=2,
-                font=("monospace", 7, "bold"), cursor="hand2",
+                font=_f(7, True), cursor="hand2",
                 command=lambda l=lvl: self._toggle_log_filter(l),
             )
             b.pack(side="left", padx=2)
@@ -908,7 +1002,7 @@ class NotTheNetApp(tk.Tk):
         clear_btn = tk.Button(
             hdr, text="✕ Clear",
             bg=C_BG, fg=C_DIM, relief="flat",
-            font=("monospace", 8), cursor="hand2",
+            font=_f(8), cursor="hand2",
             command=lambda: self._log_widget.configure(state="normal") or
                             self._log_widget.delete("1.0", "end") or
                             self._log_widget.configure(state="disabled"),
@@ -920,7 +1014,7 @@ class NotTheNetApp(tk.Tk):
             parent,
             bg=C_LOG_BG,
             fg=C_TEXT,
-            font=("monospace", 9),
+            font=_f(9),
             relief="flat",
             state="disabled",
             wrap="none",
@@ -951,12 +1045,12 @@ class NotTheNetApp(tk.Tk):
         bar.pack(fill="x", side="bottom")
         self._status_label = tk.Label(
             bar, text="●  Stopped", bg=C_BG, fg=C_DIM,
-            font=("monospace", 8), anchor="w"
+            font=_f(8), anchor="w"
         )
         self._status_label.pack(side="left", padx=(PAD + 2, 0))
         tk.Label(
             bar, text="github.com/retr0verride/NotTheNet",
-            bg=C_BG, fg=C_DIM, font=("monospace", 8),
+            bg=C_BG, fg=C_DIM, font=_f(8),
         ).pack(side="right", padx=PAD)
 
     # ── Log polling ───────────────────────────────────────────────────────────
@@ -1165,7 +1259,7 @@ class NotTheNetApp(tk.Tk):
         tk.Label(
             dlg, text=header_text,
             bg=C_BG, fg=header_color,
-            font=("monospace", 10, "bold"),
+            font=_f(10, True),
             anchor="w",
         ).pack(fill="x", padx=PAD + 4, pady=(PAD, 4))
 
@@ -1174,12 +1268,12 @@ class NotTheNetApp(tk.Tk):
         # Scrollable output
         txt = scrolledtext.ScrolledText(
             dlg, bg=C_LOG_BG, fg=C_TEXT,
-            font=("monospace", 9), relief="flat",
+            font=_f(9), relief="flat",
             highlightthickness=0, state="normal",
         )
         txt.pack(fill="both", expand=True, padx=PAD, pady=PAD)
 
-        txt.tag_config("header",  foreground=C_ACCENT2,  font=("monospace", 9, "bold"))
+        txt.tag_config("header",  foreground=C_ACCENT2,  font=_f(9, True))
         txt.tag_config("ok",      foreground=C_GREEN)
         txt.tag_config("err",     foreground=C_RED)
         txt.tag_config("body",    foreground=C_SUBTLE)
@@ -1214,7 +1308,7 @@ class NotTheNetApp(tk.Tk):
                 btn_frame, text="↺  Restart Now",
                 bg=C_GREEN, fg="#0c0c18",
                 relief="flat", padx=12, pady=4,
-                font=("monospace", 9, "bold"), cursor="hand2",
+                font=_f(9, True), cursor="hand2",
                 command=_restart,
             ).pack(side="left", padx=(0, 6))
 
@@ -1222,7 +1316,7 @@ class NotTheNetApp(tk.Tk):
             btn_frame, text="Close",
             bg=C_HOVER, fg=C_TEXT,
             relief="flat", padx=12, pady=4,
-            font=("monospace", 9), cursor="hand2",
+            font=_f(9), cursor="hand2",
             command=dlg.destroy,
         ).pack(side="left")
 
