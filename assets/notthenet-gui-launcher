@@ -12,7 +12,13 @@ SCRIPT="SCRIPT_PLACEHOLDER"
 
 # ── Pick an escalation method ────────────────────────────────────────
 if command -v pkexec &>/dev/null; then
-    exec pkexec --disable-internal-agent "$VENV_PYTHON" "$SCRIPT" "$@"
+    # pkexec (polkit >= 0.106) strips DISPLAY/XAUTHORITY — pass them explicitly.
+    exec pkexec --disable-internal-agent env \
+        DISPLAY="$DISPLAY" \
+        XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}" \
+        WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
+        XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" \
+        "$VENV_PYTHON" "$SCRIPT" "$@"
 elif command -v kdesudo &>/dev/null; then
     exec kdesudo -- "$VENV_PYTHON" "$SCRIPT" "$@"
 elif command -v gksudo &>/dev/null; then

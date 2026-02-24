@@ -195,6 +195,32 @@ sudo iptables -A FORWARD -i virbr0 -o eth0 -j DROP
 
 ## GUI won't start / Tkinter errors
 
+**Symptom:** Password prompt appears (pkexec / polkit) but the GUI never opens afterward.
+
+This is a known polkit issue — versions 0.106+ strip `DISPLAY` and `XAUTHORITY` from the
+environment before launching the process, so the program starts as root but cannot connect
+to the X display.
+
+**Fix:** Re-run the install script to deploy the updated launcher that explicitly forwards the display environment:
+
+```bash
+sudo bash notthenet-install.sh
+```
+
+Then launch via the desktop icon or:
+
+```bash
+notthenet-gui
+```
+
+If you cannot re-run the install script, you can work around it by launching directly from a terminal with `sudo`:
+
+```bash
+sudo /path/to/venv/bin/python notthenet.py
+```
+
+---
+
 **Symptom:** `ModuleNotFoundError: No module named 'tkinter'` or display errors.
 
 ```bash
