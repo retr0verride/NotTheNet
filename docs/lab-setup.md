@@ -33,7 +33,7 @@ Every DNS query, HTTP/S request, SMTP, FTP, or unknown TCP/UDP connection from F
 
 - Proxmox VE installed and accessible via the web UI
 - Kali Linux ISO uploaded to Proxmox storage
-- Windows 10/11 ISO uploaded to Proxmox storage
+- Windows 10/11/11-24H2 ISO uploaded to Proxmox storage
 - At least **24 GB RAM** and **200 GB disk** free on the Proxmox host
 
 ---
@@ -157,7 +157,7 @@ sudo iptables -t nat -L PREROUTING -n -v | grep NOTTHENET
 | Setting | Value |
 |---------|-------|
 | Name | `flarevm` |
-| ISO | Windows 10/11 |
+| ISO | Windows 11 24H2 (or Windows 10/11) |
 | OS type | Microsoft Windows |
 | Disk | 100 GB+ |
 | CPU | 4+ cores |
@@ -168,8 +168,38 @@ sudo iptables -t nat -L PREROUTING -n -v | grep NOTTHENET
 
 ### Install Windows
 
-Boot the ISO. At the network screen choose:
-**"I don't have internet"** → **"Continue with limited setup"**
+Boot the ISO.
+
+**Windows 11 24H2 — create a local account (no Microsoft account required):**
+
+When the setup reaches the network/sign-in screen, open a command prompt with **Shift+F10** and run:
+```cmd
+start ms-cxh:localonly
+```
+This bypasses the Microsoft account requirement and presents a local account form directly. Create your account, then close the prompt and continue setup.
+
+> On older Windows 11 builds (pre-24H2) the classic workaround `oobe\bypassnro` still works, but it was removed in 24H2.
+
+Eject the ISO when setup is complete.
+
+### Disable security features that block analysis tools
+
+FlareVM installs debuggers, hooking libraries, and other tools that Windows 11's security features will block or break. **Disable these before running the FlareVM installer:**
+
+1. **Memory Integrity (Core Isolation / HVCI)**
+   Settings → Privacy & Security → Windows Security → Device Security → Core isolation details → turn **Memory integrity OFF** → reboot.
+
+2. **Smart App Control**
+   If shown as *Evaluation* or *On*: Windows Security → App & Browser Control → Smart App Control → **Off**.
+   *(Once set to Off it cannot be re-enabled without a clean reinstall — leave it off for an analysis VM.)*
+
+3. **Tamper Protection**
+   Windows Security → Virus & Threat Protection → Manage settings → **Tamper Protection OFF**.
+
+4. **Real-time Protection** (optional but speeds up install)
+   Same page → **Real-time protection OFF**.
+
+> None of these steps are needed for the Kali / NotTheNet side — only for the Windows analysis VM.
 
 Create a local account. Eject the ISO when done.
 
