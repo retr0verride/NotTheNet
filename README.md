@@ -22,6 +22,7 @@ NotTheNet simulates the internet for malware being analysed in an isolated envir
 | [Network & iptables](docs/network.md) | Traffic redirection, loopback vs gateway mode, manual rules |
 | [Security Hardening](docs/security-hardening.md) | Lab isolation, interface binding, privilege model, OpenSSF practices |
 | [Troubleshooting](docs/troubleshooting.md) | Common errors and fixes |
+| [Lab Setup: Proxmox + Kali + FlareVM](docs/lab-setup.md) | Isolated lab wiring, IP forwarding, detonation workflow |
 
 Man page available at [`man/notthenet.1`](man/notthenet.1) — install with `sudo install.sh` or manually via `man ./man/notthenet.1`.
 
@@ -41,7 +42,6 @@ Man page available at [`man/notthenet.1`](man/notthenet.1) — install with `sud
 | **iptables manager** | Auto-applies NAT REDIRECT rules; cleanly restores originals on stop. |
 | **Dark GUI** | Grouped sidebar, live colour-coded log panel with level filters, tooltips on every field and button. |
 | **Desktop integration** | App menu icon, pkexec/polkit privilege prompt — no terminal needed to launch. |
-| **In-GUI updates** | One-click `git pull` + dependency reinstall with optional auto-restart. |
 
 ---
 
@@ -65,12 +65,6 @@ sudo bash install.sh
 ---
 
 ## Updating
-
-### GUI (easiest)
-
-Click **↑ Update** in the toolbar — it runs `git pull` and `pip install -r requirements.txt`, shows the output, and offers a **↺ Restart Now** button if new code was pulled.
-
-### Command line
 
 ```bash
 cd NotTheNet

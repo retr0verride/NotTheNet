@@ -19,6 +19,7 @@ Welcome to the NotTheNet documentation hub. NotTheNet is a fake internet simulat
 | [Network & iptables](network.md) | How traffic redirection works, gateway vs loopback modes |
 | [Security Hardening](security-hardening.md) | Lab network isolation, interface binding, privilege model |
 | [Troubleshooting](troubleshooting.md) | Common errors and fixes |
+| [Lab Setup: Proxmox + Kali + FlareVM](lab-setup.md) | Isolated lab wiring, IP forwarding, detonation workflow |
 
 Man page: [`man/notthenet.1`](../man/notthenet.1)
 
