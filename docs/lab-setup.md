@@ -238,7 +238,7 @@ Run these from **FlareVM PowerShell** before detonating anything.
 | Test | Command | Expected result |
 |------|---------|----------------|
 | Connectivity | `ping 10.0.0.1` | Replies from Kali |
-| DNS | `Resolve-DnsName evil-c2.com` | Resolves to `10.0.0.1` |
+| DNS | `nslookup evil-c2.com` | Resolves to `10.0.0.1` |
 | HTTP | `Invoke-WebRequest http://google.com -UseBasicParsing` | `200 OK` |
 | HTTPS | `Invoke-WebRequest https://google.com -SkipCertificateCheck -UseBasicParsing` | `200 OK` |
 | SMTP | `Test-NetConnection 10.0.0.1 -Port 25` | `TcpTestSucceeded: True` |
@@ -629,11 +629,11 @@ Expected: replies from Kali.
 
 ### 4.2 DNS
 
-From FlareVM PowerShell:
-```powershell
-Resolve-DnsName evil-c2-domain.com
-Resolve-DnsName updates.microsoft.com
-Resolve-DnsName anything-at-all.xyz
+From FlareVM (cmd or PowerShell — `nslookup` works on every Windows version):
+```cmd
+nslookup evil-c2-domain.com
+nslookup updates.microsoft.com
+nslookup anything-at-all.xyz
 ```
 Every query should return `10.0.0.1`. Check the NotTheNet DNS log entries appear in the live log.
 
