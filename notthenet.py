@@ -1,19 +1,19 @@
-﻿"""
+"""
 NotTheNet - Main GUI Application
 Tkinter-based configuration and control panel.
 
 Layout:
-  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-  â”‚  NotTheNet  [Start] [Stop] [â—/â—‹ status]            â”‚
-  â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
-  â”‚  Services     â”‚  Config Panel (tabbed per service)  â”‚
-  â”‚  â—‹ DNS        â”‚                                     â”‚
-  â”‚  â—‹ HTTP       â”‚                                     â”‚
-  â”‚  â—‹ HTTPS      â”‚                                     â”‚
-  â”‚  ...          â”‚                                     â”‚
-  â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
-  â”‚  Live Log                                           â”‚
-  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+  ┌─────────────────────────────────────────────────────┐
+  │  NotTheNet  [Start] [Stop] [●/○ status]            │
+  ├───────────────┬─────────────────────────────────────┤
+  │  Services     │  Config Panel (tabbed per service)  │
+  │  ○ DNS        │                                     │
+  │  ○ HTTP       │                                     │
+  │  ○ HTTPS      │                                     │
+  │  ...          │                                     │
+  ├───────────────┴─────────────────────────────────────┤
+  │  Live Log                                           │
+  └─────────────────────────────────────────────────────┘
 """
 
 import logging
@@ -33,16 +33,16 @@ from config import Config
 from service_manager import ServiceManager
 from utils.logging_utils import setup_logging
 
-# â”€â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Constants ────────────────────────────────────────────────────────────────
 
-APP_TITLE = "NotTheNet â€” Fake Internet Simulator"
+APP_TITLE = "NotTheNet — Fake Internet Simulator"
 APP_VERSION = "1.0.0"
 PAD = 8
 FIELD_WIDTH = 22
 LOG_MAX_LINES = 2000  # Cap displayed log lines to avoid memory creep
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # Project root
 
-# â”€â”€â”€ Colour scheme â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Colour scheme ──────────────────────────────────────────────────────────
 C_BG       = "#13131f"   # Window background
 C_PANEL    = "#1a1a2c"   # Sidebar / panel background
 C_SURFACE  = "#222235"   # Config page surface
@@ -62,7 +62,7 @@ C_SELECTED = "#1a3a4f"   # Sidebar selected
 C_LOG_BG   = "#0c0c18"   # Log panel background
 
 
-# â”€â”€â”€ Zoom / font scale â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Zoom / font scale ───────────────────────────────────────────────────────
 
 _ZOOM_STEP = 0.15
 _ZOOM_MIN  = 0.70
@@ -115,7 +115,7 @@ def _f(size: int, bold: bool = False):
     return ("monospace", size, "bold") if bold else ("monospace", size)
 
 
-# â”€â”€â”€ Hover helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Hover helper ────────────────────────────────────────────────────────────
 
 def _hover_bind(widget, normal_bg: str, hover_bg: str):
     """Simulate button hover by swapping background colour on Enter/Leave."""
@@ -123,7 +123,7 @@ def _hover_bind(widget, normal_bg: str, hover_bg: str):
     widget.bind("<Leave>", lambda _e: widget.configure(bg=normal_bg))
 
 
-# â”€â”€â”€ Tooltip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Tooltip ─────────────────────────────────────────────────────────────────
 
 class _Tooltip:
     """Dark-themed tooltip that appears after a short hover delay."""
@@ -192,7 +192,7 @@ def tooltip(widget: tk.Widget, text: str) -> None:
         _Tooltip(widget, text)
 
 
-# â”€â”€â”€ Logging bridge: route Python log records â†’ GUI queue â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Logging bridge: route Python log records → GUI queue ────────────────────
 
 class _QueueHandler(logging.Handler):
     def __init__(self, log_queue: queue.Queue):
@@ -206,7 +206,7 @@ class _QueueHandler(logging.Handler):
             pass
 
 
-# â”€â”€â”€ Helper widgets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Helper widgets ──────────────────────────────────────────────────────────
 
 def _label(parent, text, **kw):
     bg = kw.pop("bg", C_SURFACE)
@@ -264,9 +264,9 @@ def _section_frame(parent, title: str):
 
 
 def _info_icon(parent, tip: str) -> tk.Label:
-    """Small â“˜ label that carries a tooltip. Returns the widget."""
+    """Small ⓘ label that carries a tooltip. Returns the widget."""
     lbl = tk.Label(
-        parent, text=" â“˜",
+        parent, text=" ⓘ",
         bg=C_SURFACE, fg=C_DIM,
         font=_f(9), cursor="question_arrow",
     )
@@ -278,7 +278,7 @@ def _info_icon(parent, tip: str) -> tk.Label:
 
 def _row(parent, label: str, widget_factory, row: int,
          col_offset: int = 0, tip: str = ""):
-    """Lay out a label + widget pair in a grid, with an optional â“˜ info icon."""
+    """Lay out a label + widget pair in a grid, with an optional ⓘ info icon."""
     lbl = tk.Label(parent, text=label, bg=C_SURFACE, fg=C_SUBTLE,
                    font=_f(9), anchor="e")
     lbl.grid(row=row, column=col_offset, sticky="e", padx=(0, 6), pady=4)
@@ -290,12 +290,12 @@ def _row(parent, label: str, widget_factory, row: int,
     return w
 
 
-# â”€â”€â”€ Per-service configuration pages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Per-service configuration pages ─────────────────────────────────────────
 
-# â”€â”€â”€ Tiny canvas globe icon â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Tiny canvas globe icon ─────────────────────────────────────────────────
 
 class _GlobeCanvas(tk.Canvas):
-    """~46Ã—46 px canvas that draws the NotTheNet globe+prohibition logo."""
+    """~46×46 px canvas that draws the NotTheNet globe+prohibition logo."""
 
     SIZE = 46
 
@@ -335,7 +335,7 @@ class _GlobeCanvas(tk.Canvas):
         self.create_oval(cx - pr, cy - pr, cx + pr, cy + pr,
                          outline=red, width=3)
 
-        # Prohibition slash (top-right â†’ bottom-left, 45Â°)
+        # Prohibition slash (top-right → bottom-left, 45°)
         import math
         angle = math.radians(45)
         x1 = cx + pr * math.cos(angle)
@@ -346,7 +346,7 @@ class _GlobeCanvas(tk.Canvas):
                          capstyle="round")
 
 
-# â”€â”€â”€ Per-service configuration pages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Per-service configuration pages ─────────────────────────────────────────
 
 class _GeneralPage(tk.Frame):
     def __init__(self, parent, cfg: Config):
@@ -513,7 +513,7 @@ class _DNSPage(_ServicePage):
         self.cfg.set("dns", "custom_records", records)
 
 
-# â”€â”€â”€ Main Application Window â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Main Application Window ─────────────────────────────────────────────────
 
 class NotTheNetApp(tk.Tk):
     def __init__(self, config_path: Optional[str] = None):
@@ -530,19 +530,19 @@ class NotTheNetApp(tk.Tk):
             self.iconphoto(True, _icon)
             self._icon = _icon  # keep a reference so GC doesn't drop it
         except Exception:
-            pass  # non-fatal â€” icon is cosmetic only
+            pass  # non-fatal — icon is cosmetic only
 
         self._cfg = Config(config_path or "config.json")
         self._log_queue: queue.Queue = queue.Queue()
         self._manager: Optional[ServiceManager] = None
-        self._svc_vars: dict = {}  # service name â†’ BooleanVar (status indicator)
-        self._pages: dict = {}     # section name â†’ page frame
+        self._svc_vars: dict = {}  # service name → BooleanVar (status indicator)
+        self._pages: dict = {}     # section name → page frame
 
         # Initialise zoom-aware fonts before any widget is built
         self._zoom_factor: float = float(self._cfg.get("ui", "zoom") or 1.0)
         self._init_fonts()
 
-        # Set up logging â†’ queue bridge
+        # Set up logging → queue bridge
         root_logger = logging.getLogger("notthenet")
         qh = _QueueHandler(self._log_queue)
         qh.setFormatter(
@@ -556,7 +556,7 @@ class NotTheNetApp(tk.Tk):
         self._poll_log_queue()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
-    # â”€â”€ UI construction â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── UI construction ───────────────────────────────────────────────────────
 
     def _init_fonts(self):
         """Create (or reconfigure) all named Font objects for the current zoom."""
@@ -629,7 +629,7 @@ class NotTheNetApp(tk.Tk):
             bg=C_BG, fg=C_ACCENT,
         ).pack(anchor="sw")
         tk.Label(
-            name_frame, text=f"v{APP_VERSION}  Â·  Fake Internet Simulator",
+            name_frame, text=f"v{APP_VERSION}  ·  Fake Internet Simulator",
             font=_f(8),
             bg=C_BG, fg=C_DIM,
         ).pack(anchor="nw")
@@ -642,7 +642,7 @@ class NotTheNetApp(tk.Tk):
                          font=_f(9, True), cursor="hand2")
 
         self._btn_start = tk.Button(
-            inner, text="â–¶  Start", bg=C_GREEN, fg="#0c0c18",
+            inner, text="▶  Start", bg=C_GREEN, fg="#0c0c18",
             command=self._on_start, **btn_style
         )
         self._btn_start.pack(side="left", padx=(0, 4))
@@ -653,7 +653,7 @@ class NotTheNetApp(tk.Tk):
                 "Requires root (or sudo).")
 
         self._btn_stop = tk.Button(
-            inner, text="â–   Stop", bg=C_RED, fg="#0c0c18",
+            inner, text="■  Stop", bg=C_RED, fg="#0c0c18",
             command=self._on_stop, state="disabled", **btn_style
         )
         self._btn_stop.pack(side="left", padx=(0, 10))
@@ -668,7 +668,7 @@ class NotTheNetApp(tk.Tk):
         sec_btn = dict(relief="flat", bd=0, padx=10, pady=5,
                        font=_f(9), cursor="hand2")
         self._btn_save = tk.Button(
-            inner, text="ðŸ’¾  Save", bg=C_HOVER, fg=C_TEXT,
+            inner, text="💾  Save", bg=C_HOVER, fg=C_TEXT,
             command=self._on_save, **sec_btn
         )
         self._btn_save.pack(side="left", padx=2)
@@ -676,7 +676,7 @@ class NotTheNetApp(tk.Tk):
         tooltip(self._btn_save, "Save current GUI settings to config.json.")
 
         self._btn_load = tk.Button(
-            inner, text="ðŸ“‚  Loadâ€¦", bg=C_HOVER, fg=C_TEXT,
+            inner, text="📂  Load…", bg=C_HOVER, fg=C_TEXT,
             command=self._on_load, **sec_btn
         )
         self._btn_load.pack(side="left", padx=2)
@@ -689,7 +689,7 @@ class NotTheNetApp(tk.Tk):
         tk.Frame(inner, bg=C_BORDER, width=1).pack(side="left", fill="y", padx=6)
 
         self._btn_update = tk.Button(
-            inner, text="â†‘  Update", bg=C_HOVER, fg=C_ACCENT2,
+            inner, text="↑  Update", bg=C_HOVER, fg=C_ACCENT2,
             command=self._on_update, **sec_btn
         )
         self._btn_update.pack(side="left", padx=2)
@@ -699,21 +699,21 @@ class NotTheNetApp(tk.Tk):
                 "reinstall Python dependencies (pip install -e .).\n"
                 "A restart prompt is shown if any files changed.")
 
-        # â”€â”€ Zoom controls â”€â”€
+        # ── Zoom controls ──
         tk.Frame(inner, bg=C_BORDER, width=1).pack(side="left", fill="y", padx=6)
 
         zoom_frame = tk.Frame(inner, bg=C_BG)
         zoom_frame.pack(side="left")
 
         btn_zoom_out = tk.Button(
-            zoom_frame, text="Aâˆ’",
+            zoom_frame, text="A−",
             bg=C_HOVER, fg=C_SUBTLE, relief="flat",
             padx=6, pady=3, font=_f(8), cursor="hand2",
             command=lambda: self._set_zoom(-_ZOOM_STEP),
         )
         btn_zoom_out.pack(side="left")
         _hover_bind(btn_zoom_out, C_HOVER, C_SELECTED)
-        tooltip(btn_zoom_out, "Zoom out  (Ctrl+âˆ’)")
+        tooltip(btn_zoom_out, "Zoom out  (Ctrl+−)")
 
         self._zoom_label = tk.Label(
             zoom_frame,
@@ -724,7 +724,7 @@ class NotTheNetApp(tk.Tk):
         self._zoom_label.pack(side="left")
         tooltip(self._zoom_label,
                 "Current zoom level.\n"
-                "Ctrl+= zoom in Â· Ctrl+âˆ’ zoom out Â· Ctrl+0 reset")
+                "Ctrl+= zoom in · Ctrl+− zoom out · Ctrl+0 reset")
 
         btn_zoom_in = tk.Button(
             zoom_frame, text="A+",
@@ -741,7 +741,7 @@ class NotTheNetApp(tk.Tk):
         if _os.name != "nt" and _os.geteuid() != 0:
             warn = tk.Label(
                 inner,
-                text="âš   Not root â€” ports <1024 may fail",
+                text="⚠  Not root — ports <1024 may fail",
                 bg=C_BG, fg=C_ORANGE,
                 font=_f(8),
             )
@@ -772,7 +772,7 @@ class NotTheNetApp(tk.Tk):
                               sashwidth=5, sashpad=0, sashrelief="flat")
         body.pack(fill="both", expand=True)
 
-        # â”€â”€ Left: service list â”€â”€
+        # ── Left: service list ──
         left = tk.Frame(body, bg=C_PANEL)
         body.add(left, minsize=148)
 
@@ -790,24 +790,24 @@ class NotTheNetApp(tk.Tk):
 
         # Group: General
         self._add_sidebar_section(left, "CONFIG")
-        self._add_sidebar_btn(left, "general", "âš™  General",
+        self._add_sidebar_btn(left, "general", "⚙  General",
                               "Global settings: bind IP, redirect IP,\n"
                               "network interface, log directory, and verbosity.")
 
         # Group: Network services
         self._add_sidebar_section(left, "NETWORK")
         for key, label, tip in [
-            ("dns",   "â—ˆ  DNS",
-             "Fake DNS server â€” resolves all hostnames to redirect_ip.\n"
+            ("dns",   "◈  DNS",
+             "Fake DNS server — resolves all hostnames to redirect_ip.\n"
              "Supports custom per-hostname overrides and PTR responses."),
-            ("http",  "â—ˆ  HTTP",
-             "Fake HTTP server â€” responds to all plaintext web requests\n"
+            ("http",  "◈  HTTP",
+             "Fake HTTP server — responds to all plaintext web requests\n"
              "with a configurable status code and body."),
-            ("https", "â—ˆ  HTTPS",
-             "Fake HTTPS server â€” TLS-encrypted HTTP with a self-signed cert.\n"
+            ("https", "◈  HTTPS",
+             "Fake HTTPS server — TLS-encrypted HTTP with a self-signed cert.\n"
              "Malware rarely validates the certificate."),
-            ("ftp",   "â—ˆ  FTP",
-             "Fake FTP server â€” accepts logins and optionally saves uploads\n"
+            ("ftp",   "◈  FTP",
+             "Fake FTP server — accepts logins and optionally saves uploads\n"
              "to disk with UUID filenames."),
         ]:
             self._add_sidebar_btn(left, key, label, tip)
@@ -815,23 +815,23 @@ class NotTheNetApp(tk.Tk):
         # Group: Mail services
         self._add_sidebar_section(left, "MAIL")
         for key, label, tip in [
-            ("smtp", "â—ˆ  SMTP",
-             "Fake SMTP server â€” accepts email submissions and optionally\n"
+            ("smtp", "◈  SMTP",
+             "Fake SMTP server — accepts email submissions and optionally\n"
              "saves them as .eml files for analysis."),
-            ("pop3", "â—ˆ  POP3",
-             "Fake POP3 server â€” announces an empty mailbox to connecting clients."),
-            ("imap", "â—ˆ  IMAP",
-             "Fake IMAP server â€” announces an empty INBOX to connecting clients."),
+            ("pop3", "◈  POP3",
+             "Fake POP3 server — announces an empty mailbox to connecting clients."),
+            ("imap", "◈  IMAP",
+             "Fake IMAP server — announces an empty INBOX to connecting clients."),
         ]:
             self._add_sidebar_btn(left, key, label, tip)
 
         # Group: Catch-all
         self._add_sidebar_section(left, "FALLBACK")
-        self._add_sidebar_btn(left, "catch_all", "â—ˆ  Catch-All",
-                              "TCP/UDP catch-all â€” iptables redirects all traffic\n"
+        self._add_sidebar_btn(left, "catch_all", "◈  Catch-All",
+                              "TCP/UDP catch-all — iptables redirects all traffic\n"
                               "not handled by specific services to these ports.")
 
-        # â”€â”€ Right: config pages â”€â”€
+        # ── Right: config pages ──
         right = tk.Frame(body, bg=C_SURFACE)
         body.add(right, minsize=500)
 
@@ -856,7 +856,7 @@ class NotTheNetApp(tk.Tk):
         row = tk.Frame(parent, bg=C_PANEL, cursor="hand2")
         row.pack(fill="x", pady=1)
 
-        dot = tk.Label(row, text="â—", bg=C_PANEL, fg=C_DIM,
+        dot = tk.Label(row, text="●", bg=C_PANEL, fg=C_DIM,
                        font=_f(7))
         dot.pack(side="right", padx=(0, 8))
 
@@ -1000,7 +1000,7 @@ class NotTheNetApp(tk.Tk):
              "to the TCP catch-all port above."),
             ("Redirect UDP (catch-all)", "redirect_udp", False,
              "Add an iptables REDIRECT rule to send all unmatched UDP traffic\n"
-             "to the UDP catch-all port. Use with caution â€” may disrupt UDP services."),
+             "to the UDP catch-all port. Use with caution — may disrupt UDP services."),
         ]
         self._pages["catch_all"] = _ServicePage(
             self._page_container, self._cfg, "catch_all", catch_fields, catch_checks
@@ -1063,7 +1063,7 @@ class NotTheNetApp(tk.Tk):
             self._log_filter_btns[lvl] = b
 
         clear_btn = tk.Button(
-            hdr, text="âœ• Clear",
+            hdr, text="✕ Clear",
             bg=C_BG, fg=C_DIM, relief="flat",
             font=_f(8), cursor="hand2",
             command=lambda: self._log_widget.configure(state="normal") or
@@ -1107,7 +1107,7 @@ class NotTheNetApp(tk.Tk):
         bar = tk.Frame(self, bg=C_BG, height=24)
         bar.pack(fill="x", side="bottom")
         self._status_label = tk.Label(
-            bar, text="â—  Stopped", bg=C_BG, fg=C_DIM,
+            bar, text="●  Stopped", bg=C_BG, fg=C_DIM,
             font=_f(8), anchor="w"
         )
         self._status_label.pack(side="left", padx=(PAD + 2, 0))
@@ -1116,7 +1116,7 @@ class NotTheNetApp(tk.Tk):
             bg=C_BG, fg=C_DIM, font=_f(8),
         ).pack(side="right", padx=PAD)
 
-    # â”€â”€ Log polling â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Log polling ───────────────────────────────────────────────────────────
 
     def _poll_log_queue(self):
         """Drain the log queue into the GUI log widget every 100 ms."""
@@ -1155,7 +1155,7 @@ class NotTheNetApp(tk.Tk):
         self._log_widget.see("end")
         self._log_widget.configure(state="disabled")
 
-    # â”€â”€ Service control â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Service control ───────────────────────────────────────────────────────
 
     def _apply_all_pages_to_config(self):
         for page in self._pages.values():
@@ -1177,16 +1177,16 @@ class NotTheNetApp(tk.Tk):
             self.after(0, self._update_ui_after_start, ok)
 
         threading.Thread(target=_start_thread, daemon=True).start()
-        self._status_label.configure(text="â—  Startingâ€¦", fg=C_ORANGE)
+        self._status_label.configure(text="●  Starting…", fg=C_ORANGE)
 
     def _update_ui_after_start(self, ok: bool):
         if ok:
             self._btn_start.configure(state="disabled")
             self._btn_stop.configure(state="normal")
-            self._status_label.configure(text="â—  Running", fg=C_GREEN)
+            self._status_label.configure(text="●  Running", fg=C_GREEN)
             self._update_service_indicators()
         else:
-            self._status_label.configure(text="â—  Failed â€” check log", fg=C_RED)
+            self._status_label.configure(text="●  Failed — check log", fg=C_RED)
 
     def _on_stop(self):
         if not self._manager:
@@ -1195,7 +1195,7 @@ class NotTheNetApp(tk.Tk):
         # so a rapid Stop->Start cannot attempt to rebind ports still in use.
         self._btn_start.configure(state="disabled")
         self._btn_stop.configure(state="disabled")
-        self._status_label.configure(text="â—  Stopping...", fg=C_ORANGE)
+        self._status_label.configure(text="●  Stopping...", fg=C_ORANGE)
 
         def _stop_thread():
             self._manager.stop()
@@ -1206,7 +1206,7 @@ class NotTheNetApp(tk.Tk):
     def _update_ui_after_stop(self):
         self._btn_start.configure(state="normal")
         self._btn_stop.configure(state="disabled")
-        self._status_label.configure(text="â—  Stopped", fg=C_DIM)
+        self._status_label.configure(text="●  Stopped", fg=C_DIM)
         for _key, (_row, _btn, dot) in self._service_btns.items():
             dot.configure(fg=C_DIM)
 
@@ -1232,7 +1232,7 @@ class NotTheNetApp(tk.Tk):
         if self._cfg.save():
             messagebox.showinfo("Saved", f"Config saved to:\n{self._cfg.config_path}")
         else:
-            messagebox.showerror("Error", "Failed to save config â€” check log.")
+            messagebox.showerror("Error", "Failed to save config — check log.")
 
     def _on_load(self):
         path = filedialog.askopenfilename(
@@ -1264,8 +1264,8 @@ class NotTheNetApp(tk.Tk):
         ):
             return
 
-        self._btn_update.configure(state="disabled", text="â†‘  Updatingâ€¦")
-        self._status_label.configure(text="â†‘  Checking for updatesâ€¦", fg=C_ACCENT2)
+        self._btn_update.configure(state="disabled", text="↑  Updating…")
+        self._status_label.configure(text="↑  Checking for updates…", fg=C_ACCENT2)
 
         def _run():
             import subprocess
@@ -1273,7 +1273,7 @@ class NotTheNetApp(tk.Tk):
             results = []
             changed = False
 
-            # â”€â”€ Step 1: git pull â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # ── Step 1: git pull ──────────────────────────────────────────
             try:
                 proc = subprocess.run(
                     ["git", "pull", "origin", "master"],
@@ -1284,9 +1284,9 @@ class NotTheNetApp(tk.Tk):
                 changed = proc.returncode == 0 and "Already up to date." not in output
             except FileNotFoundError:
                 results.append(("git pull", -1,
-                                 "git not found â€” is git installed?"))
+                                 "git not found — is git installed?"))
 
-            # â”€â”€ Step 2: pip install â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # ── Step 2: pip install ───────────────────────────────────────
             try:
                 proc = subprocess.run(
                     [_sys.executable, "-m", "pip", "install",
@@ -1305,10 +1305,10 @@ class NotTheNetApp(tk.Tk):
 
     def _show_update_result(self, results: list, changed: bool):
         """Display update output in a scrollable dialog."""
-        self._btn_update.configure(state="normal", text="â†‘  Update")
+        self._btn_update.configure(state="normal", text="↑  Update")
         all_ok = all(rc == 0 for _, rc, _ in results)
         self._status_label.configure(
-            text="â— Running" if (self._manager and self._manager.running) else "â—  Stopped",
+            text="● Running" if (self._manager and self._manager.running) else "●  Stopped",
             fg=C_GREEN if (self._manager and self._manager.running) else C_DIM,
         )
 
@@ -1327,10 +1327,10 @@ class NotTheNetApp(tk.Tk):
         # Header
         header_color = C_GREEN if (all_ok and changed) else (C_ACCENT if all_ok else C_RED)
         header_text = (
-            "âœ”  Updated successfully â€” restart to apply changes."
+            "✔  Updated successfully — restart to apply changes."
             if (all_ok and changed) else
-            "âœ”  Already up to date." if all_ok else
-            "âœ˜  Update encountered errors."
+            "✔  Already up to date." if all_ok else
+            "✘  Update encountered errors."
         )
         tk.Label(
             dlg, text=header_text,
@@ -1355,7 +1355,7 @@ class NotTheNetApp(tk.Tk):
         txt.tag_config("body",    foreground=C_SUBTLE)
 
         for step, returncode, output in results:
-            txt.insert("end", f"â”€â”€ {step} ", "header")
+            txt.insert("end", f"── {step} ", "header")
             status = "(OK)" if returncode == 0 else f"(exit {returncode})"
             txt.insert("end", status + "\n", "ok" if returncode == 0 else "err")
             if output:
@@ -1381,7 +1381,7 @@ class NotTheNetApp(tk.Tk):
                 self.destroy()
 
             tk.Button(
-                btn_frame, text="â†º  Restart Now",
+                btn_frame, text="↺  Restart Now",
                 bg=C_GREEN, fg="#0c0c18",
                 relief="flat", padx=12, pady=4,
                 font=_f(9, True), cursor="hand2",
@@ -1415,13 +1415,13 @@ def _print_logo() -> None:
     banner = (
         f"{CYAN}"
         "\n"
-        "  â–ˆâ–ˆâ–ˆâ•—   â–ˆâ–ˆâ•— â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•— â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—    â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—â–ˆâ–ˆâ•—  â–ˆâ–ˆâ•—â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—    â–ˆâ–ˆâ–ˆâ•—   â–ˆâ–ˆâ•—â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—\n"
-        "  â–ˆâ–ˆâ–ˆâ–ˆâ•—  â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•”â•â•â•â–ˆâ–ˆâ•—â•šâ•â•â–ˆâ–ˆâ•”â•â•â•       â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•‘  â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•”â•â•â•â•â•    â–ˆâ–ˆâ–ˆâ–ˆâ•—  â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•”â•â•â•â•â•â•šâ•â•â–ˆâ–ˆâ•”â•â•â•\n"
-        "  â–ˆâ–ˆâ•”â–ˆâ–ˆâ•— â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•‘          â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•‘â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—      â–ˆâ–ˆâ•”â–ˆâ–ˆâ•— â–ˆâ–ˆâ•‘â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—     â–ˆâ–ˆâ•‘   \n"
-        "  â–ˆâ–ˆâ•‘â•šâ–ˆâ–ˆâ•—â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•‘          â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•”â•â•â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•”â•â•â•      â–ˆâ–ˆâ•‘â•šâ–ˆâ–ˆâ•—â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•”â•â•â•     â–ˆâ–ˆâ•‘   \n"
-        "  â–ˆâ–ˆâ•‘ â•šâ–ˆâ–ˆâ–ˆâ–ˆâ•‘â•šâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•”â•   â–ˆâ–ˆâ•‘          â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•‘  â–ˆâ–ˆâ•‘â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—    â–ˆâ–ˆâ•‘ â•šâ–ˆâ–ˆâ–ˆâ–ˆâ•‘â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—   â–ˆâ–ˆâ•‘   \n"
-        "  â•šâ•â•  â•šâ•â•â•â• â•šâ•â•â•â•â•â•    â•šâ•â•          â•šâ•â•   â•šâ•â•  â•šâ•â•â•šâ•â•â•â•â•â•â•    â•šâ•â•  â•šâ•â•â•â•â•šâ•â•â•â•â•â•â•   â•šâ•â•  \n"
-        "                          Fake Internet Simulator  Â·  Malware Analysis\n"
+        "  ███╗   ██╗ ██████╗ ████████╗    ████████╗██╗  ██╗███████╗    ███╗   ██╗███████╗████████╗\n"
+        "  ████╗  ██║██╔═══██╗╚══██╔══╝       ██║   ██║  ██║██╔════╝    ████╗  ██║██╔════╝╚══██╔══╝\n"
+        "  ██╔██╗ ██║██║   ██║   ██║          ██║   ███████║█████╗      ██╔██╗ ██║█████╗     ██║   \n"
+        "  ██║╚██╗██║██║   ██║   ██║          ██║   ██╔══██║██╔══╝      ██║╚██╗██║██╔══╝     ██║   \n"
+        "  ██║ ╚████║╚██████╔╝   ██║          ██║   ██║  ██║███████╗    ██║ ╚████║███████╗   ██║   \n"
+        "  ╚═╝  ╚═══╝ ╚═════╝    ╚═╝          ╚═╝   ╚═╝  ╚═╝╚══════╝    ╚═╝  ╚═══╝╚══════╝   ╚═╝  \n"
+        "                          Fake Internet Simulator  ·  Malware Analysis\n"
         f"{RESET}"
     )
     print(banner)
@@ -1429,7 +1429,7 @@ def _print_logo() -> None:
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="NotTheNet â€” Fake Internet Simulator")
+    parser = argparse.ArgumentParser(description="NotTheNet — Fake Internet Simulator")
     parser.add_argument("--config", default="config.json", help="Path to config JSON")
     parser.add_argument("--nogui", action="store_true",
                         help="Run headless (CLI mode, no GUI)")
@@ -1458,7 +1458,7 @@ def main():
         stop_event = threading.Event()
 
         def _sig_handler(sig, frame):
-            logger.info(f"Signal {sig} received; shutting downâ€¦")
+            logger.info(f"Signal {sig} received; shutting down…")
             stop_event.set()
 
         signal.signal(signal.SIGINT, _sig_handler)
