@@ -249,7 +249,8 @@ The script will:
 2. Back up your local `config.json` if it has unsaved changes, pull, then restore it automatically
 3. Pull the latest code from GitHub
 4. Re-install the package (picks up dependency or entry-point changes)
-5. Print the new version number
+5. Re-sync system-installed assets — icon (SVG + 128 px PNG), `.desktop` file, and polkit action — so the app menu always reflects the latest version
+6. Print the new version number
 
 ### Manual steps
 

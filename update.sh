@@ -51,7 +51,47 @@ fi
 echo "[*] Reinstalling package..."
 "$PIP" install -e . --quiet
 
-# ── 5. Show new version ───────────────────────────────────────────────────────
+# ── 5. Re-sync system-installed assets (icon, desktop, polkit) ───────────────
+# These live in /usr/share/ and are never touched by pip, so they go stale
+# after an update unless we explicitly re-copy them.
+if [[ $EUID -eq 0 ]]; then
+    ICON_SVG="${SCRIPT_DIR}/assets/notthenet-icon.svg"
+
+    # Scalable SVG icon
+    if [[ -f "$ICON_SVG" ]]; then
+        install -Dm644 "$ICON_SVG" /usr/share/icons/hicolor/scalable/apps/notthenet.svg
+
+        # Re-render 128 px PNG if rsvg-convert is available
+        if command -v rsvg-convert &>/dev/null; then
+            install -d /usr/share/icons/hicolor/128x128/apps
+            rsvg-convert -w 128 -h 128 "$ICON_SVG" \
+                -o /usr/share/icons/hicolor/128x128/apps/notthenet.png
+        fi
+
+        gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
+        echo "[*] Icon updated"
+    fi
+
+    # .desktop file
+    if [[ -f "${SCRIPT_DIR}/assets/notthenet.desktop" ]]; then
+        install -Dm644 "${SCRIPT_DIR}/assets/notthenet.desktop" \
+            /usr/share/applications/notthenet.desktop
+        update-desktop-database -q /usr/share/applications 2>/dev/null || true
+        echo "[*] Desktop entry updated"
+    fi
+
+    # polkit action
+    if [[ -f "${SCRIPT_DIR}/assets/com.retr0verride.notthenet.policy" ]]; then
+        install -Dm644 "${SCRIPT_DIR}/assets/com.retr0verride.notthenet.policy" \
+            /usr/share/polkit-1/actions/com.retr0verride.notthenet.policy
+        echo "[*] Polkit action updated"
+    fi
+else
+    echo "[!] Not running as root — skipping system asset update (icon/desktop/polkit)."
+    echo "    Re-run with sudo to also update the desktop icon."
+fi
+
+# ── 6. Show new version ───────────────────────────────────────────────────────
 VERSION=$("$PYTHON" -c "import notthenet; print(notthenet.APP_VERSION)" 2>/dev/null || echo "unknown")
 echo ""
 echo "[✓] NotTheNet updated to version: $VERSION"
