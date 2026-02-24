@@ -431,9 +431,7 @@ class _GeneralPage(tk.Frame):
             cb = _check(f, label, v)
             cb.grid(row=len(fields) + i, column=0, columnspan=2, sticky="w", pady=4)
             if tip:
-                _info_icon(f, tip).grid(
-                    row=len(fields) + i, column=2, sticky="w", padx=(2, 0)
-                )
+                tooltip(cb, tip)
 
     def apply_to_config(self):
         for key, var in self.vars.items():
@@ -479,9 +477,7 @@ class _ServicePage(tk.Frame):
             cb = _check(f, label, v)
             cb.grid(row=len(self.fields) + j, column=0, columnspan=2, sticky="w", pady=4)
             if tip:
-                _info_icon(f, tip).grid(
-                    row=len(self.fields) + j, column=2, sticky="w", padx=(2, 0)
-                )
+                tooltip(cb, tip)
 
     def apply_to_config(self):
         for key, var in self.vars.items():
