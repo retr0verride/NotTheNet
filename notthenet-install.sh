@@ -31,7 +31,7 @@ error() { echo -e "${RED}[!]${NC} $*" >&2; exit 1; }
 # ── Privilege check ──────────────────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
     warn "Not running as root. Some install steps may fail."
-    warn "Re-run with: sudo bash install.sh"
+    warn "Re-run with: sudo bash notthenet-install.sh"
 fi
 
 # ── Check Python version ─────────────────────────────────────────────────────

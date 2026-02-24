@@ -5,7 +5,7 @@
 
 <!--
   NotTheNet polkit action
-  Installed by install.sh to /usr/share/polkit-1/actions/
+  Installed by notthenet-install.sh to /usr/share/polkit-1/actions/
   Allows pkexec to present a named, descriptive authentication dialog
   instead of a generic "Run program as superuser" prompt.
 -->

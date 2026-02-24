@@ -907,7 +907,7 @@ class NotTheNetApp(tk.Tk):
             ("Port",            "port",           "443",
              f"TCP port for the HTTPS server. Default: 443. {_PORT_ROOT}"),
             ("Cert File",       "cert_file",      "certs/server.crt",
-             "Path to the TLS certificate. Generated automatically by install.sh\n"
+             "Path to the TLS certificate. Generated automatically by notthenet-install.sh\n"
              "(RSA-4096, self-signed). Malware rarely validates the cert."),
             ("Key File",        "key_file",       "certs/server.key",
              "Path to the TLS private key. Should be readable only by root (mode 0600)."),

@@ -23,7 +23,7 @@
 NotTheNet must be run as **root** to bind privileged ports (53, 80, 443, 25, etc.) and manage iptables rules.
 
 ```bash
-# If installed via install.sh
+# If installed via notthenet-install.sh
 sudo notthenet
 
 # If running from the project directory directly

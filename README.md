@@ -24,7 +24,7 @@ NotTheNet simulates the internet for malware being analysed in an isolated envir
 | [Troubleshooting](docs/troubleshooting.md) | Common errors and fixes |
 | [Lab Setup: Proxmox + Kali + FlareVM](docs/lab-setup.md) | Isolated lab wiring, IP forwarding, detonation workflow |
 
-Man page available at [`man/notthenet.1`](man/notthenet.1) — install with `sudo install.sh` or manually via `man ./man/notthenet.1`.
+Man page available at [`man/notthenet.1`](man/notthenet.1) — install with `sudo notthenet-install.sh` or manually via `man ./man/notthenet.1`.
 
 ---
 
@@ -59,7 +59,7 @@ Man page available at [`man/notthenet.1`](man/notthenet.1) — install with `sud
 ```bash
 git clone https://github.com/retr0verride/NotTheNet
 cd NotTheNet
-sudo bash install.sh
+sudo bash notthenet-install.sh
 ```
 
 ---

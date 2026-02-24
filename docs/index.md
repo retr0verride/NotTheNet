@@ -31,7 +31,7 @@ Man page: [`man/notthenet.1`](../man/notthenet.1)
 # 1. Install
 git clone https://github.com/retr0verride/NotTheNet
 cd NotTheNet
-sudo bash install.sh
+sudo bash notthenet-install.sh
 
 # 2. Run GUI
 sudo notthenet

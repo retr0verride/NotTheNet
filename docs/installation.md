@@ -46,7 +46,7 @@ git clone https://github.com/retr0verride/NotTheNet.git
 cd NotTheNet
 
 # Run the install script as root
-sudo bash install.sh
+sudo bash notthenet-install.sh
 ```
 
 The install script will:
@@ -72,7 +72,7 @@ Or simply search for **NotTheNet** in the Kali application menu (or any GNOME/XF
 
 ## Desktop Integration
 
-`install.sh` installs three things that make the app launchable from the desktop:
+`notthenet-install.sh` installs three things that make the app launchable from the desktop:
 
 | File installed | Purpose |
 |----------------|---------|

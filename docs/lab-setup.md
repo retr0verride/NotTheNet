@@ -113,7 +113,7 @@ sudo sysctl -p /etc/sysctl.d/99-notthenet.conf
 ```bash
 git clone https://github.com/retr0verride/NotTheNet
 cd NotTheNet
-sudo bash install.sh
+sudo bash notthenet-install.sh
 ```
 
 The installer sets up a virtualenv, installs dependencies, generates TLS certificates, and installs the desktop launcher.
@@ -470,7 +470,7 @@ sudo sysctl -p /etc/sysctl.d/99-notthenet.conf
 ```bash
 git clone https://github.com/retr0verride/NotTheNet
 cd NotTheNet
-sudo bash install.sh
+sudo bash notthenet-install.sh
 ```
 
 The installer creates a virtualenv, installs Python dependencies, generates TLS certificates, installs the desktop launcher, and sets up polkit rules so you can launch with GUI elevation.
