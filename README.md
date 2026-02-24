@@ -29,7 +29,7 @@ Man page available at [`man/notthenet.1`](man/notthenet.1) — install with `sud
 
 ## Features
 
-| Service | Details |
+| Service / Feature | Details |
 |---------|---------|
 | **DNS** | Resolves every hostname to your configured IP. PTR/rDNS handled cleanly. Per-host override records. |
 | **HTTP/HTTPS** | Configurable response code, body, and `Server:` header. TLS 1.2+ with ECDHE+AEAD ciphers only. |
@@ -39,6 +39,9 @@ Man page available at [`man/notthenet.1`](man/notthenet.1) — install with `sud
 | **TCP Catch-All** | Receives any TCP connection redirected by iptables; responds with `200 OK`. |
 | **UDP Catch-All** | Optional UDP drain; responds with `OK`. |
 | **iptables manager** | Auto-applies NAT REDIRECT rules; cleanly restores originals on stop. |
+| **Dark GUI** | Grouped sidebar, live colour-coded log panel with level filters, tooltips on every field and button. |
+| **Desktop integration** | App menu icon, pkexec/polkit privilege prompt — no terminal needed to launch. |
+| **In-GUI updates** | One-click `git pull` + dependency reinstall with optional auto-restart. |
 
 ---
 

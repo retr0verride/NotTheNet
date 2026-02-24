@@ -115,6 +115,8 @@ Click any row (or its dot) to open the configuration panel. The active row is hi
 
 Each panel maps directly to a section in `config.json`. All fields are validated when **▶ Start** is clicked. See the [Configuration Reference](configuration.md) for every field.
 
+> **Tip:** Hover over any field label, entry box, checkbox, toolbar button, or sidebar item for a tooltip explaining what it does and what values are accepted.
+
 **DNS panel extras:** The "Custom DNS Records" text box accepts one record per line in the format:
 ```
 hostname = ip_address
