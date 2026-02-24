@@ -182,8 +182,10 @@ class _FTPSession(threading.Thread):
 
     def _recv_file(self, remote_name: str, safe_addr: str):
         """Accept a file upload over the data connection."""
-        data_conn = self._accept_data()
+        # RFC 959: send 150 *before* blocking on accept(), so the client
+        # knows to connect to the passive port and begin sending data.
         self._send("150 Ok to send data")
+        data_conn = self._accept_data()
         if not data_conn:
             self._send("425 Can't open data connection")
             return

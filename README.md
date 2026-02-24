@@ -70,7 +70,7 @@ sudo bash notthenet-install.sh
 ```bash
 cd NotTheNet
 git pull origin master
-source venv/bin/activate
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -141,6 +141,31 @@ utils/
   logging_utils.py    ← Log sanitization (CWE-117 prevention)
   privilege.py        ← Privilege drop after port binding
   validators.py       ← Input validation for all external data
+tests/
+  test_config.py      ← Config load / get / set / save / reset
+  test_logging_utils.py ← Log sanitization & injection prevention
+  test_validators.py  ← Input validation for all public functions
+```
+
+---
+
+## Testing
+
+```bash
+# From the project root (venv active)
+pytest tests/ -v
+```
+
+70 tests cover `utils/validators`, `utils/logging_utils`, and `config.py`. All tests are pure-Python and require no network access, root, or external services.
+
+The full pre-deployment gate (lint → type-check → security scan → tests → build) is run via:
+
+```bash
+# Linux
+bash predeploy.sh
+
+# Windows dev machine
+.\predeploy.ps1
 ```
 
 ---

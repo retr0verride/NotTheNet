@@ -153,7 +153,7 @@ class IPTablesManager:
         self,
         service_ports: dict,
         catch_all_tcp_port: int = 9999,
-        excluded_ports: list[int] = None,
+        excluded_ports: list[int] | None = None,
     ) -> bool:
         """
         Apply iptables redirect rules.

@@ -26,7 +26,7 @@ if ($LASTEXITCODE -ne 0) { Fail "mypy found issues" } else { Pass "mypy" }
 
 # Security scan
 Step "Security scan (bandit)"
-& $Python -m bandit -c pyproject.toml -r notthenet.py services/ network/ utils/
+& $Python -m bandit -c pyproject.toml -r notthenet.py services/ network/ utils/ 2>$null
 if ($LASTEXITCODE -ne 0) { Fail "bandit found issues" } else { Pass "bandit" }
 
 # Tests
@@ -40,7 +40,7 @@ if ((Test-Path "tests") -and (Get-ChildItem "tests\test_*.py" -ErrorAction Silen
 
 # Build
 Step "Build package"
-& $Python -m build --outdir dist/
+& $Python -m build --outdir dist/ 2>$null
 if ($LASTEXITCODE -ne 0) { Fail "build failed" } else { Pass "build" }
 
 Write-Host "`nAll predeploy checks passed." -ForegroundColor Green

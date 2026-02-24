@@ -43,7 +43,7 @@ VS Code will detect the `.venv` automatically. If prompted, select it as the Pyt
 bash predeploy.sh
 ```
 
-This runs ruff (lint), mypy (type check), bandit (security scan), pytest (tests, if any), and builds the package.
+This runs ruff (lint), mypy (type check), bandit (security scan), pytest (70 tests), and builds the package.
 
 ---
 
@@ -71,6 +71,28 @@ code .
 .\predeploy.ps1
 ```
 
+This runs ruff (lint), mypy (type check), bandit (security scan), pytest (70 tests), and builds the package.
+
+---
+
+## Running Tests
+
+All tests are pure-Python, require no root access or network, and complete in under a second:
+
+```bash
+# Linux / macOS
+pytest tests/ -v
+
+# Windows
+.venv\Scripts\python.exe -m pytest tests/ -v
+```
+
+| Test file | What it covers |
+|-----------|----------------|
+| `tests/test_config.py` | `Config` load, get/set, save, reset, deep-copy isolation |
+| `tests/test_logging_utils.py` | CWE-117 log injection prevention; `sanitize_log_string`, `sanitize_ip`, `sanitize_hostname` |
+| `tests/test_validators.py` | `validate_ip`, `validate_port`, `validate_hostname`, `validate_bind_ip`, `sanitize_path`, `validate_http_method`, `validate_config` |
+
 ---
 
 ## Recommended VS Code Extensions
@@ -92,6 +114,7 @@ code .
 | `services/` | One module per fake service (DNS, HTTP, SMTP, FTP, catch-all) |
 | `network/` | iptables management |
 | `utils/` | Certificates, logging, privilege drop, validators |
+| `tests/` | pytest test suite (validators, logging utils, config) |
 | `config.json` | Default runtime configuration |
 | `docs/` | Documentation |
 | `man/` | Man page |
