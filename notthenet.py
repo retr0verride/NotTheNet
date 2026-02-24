@@ -68,6 +68,14 @@ _ZOOM_STEP = 0.15
 _ZOOM_MIN  = 0.70
 _ZOOM_MAX  = 2.00
 
+# Base window / pane dimensions (at zoom 1.0)
+_BASE_W,    _BASE_H    = 1000, 720
+_BASE_MIN_W, _BASE_MIN_H = 800, 600
+_PANE_BODY_MIN   = 340   # main pane: body frame
+_PANE_LOG_MIN    = 120   # main pane: log panel
+_PANE_SIDE_MIN   = 148   # body pane: sidebar
+_PANE_CONFIG_MIN = 500   # body pane: config area
+
 # Globe + prohibition icon matching the NotTheNet logo (64x64 RGB PNG, base64-encoded)
 _APP_ICON_B64 = (
     "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAIvklEQVR42t2a629URRTAd7ttd7fUDypgi7RKtVBoEYFayt1XtdAX"
@@ -559,8 +567,6 @@ class NotTheNetApp(tk.Tk):
     def __init__(self, config_path: Optional[str] = None):
         super().__init__()
         self.title(APP_TITLE)
-        self.geometry("1000x720")
-        self.minsize(800, 600)
         self.configure(bg=C_BG)
         self.resizable(True, True)
 
@@ -581,6 +587,11 @@ class NotTheNetApp(tk.Tk):
         # Initialise zoom-aware fonts before any widget is built
         self._zoom_factor: float = float(self._cfg.get("ui", "zoom") or 1.0)
         self._init_fonts()
+
+        # Apply initial geometry scaled to saved zoom
+        z = self._zoom_factor
+        self.geometry(f"{round(_BASE_W * z)}x{round(_BASE_H * z)}")
+        self.minsize(round(_BASE_MIN_W * z), round(_BASE_MIN_H * z))
 
         # Set up logging → queue bridge
         root_logger = logging.getLogger("notthenet")
@@ -615,16 +626,36 @@ class NotTheNetApp(tk.Tk):
                     )
 
     def _set_zoom(self, delta: float):
-        """Step the UI font scale by *delta* and persist it."""
+        """Step the UI font scale by *delta*, resize the window, and persist."""
         new = max(_ZOOM_MIN, min(_ZOOM_MAX, self._zoom_factor + delta))
         if new == self._zoom_factor:
             return
+        old = self._zoom_factor
         self._zoom_factor = new
         self._init_fonts()
         # Update zoom label in toolbar if it exists
         if hasattr(self, "_zoom_label"):
             pct = round(new * 100)
             self._zoom_label.configure(text=f"{pct}%")
+        # Resize window proportionally
+        ratio = new / old
+        cw = self.winfo_width()  or _BASE_W
+        ch = self.winfo_height() or _BASE_H
+        nw = max(round(_BASE_MIN_W * new), round(cw * ratio))
+        nh = max(round(_BASE_MIN_H * new), round(ch * ratio))
+        self.geometry(f"{nw}x{nh}")
+        self.minsize(round(_BASE_MIN_W * new), round(_BASE_MIN_H * new))
+        # Update paned-window minsizes so sashes stay sensible
+        if hasattr(self, "_main_pane"):
+            panes = self._main_pane.panes()
+            if len(panes) >= 2:
+                self._main_pane.paneconfig(panes[0], minsize=round(_PANE_BODY_MIN * new))
+                self._main_pane.paneconfig(panes[1], minsize=round(_PANE_LOG_MIN  * new))
+        if hasattr(self, "_body_pane"):
+            panes = self._body_pane.panes()
+            if len(panes) >= 2:
+                self._body_pane.paneconfig(panes[0], minsize=round(_PANE_SIDE_MIN   * new))
+                self._body_pane.paneconfig(panes[1], minsize=round(_PANE_CONFIG_MIN * new))
         self._cfg.set("ui", "zoom", round(new, 2))
         self._cfg.save()
 
@@ -813,9 +844,10 @@ class NotTheNetApp(tk.Tk):
         self._build_log_panel(log_frame_outer)
 
     def _build_body(self, parent):
-        body = tk.PanedWindow(parent, orient="horizontal", bg=C_BG,
+        self._body_pane = tk.PanedWindow(parent, orient="horizontal", bg=C_BG,
                               sashwidth=5, sashpad=0, sashrelief="flat")
-        body.pack(fill="both", expand=True)
+        self._body_pane.pack(fill="both", expand=True)
+        body = self._body_pane
 
         # ── Left: service list ──
         left = tk.Frame(body, bg=C_PANEL)
