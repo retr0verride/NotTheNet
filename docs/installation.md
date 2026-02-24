@@ -210,10 +210,24 @@ diff config.json <(git show origin/master:config.json)
 ## Uninstalling
 
 ```bash
-# Remove the system launcher
+# Remove the CLI system launcher
 sudo rm -f /usr/local/bin/notthenet
 
-# Remove the project (WARNING: this deletes captured emails and uploads)
+# Remove the GUI launcher and polkit policy (desktop integration)
+sudo rm -f /usr/local/bin/notthenet-gui
+sudo rm -f /usr/share/polkit-1/actions/com.retr0verride.notthenet.policy
+
+# Remove the .desktop entry and application icons
+sudo rm -f /usr/share/applications/notthenet.desktop
+sudo rm -f /usr/share/icons/hicolor/scalable/apps/notthenet.svg
+sudo rm -f /usr/share/icons/hicolor/128x128/apps/notthenet.png
+
+# Refresh the desktop and icon caches
+sudo update-desktop-database /usr/share/applications/ 2>/dev/null || true
+sudo gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true
+
+# Remove the project directory
+# WARNING: this deletes all captured emails, FTP uploads, and logs
 cd ..
 rm -rf NotTheNet
 ```
