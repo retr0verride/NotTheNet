@@ -75,33 +75,22 @@ sudo iptables -A FORWARD -i eth0 -o virbr0 -j DROP
 
 ## Privilege Model
 
-NotTheNet uses a **bind-then-drop** privilege model:
+NotTheNet currently runs as `root` for the full duration of the session. Root is required to:
 
-1. Process starts as `root` (required to bind ports < 1024 and apply iptables rules)
-2. All service sockets are bound
-3. All iptables rules are applied
-4. **`setgroups([])`** clears supplementary groups
-5. **`setgid(target_gid)`** drops to the target group (default: `nogroup`)
-6. **`setuid(target_uid)`** drops to the target user (default: `nobody`)
+- Bind privileged ports (53, 80, 443, 25, 110, 143, 21)
+- Apply and remove iptables NAT rules
 
-After this point, the process has no root capabilities. Malware interacting with the fake services is doing so through a process running as `nobody:nogroup`.
+The code in `utils/privilege.py` includes a `drop_privileges()` helper (for a future bind-then-drop model), but it is not currently called because `os.setuid()` is permanent within a process — dropping privileges after bind would prevent services from being cleanly restarted without relaunching the whole process.
 
-### Verifying the privilege drop
+> **Lab guidance:** Mitigate the root exposure by binding only to the isolated interface (`bind_ip` set to the isolated adapter IP, not `0.0.0.0`) and running the analysis host with no real internet route.
 
-```bash
-# After starting NotTheNet
-ps aux | grep notthenet
-# Should show: nobody  ... python3 notthenet.py
+### Desktop launch (pkexec)
+
+When launched from the app menu, `pkexec` is used to acquire root for the session rather than running permanently as root in the user session. The polkit action provides a descriptive auth dialog:
+
 ```
-
-### Dedicated service account (recommended)
-
-Instead of `nobody`, create a dedicated account:
-```bash
-sudo useradd --system --no-create-home --shell /usr/sbin/nologin notthenet
+NotTheNet needs root access to bind privileged ports and manage iptables rules.
 ```
-
-Then set `run_as_user` to `notthenet` in `utils/privilege.py` or add it to config in a future release.
 
 ---
 
@@ -227,7 +216,7 @@ Everything else (HTTP, SMTP, FTP, TCP/UDP servers, iptables management, GUI) use
 | Static analysis config | `pyproject.toml` configures Ruff (linting) + Bandit (security scanning) |
 | No shell injection | All `subprocess` calls use lists, `shell=False` enforced in `iptables_manager.py` |
 | Input validation | `utils/validators.py` validates all external inputs at the boundary |
-| Least privilege | Privilege dropped to `nobody:nogroup` after binding |
+| Least privilege | Runs as root only for port binding and iptables; isolated to the analysis network interface via `bind_ip` |
 | Secure defaults | TLS 1.2+, 4096-bit keys, ECDHE ciphers by default |
 | `SECURITY.md` | Present in repo root |
 | `.gitignore` | Blocks private keys and captured malware artifacts |
