@@ -76,40 +76,6 @@ _PANE_LOG_MIN    = 120   # main pane: log panel
 _PANE_SIDE_MIN   = 148   # body pane: sidebar
 _PANE_CONFIG_MIN = 500   # body pane: config area
 
-# Globe + prohibition icon matching the NotTheNet logo (64x64 RGB PNG, base64-encoded)
-_APP_ICON_B64 = (
-    "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"
-)
 
 # Populated by NotTheNetApp._init_fonts(); keyed by (base_size, bold: bool)
 _F: dict = {}
@@ -552,14 +518,6 @@ class NotTheNetApp(tk.Tk):
         self.title(APP_TITLE)
         self.configure(bg=C_BG)
         self.resizable(True, True)
-
-        # Globe taskbar / window icon
-        try:
-            _icon = tk.PhotoImage(data=_APP_ICON_B64)
-            self.iconphoto(True, _icon)
-            self._icon = _icon  # keep a reference so GC doesn't drop it
-        except Exception:
-            pass  # non-fatal — icon is cosmetic only
 
         self._cfg = Config(config_path or "config.json")
         self._log_queue: queue.Queue = queue.Queue()
