@@ -6,10 +6,12 @@
 #   pip-compile --generate-hashes requirements.in
 
 # DNS packet parsing / server
-dnslib==0.9.25
+dnslib==0.9.26
 
 # TLS certificate generation (used by cert_utils.py)
-cryptography>=42.0.0,<44.0.0
+# >=44.0.1 required: fixes CVE-2024-12797 (OpenSSL RSA key recovery, HIGH) and
+# related advisories GHSA-6vqw-3v5j-54x4 / GHSA-h4gh-qq45-vh27 present in 42.x-43.x.
+cryptography>=44.0.1
 
 # Note: All other functionality uses Python stdlib only:
 #   http.server, ssl, socketserver, threading, tkinter, json, logging,

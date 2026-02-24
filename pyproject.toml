@@ -23,8 +23,8 @@ classifiers = [
     "Topic :: Security",
 ]
 dependencies = [
-    "dnslib==0.9.25",
-    "cryptography>=42.0.0,<44.0.0",
+    "dnslib==0.9.26",
+    "cryptography>=44.0.1",
 ]
 
 [project.scripts]
