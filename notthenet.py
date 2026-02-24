@@ -22,7 +22,7 @@ import queue
 import sys
 import threading
 import tkinter as tk
-from tkinter import ttk, scrolledtext, filedialog, messagebox
+from tkinter import filedialog, messagebox, scrolledtext, ttk
 from tkinter import font as _tkfont
 from typing import Optional
 
@@ -1011,7 +1011,7 @@ class NotTheNetApp(tk.Tk):
                 bg=C_HOVER, fg=colour,
                 relief="flat", bd=0, padx=6, pady=2,
                 font=_f(7, True), cursor="hand2",
-                command=lambda l=lvl: self._toggle_log_filter(l),
+                command=lambda lvl_=lvl: self._toggle_log_filter(lvl_),
             )
             b.pack(side="left", padx=2)
             _hover_bind(b, C_HOVER, C_SELECTED)
@@ -1103,7 +1103,7 @@ class NotTheNetApp(tk.Tk):
             tag = "DEBUG"
 
         # Apply active level filter (hide non-matching lines)
-        tags = (tag,)
+        tags: tuple[str, ...] = (tag,)
         if self._log_level_filter and tag != self._log_level_filter:
             tags = (tag, "HIDDEN")
 
@@ -1150,7 +1150,7 @@ class NotTheNetApp(tk.Tk):
         self._btn_start.configure(state="normal")
         self._btn_stop.configure(state="disabled")
         self._status_label.configure(text="●  Stopped", fg=C_DIM)
-        for key, (row, btn, dot) in self._service_btns.items():
+        for _key, (_row, _btn, dot) in self._service_btns.items():
             dot.configure(fg=C_DIM)
 
     def _update_service_indicators(self):
@@ -1391,7 +1391,6 @@ def main():
 
     if args.nogui:
         import signal
-        import time
         _print_logo()
         manager = ServiceManager(cfg)
         if not manager.start():

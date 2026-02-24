@@ -15,10 +15,7 @@ Security notes (OpenSSF):
 - Query name length validated (≤ 253 chars per RFC 1035)
 """
 
-import asyncio
 import logging
-import socket
-import struct
 from typing import Optional
 
 from utils.logging_utils import sanitize_hostname, sanitize_ip
@@ -26,9 +23,8 @@ from utils.logging_utils import sanitize_hostname, sanitize_ip
 logger = logging.getLogger(__name__)
 
 try:
-    import dnslib
-    from dnslib import DNSRecord, DNSHeader, RR, QTYPE, A, PTR, AAAA, CNAME
-    from dnslib.server import DNSServer, BaseResolver
+    from dnslib import PTR, QTYPE, RR, A, DNSRecord
+    from dnslib.server import DNSServer
     _DNSLIB_AVAILABLE = True
 except ImportError:
     _DNSLIB_AVAILABLE = False
@@ -105,8 +101,8 @@ class DNSService:
         self.handle_ptr = config.get("handle_ptr", True)
         self.custom_records = config.get("custom_records", {})
         self.bind_ip = config.get("bind_ip", "0.0.0.0")
-        self._server_udp: Optional["DNSServer"] = None
-        self._server_tcp: Optional["DNSServer"] = None
+        self._server_udp: Optional[DNSServer] = None
+        self._server_tcp: Optional[DNSServer] = None
 
     def start(self) -> bool:
         if not self.enabled:

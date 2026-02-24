@@ -4,19 +4,18 @@ Orchestrates all fake network services and iptables rules.
 """
 
 import logging
-import os
-from typing import Dict, Optional
+from typing import Optional
 
 from config import Config
-from utils.validators import validate_config
+from network.iptables_manager import IPTablesManager
+from services.catch_all import CatchAllTCPService, CatchAllUDPService
+from services.dns_server import DNSService
+from services.ftp_server import FTPService
+from services.http_server import HTTPService, HTTPSService
+from services.mail_server import IMAPService, POP3Service, SMTPService
 from utils.cert_utils import ensure_certs
 from utils.privilege import drop_privileges, require_root_or_warn
-from network.iptables_manager import IPTablesManager
-from services.dns_server import DNSService
-from services.http_server import HTTPService, HTTPSService
-from services.mail_server import SMTPService, POP3Service, IMAPService
-from services.ftp_server import FTPService
-from services.catch_all import CatchAllTCPService, CatchAllUDPService
+from utils.validators import validate_config
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +28,7 @@ class ServiceManager:
 
     def __init__(self, config: Config):
         self.config = config
-        self._services: Dict[str, object] = {}
+        self._services: dict[str, object] = {}
         self._iptables: Optional[IPTablesManager] = None
         self._running = False
 
@@ -163,7 +162,7 @@ class ServiceManager:
         self._running = False
         logger.info("NotTheNet stopped.")
 
-    def status(self) -> Dict[str, bool]:
+    def status(self) -> dict[str, bool]:
         """Return a dict of {service_name: is_running}."""
         return {name: getattr(svc, "running", False)
                 for name, svc in self._services.items()}

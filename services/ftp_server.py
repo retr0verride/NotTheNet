@@ -13,13 +13,13 @@ Security notes (OpenSSF):
 
 import logging
 import os
+import socket
 import socketserver
 import threading
-import socket
 import uuid
 from typing import Optional
 
-from utils.logging_utils import sanitize_log_string, sanitize_ip
+from utils.logging_utils import sanitize_ip, sanitize_log_string
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,6 @@ class _FTPSession(threading.Thread):
             self._send(sanitize_log_string(self.banner, max_length=200))
             self.conn.settimeout(30)
             buf = b""
-            logged_in = False
             while True:
                 chunk = self.conn.recv(1024)
                 if not chunk:

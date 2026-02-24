@@ -9,8 +9,7 @@ the network, config files, or environment variables without checking.
 import ipaddress
 import os
 import re
-import socket
-from typing import Optional, Tuple
+from typing import Optional
 
 # RFC 1123 hostname pattern
 _HOSTNAME_RE = re.compile(
@@ -23,7 +22,7 @@ PRIVILEGED_PORT_THRESHOLD = 1024
 MAX_PORT = 65535
 
 
-def validate_ip(ip: str) -> Tuple[bool, Optional[str]]:
+def validate_ip(ip: str) -> tuple[bool, Optional[str]]:
     """Return (True, normalized_ip) or (False, error_message)."""
     try:
         normalized = str(ipaddress.ip_address(ip))
@@ -32,7 +31,7 @@ def validate_ip(ip: str) -> Tuple[bool, Optional[str]]:
         return False, f"Invalid IP address: {ip!r}"
 
 
-def validate_port(port) -> Tuple[bool, Optional[int]]:
+def validate_port(port) -> tuple[bool, Optional[int]]:
     """Return (True, int_port) or (False, None)."""
     try:
         p = int(port)
@@ -52,7 +51,7 @@ def validate_hostname(hostname: str) -> bool:
     return bool(_HOSTNAME_RE.match(h))
 
 
-def validate_bind_ip(ip: str) -> Tuple[bool, Optional[str]]:
+def validate_bind_ip(ip: str) -> tuple[bool, Optional[str]]:
     """
     Validate an IP address suitable for binding.
     Allows '0.0.0.0', '::' (wildcard), and valid unicast addresses.

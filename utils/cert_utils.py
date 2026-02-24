@@ -10,6 +10,8 @@ Security notes (OpenSSF):
 - Private key written with mode 0o600 (owner-read only)
 """
 
+from __future__ import annotations
+
 import ipaddress
 import logging
 import os
@@ -25,8 +27,8 @@ def generate_self_signed_cert(
     common_name: str = "notthenet.local",
     days_valid: int = 825,
     key_bits: int = 4096,
-    san_ips: list = None,
-    san_dns: list = None,
+    san_ips: list | None = None,
+    san_dns: list | None = None,
 ) -> bool:
     """
     Generate a self-signed X.509 certificate and private key.
@@ -78,7 +80,7 @@ def generate_self_signed_cert(
         )
 
         # Build SAN extension
-        san_list = []
+        san_list: list = []
         for ip in san_ips:
             try:
                 san_list.append(x509.IPAddress(ipaddress.ip_address(ip)))

@@ -18,7 +18,7 @@ import socketserver
 import threading
 from typing import Optional
 
-from utils.logging_utils import sanitize_log_string, sanitize_ip
+from utils.logging_utils import sanitize_ip, sanitize_log_string
 
 logger = logging.getLogger(__name__)
 

@@ -12,17 +12,16 @@ Security notes (OpenSSF):
 """
 
 import http.server
-import json
 import logging
 import os
-import ssl
 import socketserver
+import ssl
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
-from utils.logging_utils import sanitize_log_string, sanitize_ip
 from utils.cert_utils import ensure_certs
+from utils.logging_utils import sanitize_ip, sanitize_log_string
 
 logger = logging.getLogger(__name__)
 

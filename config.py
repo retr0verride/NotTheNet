@@ -3,10 +3,13 @@ NotTheNet - Configuration Manager
 Handles loading, saving, and accessing configuration settings.
 """
 
-import json
-import os
+from __future__ import annotations
+
 import copy
+import json
 import logging
+import os
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -18,16 +21,16 @@ class Config:
 
     def __init__(self, config_path: str = DEFAULT_CONFIG_PATH):
         self.config_path = config_path
-        self._data = {}
-        self._defaults = {}
+        self._data: dict[str, Any] = {}
+        self._defaults: dict[str, Any] = {}
         self.load()
         self._defaults = copy.deepcopy(self._data)
 
-    def load(self, path: str = None) -> bool:
+    def load(self, path: str | None = None) -> bool:
         """Load configuration from a JSON file."""
         target = path or self.config_path
         try:
-            with open(target, "r") as f:
+            with open(target) as f:
                 self._data = json.load(f)
             logger.debug(f"Config loaded from {target}")
             return True
@@ -40,7 +43,7 @@ class Config:
             self._data = {}
             return False
 
-    def save(self, path: str = None) -> bool:
+    def save(self, path: str | None = None) -> bool:
         """Save current configuration to a JSON file."""
         target = path or self.config_path
         try:
@@ -74,8 +77,9 @@ class Config:
         """Reset the configuration to the built-in defaults."""
         self._data = copy.deepcopy(self._defaults)
 
-    def as_dict(self) -> dict:
-        return copy.deepcopy(self._data)
+    def as_dict(self) -> dict[str, Any]:
+        result: dict[str, Any] = copy.deepcopy(self._data)
+        return result
 
     def all_sections(self) -> list:
         return list(self._data.keys())

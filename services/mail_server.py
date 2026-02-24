@@ -10,17 +10,14 @@ Security notes (OpenSSF):
 - Banner string is config-supplied but sanitized before sending
 """
 
-import asyncio
-import email
 import logging
 import os
-import re
 import socketserver
 import threading
 import uuid
 from typing import Optional
 
-from utils.logging_utils import sanitize_log_string, sanitize_ip
+from utils.logging_utils import sanitize_ip, sanitize_log_string
 
 logger = logging.getLogger(__name__)
 
@@ -217,7 +214,6 @@ def _make_pop3_handler():
                 self._send("+OK NotTheNet POP3 server ready")
                 self.request.settimeout(30)
                 buf = b""
-                authed = False
                 while True:
                     chunk = self.request.recv(1024)
                     if not chunk:
@@ -229,7 +225,6 @@ def _make_pop3_handler():
                         if cmd.startswith("USER"):
                             self._send("+OK")
                         elif cmd.startswith("PASS"):
-                            authed = True
                             self._send("+OK Logged in")
                         elif cmd.startswith("STAT"):
                             self._send("+OK 0 0")

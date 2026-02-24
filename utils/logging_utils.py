@@ -9,7 +9,6 @@ import logging.handlers
 import os
 import re
 import sys
-from typing import Optional
 
 # Characters that could be used for CRLF injection / ANSI escape injection
 _UNSAFE_LOG_PATTERN = re.compile(r"[\r\n\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")

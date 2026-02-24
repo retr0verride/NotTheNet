@@ -10,8 +10,17 @@ Security notes (OpenSSF):
 
 import logging
 import os
-import pwd
-import grp
+
+try:
+    import grp
+    import pwd
+    _POSIX = True
+except ImportError:
+    # grp/pwd are Linux/macOS only — not available on Windows.
+    # NotTheNet runs on Kali Linux; these are always present in production.
+    grp = None  # type: ignore[assignment]
+    pwd = None  # type: ignore[assignment]
+    _POSIX = False
 
 logger = logging.getLogger(__name__)
 

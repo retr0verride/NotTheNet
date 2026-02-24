@@ -20,18 +20,18 @@ import logging
 import os
 import shutil
 import subprocess
-from typing import List, Optional, Tuple
+import tempfile
 
-from utils.validators import validate_port, validate_ip
 from utils.logging_utils import sanitize_log_string
+from utils.validators import validate_port
 
 logger = logging.getLogger(__name__)
 
 _RULE_COMMENT = "NOTTHENET"
-_IPTABLES_SAVE_FILE = "/tmp/notthenet_iptables_save.rules"
+_IPTABLES_SAVE_FILE = os.path.join(tempfile.gettempdir(), "notthenet_iptables_save.rules")
 
 
-def _run(args: List[str], check: bool = True) -> Tuple[int, str, str]:
+def _run(args: list[str], check: bool = True) -> tuple[int, str, str]:
     """
     Run a subprocess command safely (no shell=True).
     Returns (returncode, stdout, stderr).
@@ -110,7 +110,7 @@ class IPTablesManager:
         self.interface = config.get("interface", "eth0")
         self.redirect_ip = config.get("redirect_ip", "127.0.0.1")
         self.mode = config.get("iptables_mode", "loopback")
-        self._rules_applied: List[List[str]] = []
+        self._rules_applied: list[list[str]] = []
         self._saved = False
 
     def _validate_interface(self, iface: str) -> bool:
@@ -126,7 +126,7 @@ class IPTablesManager:
         except Exception:
             return True  # /proc not available, assume valid
 
-    def _add_rule(self, rule: List[str]) -> bool:
+    def _add_rule(self, rule: list[str]) -> bool:
         """Add an iptables rule and track it for removal."""
         # Validate all args are strings
         if not all(isinstance(a, str) for a in rule):
@@ -142,7 +142,7 @@ class IPTablesManager:
             logger.warning(f"iptables rule failed ({err.strip()}): {' '.join(cmd)}")
             return False
 
-    def _del_rule(self, rule: List[str]):
+    def _del_rule(self, rule: list[str]):
         """Remove a previously-added iptables rule."""
         # Replace -A (append) with -D (delete) to construct removal command
         del_rule = ["-D" if a == "-A" else a for a in rule]
@@ -153,7 +153,7 @@ class IPTablesManager:
         self,
         service_ports: dict,
         catch_all_tcp_port: int = 9999,
-        excluded_ports: List[int] = None,
+        excluded_ports: list[int] = None,
     ) -> bool:
         """
         Apply iptables redirect rules.
@@ -185,7 +185,7 @@ class IPTablesManager:
             )
             return False
 
-        self._save_rules()
+        _save_rules()
 
         chain = "PREROUTING" if self.mode == "gateway" else "OUTPUT"
         table_flag = ["-t", "nat"]
@@ -261,7 +261,7 @@ class IPTablesManager:
         logger.info(f"Removed {count} iptables rules.")
 
     @staticmethod
-    def list_notthenet_rules() -> List[str]:
+    def list_notthenet_rules() -> list[str]:
         """Return all currently active NotTheNet iptables NAT rules."""
         code, out, _ = _run(["iptables", "-t", "nat", "-L", "--line-numbers", "-n"])
         if code != 0:

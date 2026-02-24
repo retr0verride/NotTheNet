@@ -40,3 +40,7 @@ Thumbs.db
 
 # iptables save
 /tmp/notthenet_iptables_save.rules
+
+# mypy cache
+.mypy_cache/
+
