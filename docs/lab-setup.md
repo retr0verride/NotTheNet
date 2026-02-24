@@ -715,9 +715,99 @@ Expected: no output / command returns after 5 seconds. If a banner appears, Flar
 
 ---
 
-## Part 5 — Detonation Workflow
+## Part 5 — Wireshark Setup (Kali)
 
-### 5.1 Transfer the sample to FlareVM
+Kali is the gateway for all FlareVM traffic — every packet passes through `eth1` before NotTheNet processes it. Capturing on that interface gives a complete packet-level record of everything the sample sends, independent of what NotTheNet logs.
+
+### 5.1 Install Wireshark / tshark
+
+Wireshark and tshark are included in Kali by default. If missing:
+
+```bash
+sudo apt-get install -y wireshark tshark
+```
+
+To allow non-root GUI captures:
+
+```bash
+sudo dpkg-reconfigure wireshark-common   # select Yes
+sudo usermod -aG wireshark $USER
+newgrp wireshark
+```
+
+### 5.2 Live GUI capture
+
+```bash
+sudo wireshark &
+```
+
+Select interface **eth1** (`vmbr1`, the lab-side NIC) and click the blue shark fin to start. Useful display filters:
+
+| Display filter | What it shows |
+|----------------|---------------|
+| `ip.src == 10.0.0.50` | All traffic originating from FlareVM |
+| `dns` | Every DNS query and response |
+| `http` | Plain HTTP streams |
+| `tcp.port == 443` | HTTPS / TLS handshakes |
+| `smtp \|\| pop \|\| imap` | Mail protocol traffic |
+| `ftp \|\| ftp-data` | FTP control and data channels |
+| `ip.src == 10.0.0.50 && !dns` | All non-DNS traffic from FlareVM |
+
+### 5.3 Headless capture with tshark
+
+`tshark` is better for long sessions — it writes directly to `.pcapng` without opening a GUI.
+
+```bash
+# Capture all FlareVM traffic; rotate at 100 MB, keep last 5 files
+sudo tshark -i eth1 \
+  -f "host 10.0.0.50" \
+  -b filesize:102400 -b files:5 \
+  -w ~/captures/flarevm-$(date +%Y%m%d-%H%M%S).pcapng
+```
+
+Stop with **Ctrl+C**. To target specific protocols only (smaller files):
+
+```bash
+sudo tshark -i eth1 \
+  -f "host 10.0.0.50 and (port 53 or port 80 or port 443 or port 25 or port 21)" \
+  -w ~/captures/flarevm-targeted.pcapng
+```
+
+### 5.4 Post-capture analysis with tshark
+
+Extract useful fields from a saved capture without opening the GUI:
+
+```bash
+# HTTP requests — method, host, URI
+tshark -r ~/captures/flarevm.pcapng \
+  -Y "http.request" \
+  -T fields -e http.request.method -e http.host -e http.request.uri
+
+# DNS queries only
+tshark -r ~/captures/flarevm.pcapng \
+  -Y "dns.flags.response == 0" \
+  -T fields -e frame.time -e dns.qry.name
+
+# Follow a specific TCP stream (replace 0 with the stream index)
+tshark -r ~/captures/flarevm.pcapng -q -z follow,tcp,ascii,0
+```
+
+### 5.5 Export the capture to a Windows machine
+
+Serve the capture from Kali so it can be downloaded on any analysis workstation:
+
+```bash
+cd ~/captures
+python3 -m http.server 8080
+```
+
+Browse to `http://10.0.0.1:8080/` from a Windows host, download the `.pcapng`, and open it in Wireshark or upload it to a service like [PacketTotal](https://packettotal.com). Stop the server when done (`Ctrl+C`).
+
+---
+
+## Part 6 — Detonation Workflow
+
+### 6.1 Transfer the sample to FlareVM
 
 On **Kali**, serve the sample over HTTP:
 ```bash
@@ -734,26 +824,26 @@ Stop the Python server on Kali when done (`Ctrl+C`).
 
 > Alternatively, use a Proxmox shared directory or attach a separate ISO with the sample — whichever fits your workflow.
 
-### 5.2 Snapshot before detonation
+### 6.2 Snapshot before detonation
 
 Take a fresh snapshot immediately before running the sample so you can cleanly revert:
 
 Proxmox → **flarevm → Snapshots → Take Snapshot** → name it `pre-detonation`
 
-### 5.3 Set up monitoring tools on FlareVM
+### 6.3 Set up monitoring tools on FlareVM
 
 Before executing the sample, start your tooling:
 
 | Tool | Purpose |
 |------|---------|
-| **Wireshark** | Capture raw network traffic on the lab NIC |
+| **Wireshark** | Capture raw traffic on the FlareVM NIC (see also Part 5 for gateway capture on Kali) |
 | **Process Monitor (ProcMon)** | File system, registry, process activity |
 | **Process Hacker** | Live process tree and memory inspection |
 | **x64dbg / x32dbg** | Dynamic debugging if needed |
 
-Start a Wireshark capture on the lab NIC (the `10.0.0.x` interface) before execution.
+Start a Wireshark capture on the lab NIC (the `10.0.0.x` interface) before execution. For a full gateway-level capture of all traffic leaving FlareVM, see **Part 5**.
 
-### 5.4 Detonate
+### 6.4 Detonate
 
 Execute the sample on FlareVM. Watch:
 
@@ -761,7 +851,7 @@ Execute the sample on FlareVM. Watch:
 - **Wireshark** — raw packets for protocol-level detail
 - **ProcMon** — filesystem and registry changes
 
-### 5.5 Collect artifacts
+### 6.5 Collect artifacts
 
 **On Kali:**
 
@@ -781,7 +871,7 @@ ls logs/ftp_uploads/
 - Save ProcMon `.pml`
 - Dump any processes of interest with Process Hacker
 
-### 5.6 Revert FlareVM
+### 6.6 Revert FlareVM
 
 Proxmox → **flarevm → Snapshots → Rollback** to `clean-baseline` (or `pre-detonation`).
 
@@ -789,7 +879,7 @@ The VM is restored to a clean state, ready for the next sample.
 
 ---
 
-## Part 6 — Custom DNS Records
+## Part 7 — Custom DNS Records
 
 If a sample uses a hardcoded C2 hostname, add a custom record in NotTheNet so it resolves to a specific IP (useful for routing to a separate listener or a different Kali port):
 
