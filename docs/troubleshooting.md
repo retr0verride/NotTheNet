@@ -335,7 +335,7 @@ cat config.json | python3 -m json.tool | grep log
 # "log_to_file" must be true
 ```
 
-Also verify the user running NotTheNet has write permission to the `logs/` directory after the privilege drop to `nobody`.
+Also verify the user running NotTheNet has write permission to the `logs/` directory (NotTheNet runs as root, so this is only an issue if the directory was created with restrictive permissions by another user).
 
 ---
 

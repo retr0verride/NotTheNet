@@ -69,20 +69,21 @@ sudo bash notthenet-install.sh
 
 ```bash
 cd NotTheNet
-git pull origin master
-source .venv/bin/activate
-pip install -r requirements.txt
+sudo bash update.sh
 ```
 
-If the man page changed:
-```bash
-sudo gzip -c man/notthenet.1 > /usr/local/share/man/man1/notthenet.1.gz
-sudo mandb -q
-```
+Pulls the latest code, reinstalls the package, and re-syncs the icon, desktop entry, and polkit action automatically.
 
-To check if `config.json` format changed before overwriting:
+---
+
+## Uninstalling
+
 ```bash
-diff config.json <(git show origin/master:config.json)
+# Remove system files, keep repo/logs/certs
+sudo bash notthenet-uninstall.sh
+
+# Remove everything
+sudo bash notthenet-uninstall.sh --purge
 ```
 
 ---
@@ -139,7 +140,7 @@ network/
 utils/
   cert_utils.py       ← RSA-4096 self-signed TLS cert generation
   logging_utils.py    ← Log sanitization (CWE-117 prevention)
-  privilege.py        ← Privilege drop after port binding
+  privilege.py        ← Root check + drop_privileges() helper (for future bind-then-drop)
   validators.py       ← Input validation for all external data
 tests/
   test_config.py      ← Config load / get / set / save / reset
@@ -180,7 +181,7 @@ Key hardening highlights:
 - File saves: UUID filenames only — attacker never controls path
 - TLS: minimum 1.2, ECDHE+AEAD ciphers, `OP_NO_SSLv2/3/TLSv1/1.1`
 - Private key: written with mode `0o600`
-- Privilege: dropped to `nobody:nogroup` after port binding
+- Privilege: runs as root scoped to the isolated interface; `bind_ip` limits exposure to the analysis adapter
 
 ---
 
