@@ -239,8 +239,8 @@ Run these from **FlareVM PowerShell** before detonating anything.
 |------|---------|----------------|
 | Connectivity | `ping 10.0.0.1` | Replies from Kali |
 | DNS | `nslookup evil-c2.com` | Resolves to `10.0.0.1` |
-| HTTP | `Invoke-WebRequest http://google.com -UseBasicParsing` | `200 OK` |
-| HTTPS | `Invoke-WebRequest https://google.com -SkipCertificateCheck -UseBasicParsing` | `200 OK` |
+| HTTP | `curl.exe http://google.com` | `200 OK` |
+| HTTPS | `curl.exe -k https://google.com` | `200 OK` |
 | SMTP | `Test-NetConnection 10.0.0.1 -Port 25` | `TcpTestSucceeded: True` |
 | FTP | `Test-NetConnection 10.0.0.1 -Port 21` | `TcpTestSucceeded: True` |
 | Catch-All | `Test-NetConnection 10.0.0.1 -Port 4444` | `TcpTestSucceeded: True` |
@@ -263,8 +263,8 @@ python3 -m http.server 8080
 ```
 
 On **FlareVM:**
-```powershell
-Invoke-WebRequest http://10.0.0.1:8080/sample.exe -OutFile C:\Samples\sample.exe
+```cmd
+curl.exe -o C:\Samples\sample.exe http://10.0.0.1:8080/sample.exe
 ```
 
 Stop the server on Kali with `Ctrl+C`.
@@ -639,16 +639,17 @@ Every query should return `10.0.0.1`. Check the NotTheNet DNS log entries appear
 
 ### 4.3 HTTP
 
-```powershell
-Invoke-WebRequest http://google.com -UseBasicParsing
+From FlareVM (cmd or PowerShell — `curl.exe` is built into Windows 10+):
+```cmd
+curl.exe http://google.com
 ```
 Expected: `200 OK` from NotTheNet's fake HTTP server. The `Server:` header will be whatever you configured (default: `nginx`).
 
 ### 4.4 HTTPS
 
-```powershell
-# -SkipCertificateCheck because the cert is self-signed
-Invoke-WebRequest https://google.com -SkipCertificateCheck -UseBasicParsing
+```cmd
+# -k skips certificate verification (self-signed cert)
+curl.exe -k https://google.com
 ```
 Expected: `200 OK`. The TLS handshake will succeed with NotTheNet's auto-generated certificate.
 
@@ -695,8 +696,8 @@ python3 -m http.server 8080
 ```
 
 On **FlareVM**, download it:
-```powershell
-Invoke-WebRequest http://10.0.0.1:8080/sample.exe -OutFile C:\Samples\sample.exe
+```cmd
+curl.exe -o C:\Samples\sample.exe http://10.0.0.1:8080/sample.exe
 ```
 
 Stop the Python server on Kali when done (`Ctrl+C`).
