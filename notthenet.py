@@ -912,13 +912,9 @@ class NotTheNetApp(tk.Tk):
         ).pack(anchor="w", padx=4)
 
     def _add_sidebar_btn(self, parent, key: str, label: str, tip: str = ""):
-        """Add one sidebar service button with a status dot on the right."""
+        """Add one sidebar service button."""
         row = tk.Frame(parent, bg=C_PANEL, cursor="hand2")
         row.pack(fill="x", pady=1)
-
-        dot = tk.Label(row, text="●", bg=C_PANEL, fg=C_DIM,
-                       font=_f(7))
-        dot.pack(side="right", padx=(0, 8))
 
         btn = tk.Label(
             row, text=f"  {label}",
@@ -932,15 +928,13 @@ class NotTheNetApp(tk.Tk):
 
         row.bind("<Button-1>", _click)
         btn.bind("<Button-1>", _click)
-        dot.bind("<Button-1>", _click)
         _hover_bind(row, C_PANEL, C_HOVER)
         _hover_bind(btn, C_PANEL, C_HOVER)
-        _hover_bind(dot, C_PANEL, C_HOVER)
 
         if tip:
             tooltip(row, tip)
 
-        self._service_btns[key] = (row, btn, dot)
+        self._service_btns[key] = (row, btn)
 
     def _build_pages(self):
         """Create one config page per service."""
@@ -1074,17 +1068,15 @@ class NotTheNetApp(tk.Tk):
             self._pages[key].pack(fill="both", expand=True)
 
         for k, widgets in self._service_btns.items():
-            row, btn, dot = widgets
+            row, btn = widgets
             if k == key:
                 row.configure(bg=C_SELECTED)
                 btn.configure(bg=C_SELECTED, fg=C_TEXT,
                               font=_f(9, True))
-                dot.configure(bg=C_SELECTED)
             else:
                 row.configure(bg=C_PANEL)
                 btn.configure(bg=C_PANEL, fg=C_SUBTLE,
                               font=_f(9))
-                dot.configure(bg=C_PANEL)
 
     def _build_log_panel(self, parent):
         # Header bar
@@ -1244,7 +1236,6 @@ class NotTheNetApp(tk.Tk):
             self._btn_start.configure(state="disabled")
             self._btn_stop.configure(state="normal")
             self._status_label.configure(text="●  Running", fg=C_GREEN)
-            self._update_service_indicators()
         else:
             self._status_label.configure(text="●  Failed — check log", fg=C_RED)
 
@@ -1267,25 +1258,6 @@ class NotTheNetApp(tk.Tk):
         self._btn_start.configure(state="normal")
         self._btn_stop.configure(state="disabled")
         self._status_label.configure(text="●  Stopped", fg=C_DIM)
-        for _key, (_row, _btn, dot) in self._service_btns.items():
-            dot.configure(fg=C_DIM)
-
-    def _update_service_indicators(self):
-        """Refresh sidebar status dots based on actual service status."""
-        if not self._manager:
-            return
-        status = self._manager.status()
-        mapping = {
-            "dns": "dns", "http": "http", "https": "https",
-            "smtp": "smtp", "pop3": "pop3", "imap": "imap",
-            "ftp": "ftp", "catch_tcp": "catch_all",
-        }
-        for svc_key, page_key in mapping.items():
-            colour = C_GREEN if status.get(svc_key) else C_RED
-            widgets = self._service_btns.get(page_key)
-            if widgets:
-                _row, _btn, dot = widgets
-                dot.configure(fg=colour)
 
     def _on_save(self):
         self._apply_all_pages_to_config()

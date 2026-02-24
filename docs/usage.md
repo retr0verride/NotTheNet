@@ -100,15 +100,7 @@ Services are grouped into labelled categories:
 | **MAIL** | SMTP, POP3, IMAP |
 | **FALLBACK** | Catch-All |
 
-The `●` dot on the right of each row shows runtime status:
-
-| Colour | Meaning |
-|--------|---------|
-| Grey | Not started |
-| Green | Running successfully |
-| Red | Failed to start (check log) |
-
-Click any row (or its dot) to open the configuration panel. The active row is highlighted with a darker background and bold text.
+Click any row to open the configuration panel. The active row is highlighted with a darker background and bold text.
 
 ### Configuration Panels
 
