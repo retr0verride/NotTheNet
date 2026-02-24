@@ -241,6 +241,20 @@ def _entry(parent, textvariable, width=FIELD_WIDTH):
     return e
 
 
+def _combo(parent, textvariable, choices: list, width=FIELD_WIDTH):
+    """Dark-styled read-only Combobox for fixed-choice fields."""
+    cb = ttk.Combobox(
+        parent,
+        textvariable=textvariable,
+        values=choices,
+        state="readonly",
+        width=width - 2,
+        font=_f(9),
+        style="Dark.TCombobox",
+    )
+    return cb
+
+
 def _check(parent, text, variable):
     return tk.Checkbutton(
         parent,
@@ -384,19 +398,26 @@ class _GeneralPage(tk.Frame):
              "How iptables REDIRECT rules are applied.\n"
              "loopback — OUTPUT chain, intercepts traffic from this machine only (default).\n"
              "gateway  — PREROUTING chain, intercepts traffic from other hosts on the network.\n"
-             "Use gateway when NotTheNet is acting as a network gateway for a malware VM."),
+             "Use gateway when NotTheNet is acting as a network gateway for a malware VM.",
+             ["loopback", "gateway"]),
             ("Log Directory", "log_dir",      "logs",
              "Directory where rotating log files are written.\n"
              "Created automatically if it does not exist."),
             ("Log Level",     "log_level",    "INFO",
              "Log verbosity: DEBUG (most output) > INFO > WARNING > ERROR (least).\n"
-             "DEBUG shows every packet; ERROR shows only failures."),
+             "DEBUG shows every packet; ERROR shows only failures.",
+             ["DEBUG", "INFO", "WARNING", "ERROR"]),
         ]
-        for row, (label, key, default, tip) in enumerate(fields):
+        for row, item in enumerate(fields):
+            label, key, default, tip = item[0], item[1], item[2], item[3]
+            choices = item[4] if len(item) > 4 else None
             val = self.cfg.get("general", key) or default
             v = tk.StringVar(value=str(val))
             self.vars[key] = v
-            _row(f, label, lambda v=v: _entry(f, v), row, tip=tip)
+            if choices:
+                _row(f, label, lambda v=v, c=choices: _combo(f, v, c), row, tip=tip)
+            else:
+                _row(f, label, lambda v=v: _entry(f, v), row, tip=tip)
 
         check_fields = [
             ("Enable auto-iptables rules", "auto_iptables", True,
@@ -443,10 +464,14 @@ class _ServicePage(tk.Frame):
         for i, item in enumerate(self.fields):
             label, key, default = item[0], item[1], item[2]
             tip = item[3] if len(item) > 3 else ""
+            choices = item[4] if len(item) > 4 else None
             val = self.cfg.get(self.section, key) or default
             v = tk.StringVar(value=str(val))
             self.vars[key] = v
-            _row(f, label, lambda v=v: _entry(f, v), i, tip=tip)
+            if choices:
+                _row(f, label, lambda v=v, c=choices: _combo(f, v, c), i, tip=tip)
+            else:
+                _row(f, label, lambda v=v: _entry(f, v), i, tip=tip)
 
         for j, item in enumerate(self.checks):
             label, key, default = item[0], item[1], item[2]
@@ -616,9 +641,28 @@ class NotTheNetApp(tk.Tk):
     def _apply_ttk_styles(self):
         style = ttk.Style(self)
         style.theme_use("clam")
-        style.configure("Sash", sashthickness=5, background=C_BORDER)
+        style.configure("Sash",  sashthickness=5, background=C_BORDER)
         style.configure("VSash", sashthickness=5, background=C_BORDER)
         style.configure("HSash", sashthickness=5, background=C_BORDER)
+        # Dark combobox style
+        style.configure("Dark.TCombobox",
+            fieldbackground=C_ENTRY_BG,
+            background=C_ENTRY_BG,
+            foreground=C_ENTRY_FG,
+            selectbackground=C_SELECTED,
+            selectforeground=C_TEXT,
+            arrowcolor=C_ACCENT,
+            bordercolor=C_BORDER,
+            lightcolor=C_BORDER,
+            darkcolor=C_BORDER,
+            insertcolor=C_ACCENT,
+        )
+        style.map("Dark.TCombobox",
+            fieldbackground=[("readonly", C_ENTRY_BG), ("disabled", C_BG)],
+            foreground=[("readonly", C_ENTRY_FG), ("disabled", C_DIM)],
+            background=[("active", C_HOVER), ("pressed", C_SELECTED)],
+            arrowcolor=[("active", C_ACCENT), ("pressed", C_ACCENT2)],
+        )
 
     def _build_toolbar(self):
         # Outer toolbar container
@@ -899,7 +943,8 @@ class NotTheNetApp(tk.Tk):
             ("Port",            "port",           "80",
              f"TCP port for the HTTP server. Default: 80. {_PORT_ROOT}"),
             ("Response Code",   "response_code",  "200",
-             "HTTP status code returned for every request (e.g. 200, 301, 404)."),
+             "HTTP status code returned for every request.",
+             ["200", "301", "302", "400", "403", "404", "500", "503"]),
             ("Response Body",   "response_body",  "<html><body>OK</body></html>",
              "HTML/text body returned in every HTTP response.\n"
              "Malware may check this content for specific strings."),
@@ -922,7 +967,8 @@ class NotTheNetApp(tk.Tk):
             ("Key File",        "key_file",       "certs/server.key",
              "Path to the TLS private key. Should be readable only by root (mode 0600)."),
             ("Response Code",   "response_code",  "200",
-             "HTTP status code returned inside the TLS tunnel."),
+             "HTTP status code returned inside the TLS tunnel.",
+             ["200", "301", "302", "400", "403", "404", "500", "503"]),
             ("Response Body",   "response_body",  "<html><body>OK</body></html>",
              "HTML/text body returned inside every HTTPS response."),
             ("Server Header",   "server_header",  "Apache/2.4.51",
