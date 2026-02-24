@@ -924,8 +924,6 @@ class NotTheNetApp(tk.Tk):
 
         if tip:
             tooltip(row, tip)
-            tooltip(btn, tip)
-            tooltip(dot, tip)
 
         self._service_btns[key] = (row, btn, dot)
 
