@@ -17,6 +17,7 @@ import os
 import socketserver
 import ssl
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
@@ -41,6 +42,29 @@ _SECURE_CIPHERS = (
 
 _DEFAULT_BODY = "<html><body><h1>200 OK</h1></body></html>"
 
+# Well-known public-IP-check services. When spoof_public_ip is set and a
+# request Host header matches one of these, the handler returns the spoofed
+# IP instead of the normal response body. This defeats the most common
+# sandbox-evasion technique of checking "am I on the real internet?".
+_IP_CHECK_HOSTS = frozenset({
+    "api.ipify.org", "api4.ipify.org", "api6.ipify.org",
+    "icanhazip.com", "ipv4.icanhazip.com",
+    "checkip.amazonaws.com",
+    "ifconfig.me", "ifconfig.io",
+    "ip.me",
+    "wtfismyip.com",
+    "ipecho.net",
+    "ident.me", "v4.ident.me",
+    "ipinfo.io",
+    "api.my-ip.io",
+    "checkip.dyndns.org", "checkip.dyndns.com",
+    "eth0.me",
+    "ip4.seeip.org",
+    "myexternalip.com",
+    "httpbin.org",
+    "ip-api.com",
+})
+
 
 def _load_response_body(config: dict) -> str:
     """
@@ -63,7 +87,8 @@ def _load_response_body(config: dict) -> str:
     return config.get("response_body", _DEFAULT_BODY)
 
 
-def _make_handler(response_code: int, response_body: str, server_header: str, log_requests: bool):
+def _make_handler(response_code: int, response_body: str, server_header: str,
+                  log_requests: bool, spoof_ip: str = "", delay_ms: int = 0):
     """Factory: create a BaseHTTPRequestHandler subclass with captured config."""
 
     class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
@@ -71,12 +96,56 @@ def _make_handler(response_code: int, response_body: str, server_header: str, lo
         _response_body = response_body.encode("utf-8", errors="replace")
         _server_header = server_header
         _log_requests = log_requests
+        _spoof_ip = spoof_ip
+        _delay_ms = delay_ms
 
         # Suppress default BaseHTTPServer stderr logging (we do our own)
         def log_message(self, fmt, *args):
             pass
 
+        def _send_ip_check_response(self, host: str):
+            """Return the spoofed public IP for known IP-check services."""
+            path = self.path or "/"
+            # httpbin.org/ip uses {"origin": "..."}
+            if host == "httpbin.org":
+                body = f'{{"origin":"{self._spoof_ip}"}}\n'.encode()
+                content_type = "application/json"
+            # ipify ?format=json or URL ending in /json
+            elif "format=json" in path or path.rstrip("/").endswith("/json"):
+                body = f'{{"ip":"{self._spoof_ip}"}}\n'.encode()
+                content_type = "application/json"
+            else:
+                body = f"{self._spoof_ip}\n".encode()
+                content_type = "text/plain"
+            if self._log_requests:
+                safe_addr = sanitize_ip(self.client_address[0])
+                logger.info(
+                    f"HTTP  IP-CHECK {sanitize_log_string(host)}"
+                    f"{sanitize_log_string(path, 128)} "
+                    f"from {safe_addr} \u2192 spoofed {self._spoof_ip}"
+                )
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Server", self._server_header)
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
         def _send_fake_response(self):
+            # Optional artificial delay (simulates realistic network latency,
+            # defeats timing-based sandbox detection)
+            if self._delay_ms > 0:
+                time.sleep(self._delay_ms / 1000.0)
+            # Public IP spoof: intercept well-known IP-check hostnames
+            if self._spoof_ip:
+                host = self.headers.get("Host", "").split(":")[0].strip().lower()
+                if host in _IP_CHECK_HOSTS:
+                    self._send_ip_check_response(host)
+                    return
             if self._log_requests:
                 safe_path = sanitize_log_string(self.path, max_length=256)
                 safe_addr = sanitize_ip(self.client_address[0])
@@ -136,6 +205,8 @@ class HTTPService:
         self.response_body = _load_response_body(config)
         self.server_header = config.get("server_header", "Apache/2.4.51")
         self.log_requests = config.get("log_requests", True)
+        self.spoof_ip = str(config.get("spoof_public_ip", "") or "").strip()
+        self.delay_ms = int(config.get("response_delay_ms", 0) or 0)
         self._server: Optional[_ThreadedServer] = None
         self._thread: Optional[threading.Thread] = None
 
@@ -145,6 +216,7 @@ class HTTPService:
         handler = _make_handler(
             self.response_code, self.response_body,
             self.server_header, self.log_requests,
+            spoof_ip=self.spoof_ip, delay_ms=self.delay_ms,
         )
         try:
             self._server = _ThreadedServer((self.bind_ip, self.port), handler)
@@ -183,6 +255,8 @@ class HTTPSService:
         self.response_body = _load_response_body(config)
         self.server_header = config.get("server_header", "Apache/2.4.51")
         self.log_requests = config.get("log_requests", True)
+        self.spoof_ip = str(config.get("spoof_public_ip", "") or "").strip()
+        self.delay_ms = int(config.get("response_delay_ms", 0) or 0)
         self._server: Optional[_ThreadedServer] = None
         self._thread: Optional[threading.Thread] = None
 
@@ -224,6 +298,7 @@ class HTTPSService:
         handler = _make_handler(
             self.response_code, self.response_body,
             self.server_header, self.log_requests,
+            spoof_ip=self.spoof_ip, delay_ms=self.delay_ms,
         )
         try:
             self._server = _ThreadedServer((self.bind_ip, self.port), handler)

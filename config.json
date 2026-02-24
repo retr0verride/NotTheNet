@@ -7,7 +7,8 @@
     "log_to_file": true,
     "auto_iptables": true,
     "interface": "eth0",
-    "iptables_mode": "loopback"
+    "iptables_mode": "loopback",
+    "spoof_public_ip": ""
   },
   "dns": {
     "enabled": true,
@@ -24,7 +25,8 @@
     "response_body_file": "assets/notthenet-page.html",
     "response_body": "<html><body><h1>200 OK</h1></body></html>",
     "server_header": "Apache/2.4.51 (Debian)",
-    "log_requests": true
+    "log_requests": true,
+    "response_delay_ms": 0
   },
   "https": {
     "enabled": true,
@@ -35,7 +37,8 @@
     "response_body_file": "assets/notthenet-page.html",
     "response_body": "<html><body><h1>200 OK</h1></body></html>",
     "server_header": "Apache/2.4.51 (Debian)",
-    "log_requests": true
+    "log_requests": true,
+    "response_delay_ms": 0
   },
   "smtp": {
     "enabled": true,

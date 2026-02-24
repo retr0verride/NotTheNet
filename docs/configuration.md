@@ -33,6 +33,7 @@ Global settings that apply to all services.
 | `log_to_file` | bool | `true` | Whether to write logs to `logs/notthenet.log` (rotating, 10 MB × 5 files). |
 | `auto_iptables` | bool | `true` | Automatically apply iptables NAT REDIRECT rules when services start, and remove them when stopped. |
 | `iptables_mode` | string | `"loopback"` | How iptables rules are applied. `"loopback"` = OUTPUT chain (local-only). `"gateway"` = PREROUTING chain (intercept traffic from other hosts). See [Network & iptables](network.md). |
+| `spoof_public_ip` | string | `""` | When set, HTTP/HTTPS requests to well-known public-IP-check services (`api.ipify.org`, `icanhazip.com`, `checkip.amazonaws.com`, `ifconfig.me`, `httpbin.org`, and 15+ others) return this IP as plain text or JSON instead of the normal response body. Defeats malware that queries these services to detect sandbox environments. Leave blank to disable. Example: `"93.184.216.34"`. |
 
 ### Example
 
@@ -95,6 +96,7 @@ Fake HTTP server — returns a canned response to every request regardless of me
 | `response_body_file` | string | `""` | Path to an HTML file to serve as the response body (e.g. `"assets/notthenet-page.html"`). Takes priority over `response_body`. |
 | `server_header` | string | `"Apache/2.4.51 (Debian)"` | Value of the `Server:` response header. Change to mimic target infrastructure. |
 | `log_requests` | bool | `true` | Log each HTTP request (method, path, client IP). |
+| `response_delay_ms` | int | `0` | Artificial delay in milliseconds before each response. Values of 50–200 ms simulate realistic network latency and defeat timing-based sandbox detection. `0` = no delay. |
 
 ---
 
@@ -113,6 +115,7 @@ Fake HTTPS server with hardened TLS. Shares response configuration with HTTP.
 | `response_body_file` | string | `""` | Path to an HTML file to serve (e.g. `"assets/notthenet-page.html"`). Takes priority over `response_body`. |
 | `server_header` | string | `"Apache/2.4.51 (Debian)"` | `Server:` header value. |
 | `log_requests` | bool | `true` | Log HTTPS requests. |
+| `response_delay_ms` | int | `0` | Artificial delay in milliseconds before each response. Same as HTTP — 50–200 ms recommended to defeat timing-based sandbox detection. |
 
 > **TLS details:** TLS 1.2 minimum. Protocols SSLv2, SSLv3, TLS 1.0, TLS 1.1 are disabled. Only ECDHE + AEAD cipher suites are accepted.
 

@@ -97,6 +97,22 @@ def validate_config(config_data: dict) -> list:
     if not ok:
         errors.append(f"general.redirect_ip is invalid: {general.get('redirect_ip')}")
 
+    spoof_ip = str(general.get("spoof_public_ip", "") or "").strip()
+    if spoof_ip:
+        ok, _ = validate_ip(spoof_ip)
+        if not ok:
+            errors.append(f"general.spoof_public_ip is not a valid IP address: {spoof_ip!r}")
+
+    for service in ("http", "https"):
+        section = config_data.get(service, {})
+        delay = section.get("response_delay_ms", 0)
+        try:
+            d = int(delay)
+            if not (0 <= d <= 30_000):
+                raise ValueError
+        except (TypeError, ValueError):
+            errors.append(f"{service}.response_delay_ms must be an integer 0–30000, got {delay!r}")
+
     for service in ("http", "https", "smtp", "pop3", "imap", "ftp", "dns"):
         section = config_data.get(service, {})
         if section.get("enabled", False):

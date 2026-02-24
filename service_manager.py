@@ -48,6 +48,7 @@ class ServiceManager:
         require_root_or_warn()
 
         bind_ip = self.config.get("general", "bind_ip") or "0.0.0.0"
+        spoof_ip = str(self.config.get("general", "spoof_public_ip") or "")
 
         # --- Ensure TLS certs exist before binding ---
         https_cfg = self.config.get_section("https")
@@ -65,12 +66,12 @@ class ServiceManager:
             self._services["dns"] = dns
             started.append("dns")
 
-        http = HTTPService(self.config.get_section("http"), bind_ip=bind_ip)
+        http = HTTPService({**self.config.get_section("http"), "spoof_public_ip": spoof_ip}, bind_ip=bind_ip)
         if http.start():
             self._services["http"] = http
             started.append("http")
 
-        https = HTTPSService(self.config.get_section("https"), bind_ip=bind_ip)
+        https = HTTPSService({**self.config.get_section("https"), "spoof_public_ip": spoof_ip}, bind_ip=bind_ip)
         if https.start():
             self._services["https"] = https
             started.append("https")

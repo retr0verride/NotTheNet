@@ -386,6 +386,12 @@ class _GeneralPage(tk.Frame):
              "Log verbosity: DEBUG (most output) > INFO > WARNING > ERROR (least).\n"
              "DEBUG shows every packet; ERROR shows only failures.",
              ["DEBUG", "INFO", "WARNING", "ERROR"]),
+            ("Spoof Public IP", "spoof_public_ip", "",
+             "When set, HTTP/HTTPS responses to well-known IP-check services\n"
+             "(api.ipify.org, icanhazip.com, checkip.amazonaws.com, etc.)\n"
+             "will return this IP instead of the normal page body.\n"
+             "Defeats malware that checks 'am I on the real internet?' via HTTP.\n"
+             "Example: 93.184.216.34   Leave blank to disable."),
         ]
         for row, item in enumerate(fields):
             label, key, default, tip = item[0], item[1], item[2], item[3]
@@ -946,6 +952,11 @@ class NotTheNetApp(tk.Tk):
             ("Server Header",   "server_header",  "Apache/2.4.51",
              "Value of the 'Server:' response header.\n"
              "Spoofing a real server (Apache, nginx) may satisfy malware fingerprinting checks."),
+            ("Response Delay (ms)", "response_delay_ms", "0",
+             "Artificial delay in milliseconds added before each HTTP response.\n"
+             "Realistic latency (50-200 ms) defeats timing-based sandbox detection\n"
+             "that flags environments with suspiciously instant responses.\n"
+             "Set to 0 to disable."),
         ]
         self._pages["http"] = _ServicePage(
             self._page_container, self._cfg, "http", http_fields,
@@ -972,6 +983,10 @@ class NotTheNetApp(tk.Tk):
              "Leave blank to use the Response Body string."),
             ("Server Header",   "server_header",  "Apache/2.4.51",
              "Value of the 'Server:' response header inside the TLS tunnel."),
+            ("Response Delay (ms)", "response_delay_ms", "0",
+             "Artificial delay in milliseconds added before each HTTPS response.\n"
+             "Realistic latency (50-200 ms) defeats timing-based sandbox detection.\n"
+             "Set to 0 to disable."),
         ]
         self._pages["https"] = _ServicePage(
             self._page_container, self._cfg, "https", https_fields,
