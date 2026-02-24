@@ -1,0 +1,10 @@
+[bandit]
+exclude: .venv,venv,.git,__pycache__,tests
+skips: B104,B110,B324,B404,B603,B607
+#
+# B104  – binding to 0.0.0.0: intentional — this tool IS the fake internet
+# B110  – try/except/pass: intentional in socket I/O handlers (send/close)
+# B324  – hashlib: not used for cryptographic purposes here
+# B404  – subprocess import: used safely with shell=False throughout
+# B603  – subprocess without shell=True: shell=False is the secure pattern
+# B607  – partial executable path (git, pip): intentional cross-env portability

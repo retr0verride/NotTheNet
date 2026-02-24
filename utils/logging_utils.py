@@ -77,15 +77,23 @@ def setup_logging(
         datefmt="%Y-%m-%dT%H:%M:%S",
     )
 
-    # Console handler
-    if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
+    # Console handler — guard against duplicates on repeated calls.
+    # RotatingFileHandler IS-A StreamHandler, so check the concrete type.
+    has_console = any(
+        type(h) is logging.StreamHandler for h in logger.handlers
+    )
+    if not has_console:
         ch = logging.StreamHandler(sys.stdout)
         ch.setLevel(level)
         ch.setFormatter(formatter)
         logger.addHandler(ch)
 
-    # Rotating file handler — caps at 10 MB × 5 backups = 50 MB max
-    if log_to_file:
+    # Rotating file handler — caps at 10 MB × 5 backups = 50 MB max.
+    # Guard against duplicate file handlers when Start is clicked more than once.
+    has_file = any(
+        isinstance(h, logging.handlers.RotatingFileHandler) for h in logger.handlers
+    )
+    if log_to_file and not has_file:
         os.makedirs(log_dir, exist_ok=True)
         log_path = os.path.join(log_dir, "notthenet.log")
         fh = logging.handlers.RotatingFileHandler(

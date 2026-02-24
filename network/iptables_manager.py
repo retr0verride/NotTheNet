@@ -185,7 +185,7 @@ class IPTablesManager:
             )
             return False
 
-        _save_rules()
+        self._saved = _save_rules()
 
         chain = "PREROUTING" if self.mode == "gateway" else "OUTPUT"
         table_flag = ["-t", "nat"]

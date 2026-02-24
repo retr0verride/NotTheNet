@@ -30,6 +30,12 @@ PASV_PORT_LOW = 50000
 PASV_PORT_HIGH = 51000
 
 
+class _ReuseServer(socketserver.ThreadingTCPServer):
+    """ThreadingTCPServer with allow_reuse_address set before server_bind()."""
+    allow_reuse_address = True
+    daemon_threads = True
+
+
 def _get_disk_usage(directory: str) -> int:
     total = 0
     try:
@@ -223,7 +229,6 @@ class _FTPSession(threading.Thread):
                         )
                         break
                     f.write(chunk)
-            data_conn.close()
             logger.info(
                 f"FTP: upload from {safe_addr} saved as {safe_fname} ({received} bytes)"
             )
@@ -231,6 +236,12 @@ class _FTPSession(threading.Thread):
         except Exception as e:
             logger.error(f"FTP: upload error: {e}")
             self._send("451 Requested action aborted")
+        finally:
+            # Always close the data connection — even if open() or write() raised
+            try:
+                data_conn.close()
+            except Exception:
+                pass
 
 
 class FTPService:
@@ -260,11 +271,7 @@ class FTPService:
                 sess.run()
 
         try:
-            self._server = socketserver.ThreadingTCPServer(
-                (self.bind_ip, self.port), _Handler
-            )
-            self._server.allow_reuse_address = True
-            self._server.daemon_threads = True
+            self._server = _ReuseServer((self.bind_ip, self.port), _Handler)
             self._thread = threading.Thread(
                 target=self._server.serve_forever, daemon=True
             )

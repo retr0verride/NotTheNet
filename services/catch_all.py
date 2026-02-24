@@ -26,6 +26,12 @@ MAX_CONNECTIONS = 200
 SESSION_TIMEOUT = 10  # seconds
 
 
+class _ReuseServer(socketserver.ThreadingTCPServer):
+    """ThreadingTCPServer with allow_reuse_address set before server_bind()."""
+    allow_reuse_address = True
+    daemon_threads = True
+
+
 class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
     def handle(self):
         safe_addr = sanitize_ip(self.client_address[0])
@@ -63,11 +69,7 @@ class CatchAllTCPService:
         if not self.enabled:
             return False
         try:
-            self._server = socketserver.ThreadingTCPServer(
-                (self.bind_ip, self.port), _CatchAllTCPHandler
-            )
-            self._server.allow_reuse_address = True
-            self._server.daemon_threads = True
+            self._server = _ReuseServer((self.bind_ip, self.port), _CatchAllTCPHandler)
             # Bound the thread pool indirectly via semaphore
             self._thread = threading.Thread(
                 target=self._server.serve_forever, daemon=True

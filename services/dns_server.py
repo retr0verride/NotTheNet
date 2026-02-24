@@ -147,6 +147,11 @@ class DNSService:
 
     @property
     def running(self) -> bool:
-        return bool(
-            self._server_udp and getattr(self._server_udp, "isAlive", lambda: False)()
-        )
+        # dnslib's DNSServer exposes the underlying thread via .thread
+        # (set by start_thread()).  Fall back gracefully if the attribute
+        # layout ever changes.
+        try:
+            t = getattr(self._server_udp, "thread", None)
+            return bool(t and t.is_alive())
+        except Exception:
+            return False

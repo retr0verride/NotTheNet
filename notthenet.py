@@ -1189,8 +1189,21 @@ class NotTheNetApp(tk.Tk):
             self._status_label.configure(text="â—  Failed â€” check log", fg=C_RED)
 
     def _on_stop(self):
-        if self._manager:
-            threading.Thread(target=self._manager.stop, daemon=True).start()
+        if not self._manager:
+            return
+        # Keep both buttons disabled until the background stop thread finishes
+        # so a rapid Stop->Start cannot attempt to rebind ports still in use.
+        self._btn_start.configure(state="disabled")
+        self._btn_stop.configure(state="disabled")
+        self._status_label.configure(text="â—  Stopping...", fg=C_ORANGE)
+
+        def _stop_thread():
+            self._manager.stop()
+            self.after(0, self._update_ui_after_stop)
+
+        threading.Thread(target=_stop_thread, daemon=True).start()
+
+    def _update_ui_after_stop(self):
         self._btn_start.configure(state="normal")
         self._btn_stop.configure(state="disabled")
         self._status_label.configure(text="â—  Stopped", fg=C_DIM)

@@ -65,6 +65,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+"notthenet.py" = ["E501"]  # decorative section separators and ASCII-art banner strings
 "install.sh" = []  # shell, not Python
 
 [tool.mypy]
@@ -87,8 +88,12 @@ ignore_errors = true
 # ── Security scanning (Bandit) ────────────────────────────────────────────────
 
 [tool.bandit]
-exclude_dirs = ["venv", ".git", "tests"]
+exclude_dirs = ["venv", ".venv", ".git", "tests"]
 skips = [
-    "B104",   # binding to 0.0.0.0 — intentional (fake internet)
+    "B104",   # binding to 0.0.0.0 — intentional (fake internet by design)
+    "B110",   # try/except/pass — intentional in socket I/O handlers
     "B324",   # hashlib use — not for crypto here
+    "B404",   # subprocess import — used safely with shell=False throughout
+    "B603",   # subprocess without shell=True — shell=False is the secure pattern
+    "B607",   # partial executable path — intentional for cross-env portability
 ]

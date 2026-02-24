@@ -25,6 +25,15 @@ MAX_EMAIL_SIZE_BYTES = 5 * 1024 * 1024   # 5 MB per message
 MAX_DISK_USAGE_BYTES = 100 * 1024 * 1024  # 100 MB total email storage cap
 
 
+class _ReuseServer(socketserver.ThreadingTCPServer):
+    """ThreadingTCPServer with allow_reuse_address set as a class attribute.
+    This MUST be a class attribute (not instance attribute) so it is read
+    before server_bind() is called inside __init__.
+    """
+    allow_reuse_address = True
+    daemon_threads = True
+
+
 # ---------------------------------------------------------------------------
 # SMTP
 # ---------------------------------------------------------------------------
@@ -203,15 +212,17 @@ class SMTPService:
 # POP3 (minimal — enough to satisfy most malware polling)
 # ---------------------------------------------------------------------------
 
-def _make_pop3_handler():
+def _make_pop3_handler(hostname: str = "mail.notthenet.local"):
     import socketserver
 
     class POP3Handler(socketserver.BaseRequestHandler):
+        _hostname = hostname
+
         def handle(self):
             safe_addr = sanitize_ip(self.client_address[0])
             logger.info(f"POP3 connection from {safe_addr}")
             try:
-                self._send("+OK NotTheNet POP3 server ready")
+                self._send(f"+OK {self._hostname} POP3 server ready")
                 self.request.settimeout(30)
                 buf = b""
                 while True:
@@ -256,6 +267,7 @@ class POP3Service:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 110))
         self.bind_ip = bind_ip
+        self.hostname = config.get("hostname", "mail.notthenet.local")
         self._server = None
         self._thread = None
 
@@ -263,12 +275,8 @@ class POP3Service:
         if not self.enabled:
             return False
         try:
-            handler = _make_pop3_handler()
-            self._server = socketserver.ThreadingTCPServer(
-                (self.bind_ip, self.port), handler
-            )
-            self._server.allow_reuse_address = True
-            self._server.daemon_threads = True
+            handler = _make_pop3_handler(self.hostname)
+            self._server = _ReuseServer((self.bind_ip, self.port), handler)
             self._thread = threading.Thread(
                 target=self._server.serve_forever, daemon=True
             )
@@ -362,11 +370,7 @@ class IMAPService:
             return False
         try:
             handler = _make_imap_handler(self.hostname)
-            self._server = socketserver.ThreadingTCPServer(
-                (self.bind_ip, self.port), handler
-            )
-            self._server.allow_reuse_address = True
-            self._server.daemon_threads = True
+            self._server = _ReuseServer((self.bind_ip, self.port), handler)
             self._thread = threading.Thread(
                 target=self._server.serve_forever, daemon=True
             )
