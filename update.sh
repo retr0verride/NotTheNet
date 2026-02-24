@@ -69,6 +69,9 @@ if [[ $EUID -eq 0 ]]; then
         fi
 
         gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
+        # Restart XFCE panel so it reloads the icon cache; prevents other panel
+        # icons from showing as white gears after the cache is rebuilt.
+        pgrep -x xfce4-panel >/dev/null && DISPLAY="${DISPLAY:-:0}" xfce4-panel --restart 2>/dev/null || true
         echo "[*] Icon updated"
     fi
 

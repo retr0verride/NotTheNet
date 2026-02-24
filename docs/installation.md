@@ -312,6 +312,9 @@ sudo rm -f /usr/local/share/man/man1/notthenet.1.gz
 sudo update-desktop-database -q /usr/share/applications 2>/dev/null || true
 sudo gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
 sudo mandb -q 2>/dev/null || true
+# Restart XFCE panel so it reloads the icon cache; prevents other panel icons
+# from showing as white gears after the cache is rebuilt while the panel runs.
+pgrep -x xfce4-panel >/dev/null && DISPLAY="${DISPLAY:-:0}" xfce4-panel --restart 2>/dev/null || true
 
 # ── 6. Remove the pip package (if installed with pip install -e . or pip install) ─
 "${NOTTHENET_DIR}/venv/bin/pip" uninstall -y notthenet 2>/dev/null || true
