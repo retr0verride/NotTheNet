@@ -205,9 +205,10 @@ sudo bash update.sh
 
 The script will:
 1. Stop NotTheNet if it is running
-2. Pull the latest code from GitHub
-3. Re-install the package (picks up dependency or entry-point changes)
-4. Print the new version number
+2. Back up your local `config.json` if it has unsaved changes, pull, then restore it automatically
+3. Pull the latest code from GitHub
+4. Re-install the package (picks up dependency or entry-point changes)
+5. Print the new version number
 
 ### Manual steps
 

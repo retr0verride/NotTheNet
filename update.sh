@@ -15,11 +15,27 @@ if pgrep -f "notthenet" >/dev/null 2>&1; then
     sleep 1
 fi
 
-# ── 2. Pull latest code ───────────────────────────────────────────────────────
+# ── 2. Preserve user config.json across the pull ─────────────────────────────
+CONFIG_BACKUP=""
+if ! git diff --quiet config.json 2>/dev/null; then
+    CONFIG_BACKUP="$(mktemp)"
+    cp config.json "$CONFIG_BACKUP"
+    echo "[*] Local config.json changes detected — backing up to $CONFIG_BACKUP"
+    git checkout -- config.json
+fi
+
+# ── 3. Pull latest code ───────────────────────────────────────────────────────
 echo "[*] Pulling latest changes from GitHub..."
 git pull origin master
 
-# ── 3. Reinstall package (picks up any dependency / entry-point changes) ─────
+# Restore user config if it was backed up
+if [ -n "$CONFIG_BACKUP" ]; then
+    cp "$CONFIG_BACKUP" config.json
+    rm -f "$CONFIG_BACKUP"
+    echo "[*] Restored your local config.json"
+fi
+
+# ── 4. Reinstall package (picks up any dependency / entry-point changes) ─────
 if [ -d "venv" ]; then
     PYTHON="venv/bin/python"
     PIP="venv/bin/pip"
@@ -35,7 +51,7 @@ fi
 echo "[*] Reinstalling package..."
 "$PIP" install -e . --quiet
 
-# ── 4. Show new version ───────────────────────────────────────────────────────
+# ── 5. Show new version ───────────────────────────────────────────────────────
 VERSION=$("$PYTHON" -c "import notthenet; print(notthenet.APP_VERSION)" 2>/dev/null || echo "unknown")
 echo ""
 echo "[✓] NotTheNet updated to version: $VERSION"
