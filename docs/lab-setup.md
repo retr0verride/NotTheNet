@@ -269,8 +269,8 @@ Run these from **FlareVM PowerShell** before detonating anything.
 |------|---------|----------------|
 | Connectivity | `ping 10.0.0.1` | Replies from Kali |
 | DNS | `nslookup evil-c2.com` | Resolves to `10.0.0.1` |
-| HTTP | `curl.exe http://google.com` | `200 OK` |
-| HTTPS | `curl.exe -k https://google.com` | `200 OK` |
+| HTTP | `curl.exe -i http://google.com` | `HTTP/1.1 200 OK` |
+| HTTPS | `curl.exe -ik https://google.com` | `HTTP/1.1 200 OK` |
 | SMTP | `curl.exe -s -m 5 telnet://10.0.0.1:25` | `220 mail.example.com ESMTP Postfix` |
 | FTP | `curl.exe -s -m 5 telnet://10.0.0.1:21` | `220 FTP Server Ready` |
 | Catch-All | `curl.exe -s -m 5 telnet://10.0.0.1:4444` | `200 OK` |
@@ -671,37 +671,37 @@ Every query should return `10.0.0.1`. Check the NotTheNet DNS log entries appear
 
 From FlareVM (cmd or PowerShell — `curl.exe` is built into Windows 10+):
 ```cmd
-curl.exe http://google.com
+curl.exe -i http://google.com
 ```
-Expected: `200 OK` from NotTheNet's fake HTTP server. The `Server:` header will be whatever you configured (default: `nginx`).
+Expected: response starts with `HTTP/1.1 200 OK`. The `Server:` header will be whatever you configured (default: `Apache/2.4.51 (Debian)`).
 
 ### 4.4 HTTPS
 
 ```cmd
-# -k skips certificate verification (self-signed cert)
-curl.exe -k https://google.com
+# -i shows response headers; -k skips certificate verification (self-signed cert)
+curl.exe -ik https://google.com
 ```
-Expected: `200 OK`. The TLS handshake will succeed with NotTheNet's auto-generated certificate.
+Expected: response starts with `HTTP/1.1 200 OK`. The TLS handshake will succeed with NotTheNet's auto-generated certificate.
 
 ### 4.5 SMTP
 
 ```cmd
-curl.exe -v -m 5 telnet://10.0.0.1:25
+curl.exe -s -m 5 telnet://10.0.0.1:25
 ```
 Expected: the SMTP banner, e.g. `220 mail.example.com ESMTP Postfix` (matches whatever you set in the Banner field).
 
 ### 4.6 FTP
 
 ```cmd
-curl.exe -v -m 5 telnet://10.0.0.1:21
+curl.exe -s -m 5 telnet://10.0.0.1:21
 ```
 Expected: the FTP banner, e.g. `220 FTP Server Ready` (matches whatever you set in the Banner field).
 
 ### 4.7 Non-standard port (Catch-All)
 
 ```cmd
-curl.exe -v -m 5 telnet://10.0.0.1:4444
-curl.exe -v -m 5 telnet://10.0.0.1:8443
+curl.exe -s -m 5 telnet://10.0.0.1:4444
+curl.exe -s -m 5 telnet://10.0.0.1:8443
 ```
 Expected: `200 OK` — caught by the TCP Catch-All service. These appear in the NotTheNet log as `catch_all` entries.
 
@@ -709,9 +709,9 @@ Expected: `200 OK` — caught by the TCP Catch-All service. These appear in the 
 
 ```cmd
 # This should FAIL — no route to the real internet
-curl.exe -v -m 5 telnet://8.8.8.8:53
+curl.exe -s -m 5 telnet://8.8.8.8:53
 ```
-Expected: connection timeout / `Failed to connect`. If it succeeds, FlareVM still has a route to the real internet — re-check that `vmbr0` is not attached.
+Expected: no output / command returns after 5 seconds. If a banner appears, FlareVM still has a route to the real internet — re-check that `vmbr0` is not attached.
 
 ---
 
