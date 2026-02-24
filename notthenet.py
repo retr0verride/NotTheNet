@@ -160,6 +160,16 @@ class _Tooltip:
         x = self._widget.winfo_rootx() + 16
         y = self._widget.winfo_rooty() + self._widget.winfo_height() + 4
 
+        # Scale wraplength with current zoom if fonts are initialised
+        font = _f(8)
+        zoom = 1.0
+        if (8, False) in _F:
+            try:
+                zoom = _F[(8, False)].cget("size") / 8
+            except Exception:
+                pass
+        wrap = round(self._WRAP * zoom)
+
         self._tw = tk.Toplevel(self._widget)
         self._tw.wm_overrideredirect(True)
         self._tw.wm_geometry(f"+{x}+{y}")
@@ -175,8 +185,8 @@ class _Tooltip:
             text=self._text,
             bg="#1e1e32",
             fg=C_TEXT,
-            font=_f(8),
-            wraplength=self._WRAP,
+            font=font,
+            wraplength=wrap,
             justify="left",
         ).pack()
 
@@ -268,7 +278,7 @@ def _info_icon(parent, tip: str) -> tk.Label:
     lbl = tk.Label(
         parent, text=" ⓘ",
         bg=C_SURFACE, fg=C_DIM,
-        font=_f(9), cursor="question_arrow",
+        font=_f(9), cursor="hand2",
     )
     tooltip(lbl, tip)
     lbl.bind("<Enter>", lambda _e: lbl.configure(fg=C_ACCENT))
