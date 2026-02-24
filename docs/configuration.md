@@ -91,7 +91,8 @@ Fake HTTP server — returns a canned response to every request regardless of me
 | `enabled` | bool | `true` | Enable the HTTP service. |
 | `port` | int | `80` | TCP port to listen on. |
 | `response_code` | int | `200` | HTTP status code to return. Common values: `200`, `404`, `302`. |
-| `response_body` | string | `<html>…</html>` | HTTP response body (HTML string). |
+| `response_body` | string | `<html>…</html>` | HTTP response body (HTML string). Used only when `response_body_file` is not set. |
+| `response_body_file` | string | `""` | Path to an HTML file to serve as the response body (e.g. `"assets/notthenet-page.html"`). Takes priority over `response_body`. |
 | `server_header` | string | `"Apache/2.4.51 (Debian)"` | Value of the `Server:` response header. Change to mimic target infrastructure. |
 | `log_requests` | bool | `true` | Log each HTTP request (method, path, client IP). |
 
@@ -108,7 +109,8 @@ Fake HTTPS server with hardened TLS. Shares response configuration with HTTP.
 | `cert_file` | string | `"certs/server.crt"` | Path to the PEM certificate. Auto-generated on first run if absent. |
 | `key_file` | string | `"certs/server.key"` | Path to the PEM private key. Auto-generated on first run if absent. |
 | `response_code` | int | `200` | HTTP status code. |
-| `response_body` | string | `<html>…</html>` | Response body. |
+| `response_body` | string | `<html>…</html>` | Response body (HTML string). Used only when `response_body_file` is not set. |
+| `response_body_file` | string | `""` | Path to an HTML file to serve (e.g. `"assets/notthenet-page.html"`). Takes priority over `response_body`. |
 | `server_header` | string | `"Apache/2.4.51 (Debian)"` | `Server:` header value. |
 | `log_requests` | bool | `true` | Log HTTPS requests. |
 

@@ -73,6 +73,10 @@ dig @127.0.0.1 update.microsoft.com +short
 
 Responds identically to **every** HTTP request — any method (`GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `HEAD`, `OPTIONS`, `CONNECT`, `TRACE`), any path, any host header.
 
+#### Response body
+
+The response body is loaded from `response_body_file` if set in `config.json` (e.g. `"assets/notthenet-page.html"`), otherwise the `response_body` string is used. The default ships with the **NotTheNet branded landing page** — a dark-themed splash page showing service status, which makes it immediately obvious to the analyst that traffic is being intercepted.
+
 Response headers always include:
 - `Content-Type: text/html; charset=utf-8`
 - `Content-Length`

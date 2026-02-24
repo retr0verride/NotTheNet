@@ -28,18 +28,26 @@ Man page: [`man/notthenet.1`](../man/notthenet.1)
 
 ## Quick-Start (TL;DR)
 
+**Option A — .deb package (recommended on Kali):**
+
 ```bash
-# 1. Install
-cd ~
+git clone https://github.com/retr0verride/NotTheNet
+cd NotTheNet
+bash build-deb.sh
+sudo dpkg -i notthenet_*.deb
+sudo notthenet
+```
+
+**Option B — install script:**
+
+```bash
 git clone https://github.com/retr0verride/NotTheNet
 cd NotTheNet
 sudo bash notthenet-install.sh
-
-# 2. Run GUI
 sudo notthenet
-
-# 3. Click ▶ Start
 ```
+
+Then click **▶ Start**.
 
 That's it. Every DNS query from the analysis machine now resolves to `127.0.0.1`, every HTTP/HTTPS request gets a `200 OK`, and all other TCP traffic hits the catch-all service.
 
@@ -54,7 +62,7 @@ That's it. Every DNS query from the analysis machine now resolves to `127.0.0.1`
 | Python 3 support | Partial | Yes | Full (3.9+) |
 | GUI configuration | No | No | Yes (Tkinter, no extra dep) |
 | TLS 1.2+ only | No | No | Yes (configurable cipher list) |
-| Privilege drop | No | No | Yes (drops to `nobody` after bind) |
+| Privilege drop after bind | No | No | Runs as root; `pkexec` handles privilege for desktop launch |
 | Catch-all port redirect | Via config file | Via config file | Auto iptables NAT |
 | Log injection prevention | No | No | Yes (CWE-117 sanitised) |
 | Single file to read | No | No | Each concern in one module |
