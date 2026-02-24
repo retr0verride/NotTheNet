@@ -69,6 +69,75 @@ def _hover_bind(widget, normal_bg: str, hover_bg: str):
     widget.bind("<Leave>", lambda _e: widget.configure(bg=normal_bg))
 
 
+# ─── Tooltip ─────────────────────────────────────────────────────────────────
+
+class _Tooltip:
+    """Dark-themed tooltip that appears after a short hover delay."""
+
+    _DELAY_MS = 500
+    _WRAP = 280
+
+    def __init__(self, widget: tk.Widget, text: str):
+        self._widget = widget
+        self._text = text
+        self._tw: Optional[tk.Toplevel] = None
+        self._job: Optional[str] = None
+        widget.bind("<Enter>",    self._on_enter, add="+")
+        widget.bind("<Leave>",    self._on_leave, add="+")
+        widget.bind("<Button>",   self._on_leave, add="+")
+        widget.bind("<Destroy>",  self._on_leave, add="+")
+
+    def _on_enter(self, _event=None):
+        self._cancel()
+        self._job = self._widget.after(self._DELAY_MS, self._show)
+
+    def _on_leave(self, _event=None):
+        self._cancel()
+        self._hide()
+
+    def _cancel(self):
+        if self._job:
+            self._widget.after_cancel(self._job)
+            self._job = None
+
+    def _show(self):
+        if self._tw:
+            return
+        x = self._widget.winfo_rootx() + 16
+        y = self._widget.winfo_rooty() + self._widget.winfo_height() + 4
+
+        self._tw = tk.Toplevel(self._widget)
+        self._tw.wm_overrideredirect(True)
+        self._tw.wm_geometry(f"+{x}+{y}")
+        self._tw.configure(bg=C_BORDER)
+
+        # 1 px border via outer frame
+        outer = tk.Frame(self._tw, bg=C_BORDER, padx=1, pady=1)
+        outer.pack()
+        inner = tk.Frame(outer, bg="#1e1e32", padx=7, pady=5)
+        inner.pack()
+        tk.Label(
+            inner,
+            text=self._text,
+            bg="#1e1e32",
+            fg=C_TEXT,
+            font=("monospace", 8),
+            wraplength=self._WRAP,
+            justify="left",
+        ).pack()
+
+    def _hide(self):
+        if self._tw:
+            self._tw.destroy()
+            self._tw = None
+
+
+def tooltip(widget: tk.Widget, text: str) -> None:
+    """Attach a tooltip to *widget* showing *text* after a short hover."""
+    if text:
+        _Tooltip(widget, text)
+
+
 # ─── Logging bridge: route Python log records → GUI queue ────────────────────
 
 class _QueueHandler(logging.Handler):
@@ -139,13 +208,17 @@ def _section_frame(parent, title: str):
     return frame
 
 
-def _row(parent, label: str, widget_factory, row: int, col_offset: int = 0):
-    """Lay out a label + widget pair in a grid."""
+def _row(parent, label: str, widget_factory, row: int,
+         col_offset: int = 0, tip: str = ""):
+    """Lay out a label + widget pair in a grid. Attach optional tooltip."""
     lbl = tk.Label(parent, text=label, bg=C_SURFACE, fg=C_SUBTLE,
                    font=("monospace", 9), anchor="e")
     lbl.grid(row=row, column=col_offset, sticky="e", padx=(0, 6), pady=4)
     w = widget_factory()
     w.grid(row=row, column=col_offset + 1, sticky="w", pady=4)
+    if tip:
+        tooltip(lbl, tip)
+        tooltip(w, tip)
     return w
 
 
@@ -219,31 +292,46 @@ class _GeneralPage(tk.Frame):
         f.pack(fill="x", padx=PAD + 4, pady=PAD + 4)
 
         fields = [
-            ("Bind IP",       "bind_ip",      "0.0.0.0"),
-            ("Redirect IP",   "redirect_ip",  "127.0.0.1"),
-            ("Interface",     "interface",    "eth0"),
-            ("Log Directory", "log_dir",      "logs"),
-            ("Log Level",     "log_level",    "INFO"),
+            ("Bind IP",       "bind_ip",      "0.0.0.0",
+             "IP address that all services bind to.\n"
+             "Use 0.0.0.0 to listen on every interface,\n"
+             "or a specific IP to restrict to one interface."),
+            ("Redirect IP",   "redirect_ip",  "127.0.0.1",
+             "IP returned for all DNS A/AAAA queries.\n"
+             "Usually 127.0.0.1 to route malware traffic back to this machine."),
+            ("Interface",     "interface",    "eth0",
+             "Network interface for iptables REDIRECT rules (e.g. eth0, ens33).\n"
+             "Run 'ip link' to list available interfaces."),
+            ("Log Directory", "log_dir",      "logs",
+             "Directory where rotating log files are written.\n"
+             "Created automatically if it does not exist."),
+            ("Log Level",     "log_level",    "INFO",
+             "Log verbosity: DEBUG (most output) > INFO > WARNING > ERROR (least).\n"
+             "DEBUG shows every packet; ERROR shows only failures."),
         ]
-        for row, (label, key, default) in enumerate(fields):
+        for row, (label, key, default, tip) in enumerate(fields):
             val = self.cfg.get("general", key) or default
             v = tk.StringVar(value=str(val))
             self.vars[key] = v
-            _row(f, label, lambda v=v: _entry(f, v), row)
+            _row(f, label, lambda v=v: _entry(f, v), row, tip=tip)
 
         check_fields = [
-            ("Enable auto-iptables rules", "auto_iptables", True),
-            ("Log to file",               "log_to_file",   True),
+            ("Enable auto-iptables rules", "auto_iptables", True,
+             "Add NAT REDIRECT rules via iptables when services start,\n"
+             "and remove them cleanly on stop. Requires root."),
+            ("Log to file",               "log_to_file",   True,
+             "Write log output to a rotating file in the log directory\n"
+             "in addition to the GUI log panel."),
         ]
-        for i, (label, key, default) in enumerate(check_fields):
+        for i, (label, key, default, tip) in enumerate(check_fields):
             val = self.cfg.get("general", key)
             if val is None:
                 val = default
             v = tk.BooleanVar(value=bool(val))
             self.vars[key] = v
-            _check(f, label, v).grid(
-                row=len(fields) + i, column=0, columnspan=2, sticky="w", pady=4
-            )
+            cb = _check(f, label, v)
+            cb.grid(row=len(fields) + i, column=0, columnspan=2, sticky="w", pady=4)
+            tooltip(cb, tip)
 
     def apply_to_config(self):
         for key, var in self.vars.items():
@@ -266,21 +354,25 @@ class _ServicePage(tk.Frame):
         f = _section_frame(self, self.section.upper() + " Service")
         f.pack(fill="x", padx=PAD + 4, pady=PAD + 4)
 
-        for i, (label, key, default) in enumerate(self.fields):
+        for i, item in enumerate(self.fields):
+            label, key, default = item[0], item[1], item[2]
+            tip = item[3] if len(item) > 3 else ""
             val = self.cfg.get(self.section, key) or default
             v = tk.StringVar(value=str(val))
             self.vars[key] = v
-            _row(f, label, lambda v=v: _entry(f, v), i)
+            _row(f, label, lambda v=v: _entry(f, v), i, tip=tip)
 
-        for j, (label, key, default) in enumerate(self.checks):
+        for j, item in enumerate(self.checks):
+            label, key, default = item[0], item[1], item[2]
+            tip = item[3] if len(item) > 3 else ""
             val = self.cfg.get(self.section, key)
             if val is None:
                 val = default
             v = tk.BooleanVar(value=bool(val))
             self.vars[key] = v
-            _check(f, label, v).grid(
-                row=len(self.fields) + j, column=0, columnspan=2, sticky="w", pady=4
-            )
+            cb = _check(f, label, v)
+            cb.grid(row=len(self.fields) + j, column=0, columnspan=2, sticky="w", pady=4)
+            tooltip(cb, tip)
 
     def apply_to_config(self):
         for key, var in self.vars.items():
@@ -292,13 +384,22 @@ class _DNSPage(_ServicePage):
         super().__init__(
             parent, cfg, "dns",
             fields=[
-                ("Port",        "port",       "53"),
-                ("Resolve To",  "resolve_to", "127.0.0.1"),
-                ("TTL (s)",     "ttl",        "300"),
+                ("Port",        "port",       "53",
+                 "UDP/TCP port for the fake DNS server. Default: 53.\n"
+                 "iptables will redirect all DNS traffic here. Requires root."),
+                ("Resolve To",  "resolve_to", "127.0.0.1",
+                 "IP address returned for all A/AAAA queries unless\n"
+                 "overridden by a custom record in the section below."),
+                ("TTL (s)",     "ttl",        "300",
+                 "DNS record TTL in seconds. Lower values cause malware to\n"
+                 "re-resolve hostnames more frequently (min re-query interval)."),
             ],
             checks=[
-                ("Enabled",          "enabled",    True),
-                ("Handle PTR/rDNS",  "handle_ptr", True),
+                ("Enabled",          "enabled",    True,
+                 "Enable or disable the fake DNS service."),
+                ("Handle PTR/rDNS",  "handle_ptr", True,
+                 "Respond to reverse DNS (PTR) lookups with 'notthenet.local'.\n"
+                 "Prevents connection timeouts in malware that queries its own IP."),
             ],
         )
         # Custom records editor
@@ -426,6 +527,10 @@ class NotTheNetApp(tk.Tk):
         )
         self._btn_start.pack(side="left", padx=(0, 4))
         _hover_bind(self._btn_start, C_GREEN, "#6ee89a")
+        tooltip(self._btn_start,
+                "Apply all config values and start every enabled service.\n"
+                "Also installs iptables REDIRECT rules if auto-iptables is on.\n"
+                "Requires root (or sudo).")
 
         self._btn_stop = tk.Button(
             inner, text="■  Stop", bg=C_RED, fg="#0c0c18",
@@ -433,6 +538,9 @@ class NotTheNetApp(tk.Tk):
         )
         self._btn_stop.pack(side="left", padx=(0, 10))
         _hover_bind(self._btn_stop, C_RED, "#fc5c5c")
+        tooltip(self._btn_stop,
+                "Gracefully stop all running services and remove\n"
+                "any iptables REDIRECT rules that were added on start.")
 
         # Vertical divider
         tk.Frame(inner, bg=C_BORDER, width=1).pack(side="left", fill="y", padx=6)
@@ -445,6 +553,7 @@ class NotTheNetApp(tk.Tk):
         )
         self._btn_save.pack(side="left", padx=2)
         _hover_bind(self._btn_save, C_HOVER, C_SELECTED)
+        tooltip(self._btn_save, "Save current GUI settings to config.json.")
 
         self._btn_load = tk.Button(
             inner, text="📂  Load…", bg=C_HOVER, fg=C_TEXT,
@@ -452,6 +561,9 @@ class NotTheNetApp(tk.Tk):
         )
         self._btn_load.pack(side="left", padx=2)
         _hover_bind(self._btn_load, C_HOVER, C_SELECTED)
+        tooltip(self._btn_load,
+                "Load settings from a different JSON config file.\n"
+                "All panels will be rebuilt with the new values.")
 
         # Vertical divider
         tk.Frame(inner, bg=C_BORDER, width=1).pack(side="left", fill="y", padx=6)
@@ -462,6 +574,10 @@ class NotTheNetApp(tk.Tk):
         )
         self._btn_update.pack(side="left", padx=2)
         _hover_bind(self._btn_update, C_HOVER, C_SELECTED)
+        tooltip(self._btn_update,
+                "Pull the latest code from GitHub (git pull) and\n"
+                "reinstall Python dependencies (pip install -e .).\n"
+                "A restart prompt is shown if any files changed.")
 
         # Root warning (right side)
         import os as _os
@@ -517,30 +633,46 @@ class NotTheNetApp(tk.Tk):
 
         # Group: General
         self._add_sidebar_section(left, "CONFIG")
-        self._add_sidebar_btn(left, "general", "⚙  General")
+        self._add_sidebar_btn(left, "general", "⚙  General",
+                              "Global settings: bind IP, redirect IP,\n"
+                              "network interface, log directory, and verbosity.")
 
         # Group: Network services
         self._add_sidebar_section(left, "NETWORK")
-        for key, label in [
-            ("dns",   "◈  DNS"),
-            ("http",  "◈  HTTP"),
-            ("https", "◈  HTTPS"),
-            ("ftp",   "◈  FTP"),
+        for key, label, tip in [
+            ("dns",   "◈  DNS",
+             "Fake DNS server — resolves all hostnames to redirect_ip.\n"
+             "Supports custom per-hostname overrides and PTR responses."),
+            ("http",  "◈  HTTP",
+             "Fake HTTP server — responds to all plaintext web requests\n"
+             "with a configurable status code and body."),
+            ("https", "◈  HTTPS",
+             "Fake HTTPS server — TLS-encrypted HTTP with a self-signed cert.\n"
+             "Malware rarely validates the certificate."),
+            ("ftp",   "◈  FTP",
+             "Fake FTP server — accepts logins and optionally saves uploads\n"
+             "to disk with UUID filenames."),
         ]:
-            self._add_sidebar_btn(left, key, label)
+            self._add_sidebar_btn(left, key, label, tip)
 
         # Group: Mail services
         self._add_sidebar_section(left, "MAIL")
-        for key, label in [
-            ("smtp", "◈  SMTP"),
-            ("pop3", "◈  POP3"),
-            ("imap", "◈  IMAP"),
+        for key, label, tip in [
+            ("smtp", "◈  SMTP",
+             "Fake SMTP server — accepts email submissions and optionally\n"
+             "saves them as .eml files for analysis."),
+            ("pop3", "◈  POP3",
+             "Fake POP3 server — announces an empty mailbox to connecting clients."),
+            ("imap", "◈  IMAP",
+             "Fake IMAP server — announces an empty INBOX to connecting clients."),
         ]:
-            self._add_sidebar_btn(left, key, label)
+            self._add_sidebar_btn(left, key, label, tip)
 
         # Group: Catch-all
         self._add_sidebar_section(left, "FALLBACK")
-        self._add_sidebar_btn(left, "catch_all", "◈  Catch-All")
+        self._add_sidebar_btn(left, "catch_all", "◈  Catch-All",
+                              "TCP/UDP catch-all — iptables redirects all traffic\n"
+                              "not handled by specific services to these ports.")
 
         # ── Right: config pages ──
         right = tk.Frame(body, bg=C_SURFACE)
@@ -562,7 +694,7 @@ class NotTheNetApp(tk.Tk):
             font=("monospace", 7, "bold"),
         ).pack(anchor="w", padx=4)
 
-    def _add_sidebar_btn(self, parent, key: str, label: str):
+    def _add_sidebar_btn(self, parent, key: str, label: str, tip: str = ""):
         """Add one sidebar service button with a status dot on the right."""
         row = tk.Frame(parent, bg=C_PANEL, cursor="hand2")
         row.pack(fill="x", pady=1)
@@ -588,6 +720,11 @@ class NotTheNetApp(tk.Tk):
         _hover_bind(btn, C_PANEL, C_HOVER)
         _hover_bind(dot, C_PANEL, C_HOVER)
 
+        if tip:
+            tooltip(row, tip)
+            tooltip(btn, tip)
+            tooltip(dot, tip)
+
         self._service_btns[key] = (row, btn, dot)
 
     def _build_pages(self):
@@ -596,45 +733,96 @@ class NotTheNetApp(tk.Tk):
 
         self._pages["dns"] = _DNSPage(self._page_container, self._cfg)
 
+        _PORT_ROOT = "Requires root (or iptables redirect from standard port)."
+        _ENABLED   = "Enable or disable this service entirely."
+        _LOG_REQ   = "Log every incoming request (method, path, headers) to the log panel."
+
         http_fields = [
-            ("Port",            "port",           "80"),
-            ("Response Code",   "response_code",  "200"),
-            ("Response Body",   "response_body",  "<html><body>OK</body></html>"),
-            ("Server Header",   "server_header",  "Apache/2.4.51"),
+            ("Port",            "port",           "80",
+             f"TCP port for the HTTP server. Default: 80. {_PORT_ROOT}"),
+            ("Response Code",   "response_code",  "200",
+             "HTTP status code returned for every request (e.g. 200, 301, 404)."),
+            ("Response Body",   "response_body",  "<html><body>OK</body></html>",
+             "HTML/text body returned in every HTTP response.\n"
+             "Malware may check this content for specific strings."),
+            ("Server Header",   "server_header",  "Apache/2.4.51",
+             "Value of the 'Server:' response header.\n"
+             "Spoofing a real server (Apache, nginx) may satisfy malware fingerprinting checks."),
         ]
         self._pages["http"] = _ServicePage(
             self._page_container, self._cfg, "http", http_fields,
-            [("Enabled", "enabled", True), ("Log Requests", "log_requests", True)],
+            [("Enabled", "enabled", True, _ENABLED),
+             ("Log Requests", "log_requests", True, _LOG_REQ)],
         )
 
         https_fields = [
-            ("Port",            "port",           "443"),
-            ("Cert File",       "cert_file",      "certs/server.crt"),
-            ("Key File",        "key_file",       "certs/server.key"),
-            ("Response Code",   "response_code",  "200"),
-            ("Response Body",   "response_body",  "<html><body>OK</body></html>"),
-            ("Server Header",   "server_header",  "Apache/2.4.51"),
+            ("Port",            "port",           "443",
+             f"TCP port for the HTTPS server. Default: 443. {_PORT_ROOT}"),
+            ("Cert File",       "cert_file",      "certs/server.crt",
+             "Path to the TLS certificate. Generated automatically by install.sh\n"
+             "(RSA-4096, self-signed). Malware rarely validates the cert."),
+            ("Key File",        "key_file",       "certs/server.key",
+             "Path to the TLS private key. Should be readable only by root (mode 0600)."),
+            ("Response Code",   "response_code",  "200",
+             "HTTP status code returned inside the TLS tunnel."),
+            ("Response Body",   "response_body",  "<html><body>OK</body></html>",
+             "HTML/text body returned inside every HTTPS response."),
+            ("Server Header",   "server_header",  "Apache/2.4.51",
+             "Value of the 'Server:' response header inside the TLS tunnel."),
         ]
         self._pages["https"] = _ServicePage(
             self._page_container, self._cfg, "https", https_fields,
-            [("Enabled", "enabled", True), ("Log Requests", "log_requests", True)],
+            [("Enabled", "enabled", True, _ENABLED),
+             ("Log Requests", "log_requests", True, _LOG_REQ)],
         )
 
         for section, fields, checks in [
             ("smtp", [
-                ("Port",     "port",     "25"),
-                ("Hostname", "hostname", "mail.notthenet.local"),
-                ("Banner",   "banner",   "220 mail.notthenet.local ESMTP"),
-            ], [("Enabled", "enabled", True), ("Save Emails", "save_emails", True)]),
-            ("pop3", [("Port", "port", "110"), ("Hostname", "hostname", "mail.notthenet.local")],
-             [("Enabled", "enabled", True)]),
-            ("imap", [("Port", "port", "143"), ("Hostname", "hostname", "mail.notthenet.local")],
-             [("Enabled", "enabled", True)]),
+                ("Port",     "port",     "25",
+                 f"TCP port for the SMTP server. Default: 25. {_PORT_ROOT}"),
+                ("Hostname", "hostname", "mail.notthenet.local",
+                 "SMTP server hostname announced in the 220 banner and EHLO response."),
+                ("Banner",   "banner",   "220 mail.notthenet.local ESMTP",
+                 "Full 220 greeting sent on connection.\n"
+                 "Malware may parse this to fingerprint the mail server."),
+            ], [
+                ("Enabled",     "enabled",     True,  _ENABLED),
+                ("Save Emails", "save_emails", True,
+                 "Save each received email as a .eml file in logs/emails/\n"
+                 "with a UUID filename for later analysis."),
+            ]),
+            ("pop3", [
+                ("Port",     "port",     "110",
+                 f"TCP port for the POP3 server. Default: 110. {_PORT_ROOT}"),
+                ("Hostname", "hostname", "mail.notthenet.local",
+                 "Hostname announced in the POP3 +OK greeting banner."),
+            ], [
+                ("Enabled", "enabled", True, _ENABLED),
+            ]),
+            ("imap", [
+                ("Port",     "port",     "143",
+                 f"TCP port for the IMAP server. Default: 143. {_PORT_ROOT}"),
+                ("Hostname", "hostname", "mail.notthenet.local",
+                 "Hostname used in the IMAP greeting and capability responses."),
+            ], [
+                ("Enabled", "enabled", True, _ENABLED),
+            ]),
             ("ftp", [
-                ("Port",       "port",       "21"),
-                ("Banner",     "banner",     "220 FTP Server Ready"),
-                ("Upload Dir", "upload_dir", "logs/ftp_uploads"),
-            ], [("Enabled", "enabled", True), ("Allow Uploads", "allow_uploads", True)]),
+                ("Port",       "port",       "21",
+                 f"TCP port for the FTP server. Default: 21. {_PORT_ROOT}"),
+                ("Banner",     "banner",     "220 FTP Server Ready",
+                 "220 greeting sent on connection.\n"
+                 "Malware may check this to confirm an FTP server is listening."),
+                ("Upload Dir", "upload_dir", "logs/ftp_uploads",
+                 "Directory where uploaded files are saved.\n"
+                 "Each file is renamed to a UUID to prevent collisions."),
+            ], [
+                ("Enabled",       "enabled",       True,
+                 _ENABLED),
+                ("Allow Uploads", "allow_uploads", True,
+                 "Accept STOR commands (file uploads).\n"
+                 "Disable to silently reject all upload attempts."),
+            ]),
         ]:
             self._pages[section] = _ServicePage(
                 self._page_container, self._cfg, section, fields, checks
@@ -642,12 +830,20 @@ class NotTheNetApp(tk.Tk):
 
         # Catch-all page
         catch_fields = [
-            ("TCP Catch-All Port", "tcp_port", "9999"),
-            ("UDP Catch-All Port", "udp_port", "9998"),
+            ("TCP Catch-All Port", "tcp_port", "9999",
+             "Fallback TCP port. iptables redirects all unmatched TCP traffic here\n"
+             "when 'Redirect TCP' is enabled."),
+            ("UDP Catch-All Port", "udp_port", "9998",
+             "Fallback UDP port. iptables redirects all unmatched UDP traffic here\n"
+             "when 'Redirect UDP' is enabled."),
         ]
         catch_checks = [
-            ("Redirect TCP (catch-all)", "redirect_tcp", True),
-            ("Redirect UDP (catch-all)", "redirect_udp", False),
+            ("Redirect TCP (catch-all)", "redirect_tcp", True,
+             "Add an iptables REDIRECT rule to send all unmatched TCP traffic\n"
+             "to the TCP catch-all port above."),
+            ("Redirect UDP (catch-all)", "redirect_udp", False,
+             "Add an iptables REDIRECT rule to send all unmatched UDP traffic\n"
+             "to the UDP catch-all port. Use with caution — may disrupt UDP services."),
         ]
         self._pages["catch_all"] = _ServicePage(
             self._page_container, self._cfg, "catch_all", catch_fields, catch_checks
@@ -689,6 +885,12 @@ class NotTheNetApp(tk.Tk):
         filter_frame = tk.Frame(hdr, bg=C_BG)
         filter_frame.pack(side="left", padx=12)
         self._log_filter_btns: dict = {}
+        _pill_tips = {
+            "DEBUG":   "Show only DEBUG messages (verbose trace output).\nClick again to show all levels.",
+            "INFO":    "Show only INFO messages (normal operational events).\nClick again to show all levels.",
+            "WARNING": "Show only WARNING messages (non-fatal issues).\nClick again to show all levels.",
+            "ERROR":   "Show only ERROR messages (failures and exceptions).\nClick again to show all levels.",
+        }
         for lvl, colour in [("DEBUG", C_DIM), ("INFO", C_SUBTLE),
                             ("WARNING", C_ORANGE), ("ERROR", C_RED)]:
             b = tk.Button(
@@ -700,16 +902,19 @@ class NotTheNetApp(tk.Tk):
             )
             b.pack(side="left", padx=2)
             _hover_bind(b, C_HOVER, C_SELECTED)
+            tooltip(b, _pill_tips[lvl])
             self._log_filter_btns[lvl] = b
 
-        tk.Button(
+        clear_btn = tk.Button(
             hdr, text="✕ Clear",
             bg=C_BG, fg=C_DIM, relief="flat",
             font=("monospace", 8), cursor="hand2",
             command=lambda: self._log_widget.configure(state="normal") or
                             self._log_widget.delete("1.0", "end") or
                             self._log_widget.configure(state="disabled"),
-        ).pack(side="right", padx=PAD)
+        )
+        clear_btn.pack(side="right", padx=PAD)
+        tooltip(clear_btn, "Clear all messages from the log panel.\n(Log files on disk are not affected.)")
 
         self._log_widget = scrolledtext.ScrolledText(
             parent,
