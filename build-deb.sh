@@ -72,8 +72,8 @@ chmod 644 "$STAGING/usr/share/applications/notthenet.desktop"
 
 # ── Icon ──────────────────────────────────────────────────────────────────────
 info "Installing icon..."
-[[ -f "${SCRIPT_DIR}/assets/logo.svg" ]] && \
-    cp "${SCRIPT_DIR}/assets/logo.svg" \
+[[ -f "${SCRIPT_DIR}/assets/notthenet-icon.svg" ]] && \
+    cp "${SCRIPT_DIR}/assets/notthenet-icon.svg" \
        "$STAGING/usr/share/icons/hicolor/scalable/apps/notthenet.svg"
 
 # ── Doc ───────────────────────────────────────────────────────────────────────
@@ -159,7 +159,7 @@ fi
 # ── Desktop icon (PNG rendered from SVG) ─────────────────────────────────────
 if command -v rsvg-convert &>/dev/null && [[ -f "$OPT/assets/logo.svg" ]]; then
     mkdir -p /usr/share/icons/hicolor/128x128/apps
-    rsvg-convert -w 128 -h 128 "$OPT/assets/logo.svg" \
+    rsvg-convert -w 128 -h 128 "$OPT/assets/notthenet-icon.svg" \
         -o /usr/share/icons/hicolor/128x128/apps/notthenet.png 2>/dev/null || true
 fi
 gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true

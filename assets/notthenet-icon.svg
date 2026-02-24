@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="NotTheNet">
+  <title>NotTheNet</title>
+  <defs>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <clipPath id="clip"><circle cx="64" cy="64" r="36"/></clipPath>
+  </defs>
+
+  <!-- Dark background -->
+  <rect width="128" height="128" rx="20" fill="#0d0d1a"/>
+
+  <!-- Globe wireframe (clipped to globe circle) -->
+  <g clip-path="url(#clip)" stroke="#00c8a0" fill="none" opacity="0.7">
+    <!-- Equator -->
+    <line x1="28" y1="64" x2="100" y2="64" stroke-width="1.5"/>
+    <!-- Upper latitude arcs -->
+    <path d="M 32 46 Q 64 37 96 46" stroke-width="1.1"/>
+    <path d="M 42 30 Q 64 23 86 30" stroke-width="0.8"/>
+    <!-- Lower latitude arcs -->
+    <path d="M 32 82 Q 64 91 96 82" stroke-width="1.1"/>
+    <path d="M 42 98 Q 64 105 86 98" stroke-width="0.8"/>
+    <!-- Central meridian -->
+    <line x1="64" y1="28" x2="64" y2="100" stroke-width="1.5"/>
+    <!-- Side meridian ellipses -->
+    <ellipse cx="64" cy="64" rx="20" ry="36" stroke-width="1.1"/>
+    <ellipse cx="64" cy="64" rx="8"  ry="36" stroke-width="0.8"/>
+  </g>
+
+  <!-- Globe outer circle -->
+  <circle cx="64" cy="64" r="36" fill="none" stroke="#00c8a0" stroke-width="2.5" filter="url(#glow)"/>
+
+  <!-- Prohibition circle -->
+  <circle cx="64" cy="64" r="52" fill="none" stroke="#e53e3e" stroke-width="5" filter="url(#glow)"/>
+
+  <!-- Prohibition slash (top-right → bottom-left, ~45°) -->
+  <line x1="100.8" y1="27.2" x2="27.2" y2="100.8"
+        stroke="#e53e3e" stroke-width="5.5" stroke-linecap="round" filter="url(#glow)"/>
+</svg>

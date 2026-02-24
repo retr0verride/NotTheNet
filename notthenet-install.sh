@@ -121,7 +121,7 @@ fi
 
 # ── Install icon ───────────────────────────────────────────────────────────────
 if [[ $EUID -eq 0 ]]; then
-    ICON_SVG="${SCRIPT_DIR}/assets/logo.svg"
+    ICON_SVG="${SCRIPT_DIR}/assets/notthenet-icon.svg"
 
     # Scalable SVG
     ICON_SCALABLE="/usr/share/icons/hicolor/scalable/apps"
