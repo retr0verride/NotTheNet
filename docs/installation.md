@@ -284,56 +284,36 @@ Copy any new keys you want into your local `config.json`, or delete it and let N
 
 ## Uninstalling
 
-Run the following from inside the project directory (or replace `$NOTTHENET_DIR`
-with the full path to wherever you cloned it):
+An uninstall script is included in the repo. Run it from inside the project directory:
 
 ```bash
-# Set this to wherever you cloned the repo
-NOTTHENET_DIR="$(pwd)"   # if you are already inside the project directory
+# Remove system files, keep the project directory (logs, certs, captures intact)
+sudo bash notthenet-uninstall.sh
 
-# ── 1. Flush any live iptables rules first (do this while the app is stopped) ─
-sudo iptables -t nat -S | grep NOTTHENET | sed 's/^-A/-D/' | \
-    while read -r rule; do sudo iptables -t nat $rule; done
-
-# ── 2. Remove system launchers ────────────────────────────────────────────────
-sudo rm -f /usr/local/bin/notthenet
-sudo rm -f /usr/local/bin/notthenet-gui
-
-# ── 3. Remove desktop integration ────────────────────────────────────────────
-sudo rm -f /usr/share/applications/notthenet.desktop
-sudo rm -f /usr/share/icons/hicolor/scalable/apps/notthenet.svg
-sudo rm -f /usr/share/icons/hicolor/128x128/apps/notthenet.png
-sudo rm -f /usr/share/polkit-1/actions/com.retr0verride.notthenet.policy
-
-# ── 4. Remove the man page ────────────────────────────────────────────────────
-sudo rm -f /usr/local/share/man/man1/notthenet.1.gz
-
-# ── 5. Refresh system caches ─────────────────────────────────────────────────
-sudo update-desktop-database -q /usr/share/applications 2>/dev/null || true
-sudo gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
-sudo mandb -q 2>/dev/null || true
-# Restart XFCE panel so it reloads the icon cache; prevents other panel icons
-# from showing as white gears after the cache is rebuilt while the panel runs.
-pgrep -x xfce4-panel >/dev/null && DISPLAY="${DISPLAY:-:0}" xfce4-panel --restart 2>/dev/null || true
-
-# ── 6. Remove the pip package (if installed with pip install -e . or pip install) ─
-"${NOTTHENET_DIR}/venv/bin/pip" uninstall -y notthenet 2>/dev/null || true
-pip uninstall -y notthenet 2>/dev/null || true
-
-# ── 7. Remove the project directory (logs, captures, venv, certs, and all) ───
-# WARNING: this permanently deletes all captured emails, FTP uploads, TLS
-# certificates, and logs stored inside the project folder.
-#
-# chmod first: .git/objects files are read-only (444) by default and cause
-# "Permission denied" errors with plain rm -rf even under sudo.
-chmod -R u+w "$NOTTHENET_DIR"
-cd "$(dirname "$NOTTHENET_DIR")" && rm -rf "$NOTTHENET_DIR"
+# Remove everything including the project directory
+sudo bash notthenet-uninstall.sh --purge
 ```
 
-> **Note:** If you cloned to a custom path, set `NOTTHENET_DIR` explicitly before
-> running, e.g. `NOTTHENET_DIR=/opt/NotTheNet`.
+The script handles, in order:
+1. Stopping any running NotTheNet process
+2. Flushing all NotTheNet iptables rules
+3. Removing CLI launchers (`/usr/local/bin/notthenet`, `notthenet-gui`)
+4. Removing desktop integration (`.desktop`, icons, polkit action)
+5. Removing the man page
+6. Refreshing icon/desktop/man caches and restarting the XFCE panel
+7. Uninstalling the pip package from the local venv
+8. Removing `/opt/notthenet` (if installed via `.deb`)
+9. **`--purge` only:** prompts for confirmation then deletes the project directory
 
-To verify all iptables rules are gone after step 1:
+### Removing a .deb install
+
+```bash
+sudo apt remove notthenet        # remove, keep /opt/notthenet config/certs
+sudo apt purge notthenet         # remove everything including /opt/notthenet
+```
+
+### Verify iptables rules are gone
+
 ```bash
 sudo iptables -t nat -S | grep NOTTHENET
 # Should return nothing
