@@ -64,6 +64,7 @@ sudo apt --fix-broken install
 |------|----------|
 | `/opt/notthenet/` | All project files + `venv/` (created by postinst) |
 | `/usr/bin/notthenet` | CLI launcher |
+| `/usr/bin/notthenet-uninstall` | Uninstall command |
 | `/usr/local/bin/notthenet-gui` | Desktop icon launcher (via `pkexec`) |
 | `/usr/share/applications/notthenet.desktop` | App menu entry |
 | `/usr/share/icons/hicolor/` | Scalable SVG + 128 px PNG icon |
@@ -99,7 +100,8 @@ The install script will:
 5. Generate a self-signed TLS certificate (`certs/server.crt` / `certs/server.key`)
 6. Create log directories (`logs/`, `logs/emails/`, `logs/ftp_uploads/`)
 7. Install a launcher at `/usr/local/bin/notthenet`
-8. Install a clickable desktop icon (app menu + polkit password prompt)
+8. Install an uninstall command at `/usr/local/bin/notthenet-uninstall`
+9. Install a clickable desktop icon (app menu + polkit password prompt)
 
 After install:
 
@@ -284,13 +286,20 @@ Copy any new keys you want into your local `config.json`, or delete it and let N
 
 ## Uninstalling
 
-An uninstall script is included in the repo. Run it from inside the project directory:
+An uninstall script is included in the repo. After running `notthenet-install.sh`, it is also available as a system command:
 
 ```bash
 # Remove system files, keep the project directory (logs, certs, captures intact)
-sudo bash notthenet-uninstall.sh
+sudo notthenet-uninstall
 
 # Remove everything including the project directory
+sudo notthenet-uninstall --purge
+```
+
+Or run it directly from the repo if the system command isn't available:
+
+```bash
+sudo bash notthenet-uninstall.sh
 sudo bash notthenet-uninstall.sh --purge
 ```
 

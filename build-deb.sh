@@ -157,7 +157,7 @@ if [[ -d /usr/share/polkit-1/actions ]]; then
 fi
 
 # ── Desktop icon (PNG rendered from SVG) ─────────────────────────────────────
-if command -v rsvg-convert &>/dev/null && [[ -f "$OPT/assets/logo.svg" ]]; then
+if command -v rsvg-convert &>/dev/null && [[ -f "$OPT/assets/notthenet-icon.svg" ]]; then
     mkdir -p /usr/share/icons/hicolor/128x128/apps
     rsvg-convert -w 128 -h 128 "$OPT/assets/notthenet-icon.svg" \
         -o /usr/share/icons/hicolor/128x128/apps/notthenet.png 2>/dev/null || true
@@ -165,6 +165,16 @@ fi
 gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
 update-desktop-database -q /usr/share/applications 2>/dev/null || true
 mandb -q 2>/dev/null || true
+# Restart XFCE panel to reload icon cache and avoid gear-icon fallback
+pgrep -x xfce4-panel >/dev/null && DISPLAY="${DISPLAY:-:0}" xfce4-panel --restart 2>/dev/null || true
+
+# ── Uninstall launcher (/usr/bin/notthenet-uninstall) ────────────────────────
+cat > /usr/bin/notthenet-uninstall << 'EOF'
+#!/usr/bin/env bash
+# NotTheNet uninstaller (deb install)
+exec bash /opt/notthenet/notthenet-uninstall.sh "$@"
+EOF
+chmod 755 /usr/bin/notthenet-uninstall
 
 echo ""
 echo "╔══════════════════════════════════════════════════════╗"
@@ -174,6 +184,7 @@ echo "║   App menu:  Search 'NotTheNet' and click icon       ║"
 echo "║   GUI:       sudo notthenet                          ║"
 echo "║   Headless:  sudo notthenet --nogui                  ║"
 echo "║   Man page:  man notthenet                           ║"
+echo "║   Uninstall: sudo notthenet-uninstall                ║"
 echo "╚══════════════════════════════════════════════════════╝"
 POSTINST
 chmod 755 "$STAGING/DEBIAN/postinst"
@@ -183,6 +194,7 @@ cat > "$STAGING/DEBIAN/prerm" << 'PRERM'
 #!/usr/bin/env bash
 set -e
 rm -f /usr/local/bin/notthenet-gui
+rm -f /usr/bin/notthenet-uninstall
 rm -f /usr/share/polkit-1/actions/com.retr0verride.notthenet.policy
 rm -f /usr/share/man/man1/notthenet.1.gz
 rm -f /usr/share/icons/hicolor/128x128/apps/notthenet.png

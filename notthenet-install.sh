@@ -193,6 +193,16 @@ LAUNCHER_EOF
     chmod 0755 "$LAUNCHER"
     info "Launcher installed at $LAUNCHER"
     info "Usage: sudo notthenet [--config config.json] [--nogui]"
+
+    # Install uninstall script launcher
+    UNINSTALL_LAUNCHER="/usr/local/bin/notthenet-uninstall"
+    cat > "$UNINSTALL_LAUNCHER" <<UNINSTALL_EOF
+#!/usr/bin/env bash
+# NotTheNet uninstaller — wrapper installed by notthenet-install.sh
+exec bash "${SCRIPT_DIR}/notthenet-uninstall.sh" "\$@"
+UNINSTALL_EOF
+    chmod 0755 "$UNINSTALL_LAUNCHER"
+    info "Uninstall launcher installed at $UNINSTALL_LAUNCHER"
 else
     warn "Skipping /usr/local/bin launcher (not root)."
     info "Usage: sudo ${VENV_DIR}/bin/python ${SCRIPT_DIR}/notthenet.py"
@@ -207,4 +217,5 @@ echo -e "${GREEN}║   App menu:  Search 'NotTheNet' and click icon       ║${N
 echo -e "${GREEN}║   GUI:       sudo notthenet                          ║${NC}"
 echo -e "${GREEN}║   Headless:  sudo notthenet --nogui                  ║${NC}"
 echo -e "${GREEN}║   Man page:  man notthenet                           ║${NC}"
+echo -e "${GREEN}║   Uninstall: sudo notthenet-uninstall                ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"

@@ -78,12 +78,14 @@ Pulls the latest code, reinstalls the package, and re-syncs the icon, desktop en
 
 ## Uninstalling
 
+After install, the uninstaller is available as a system command:
+
 ```bash
 # Remove system files, keep repo/logs/certs
-sudo bash notthenet-uninstall.sh
+sudo notthenet-uninstall
 
 # Remove everything
-sudo bash notthenet-uninstall.sh --purge
+sudo notthenet-uninstall --purge
 ```
 
 ---
