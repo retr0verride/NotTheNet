@@ -26,8 +26,13 @@ if ($LASTEXITCODE -ne 0) { Fail "mypy found issues" } else { Pass "mypy" }
 
 # Security scan
 Step "Security scan (bandit)"
-& $Python -m bandit -c pyproject.toml -r notthenet.py services/ network/ utils/ 2>$null
-if ($LASTEXITCODE -ne 0) { Fail "bandit found issues" } else { Pass "bandit" }
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+$banditOut = & $Python -m bandit -c pyproject.toml -r notthenet.py services/ network/ utils/ 2>&1
+$banditExit = $LASTEXITCODE
+$ErrorActionPreference = $prevEAP
+$banditOut | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] } | Write-Host
+if ($banditExit -ne 0) { Fail "bandit found issues" } else { Pass "bandit" }
 
 # Tests
 Step "Tests (pytest)"
@@ -40,7 +45,11 @@ if ((Test-Path "tests") -and (Get-ChildItem "tests\test_*.py" -ErrorAction Silen
 
 # Build
 Step "Build package"
-& $Python -m build --outdir dist/ 2>$null
-if ($LASTEXITCODE -ne 0) { Fail "build failed" } else { Pass "build" }
+$prevEAP2 = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+& $Python -m build --outdir dist/ 2>&1 | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] } | Write-Host
+$buildExit = $LASTEXITCODE
+$ErrorActionPreference = $prevEAP2
+if ($buildExit -ne 0) { Fail "build failed" } else { Pass "build" }
 
 Write-Host "`nAll predeploy checks passed." -ForegroundColor Green

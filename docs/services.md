@@ -83,6 +83,18 @@ Response headers always include:
 - `Server: <configured value>`
 - `Connection: close`
 
+### Public-IP Spoof
+
+When `general.spoof_public_ip` is set to a non-empty IP string, any HTTP request whose `Host` header matches a well-known public-IP-check service is given a special response containing only the spoofed IP — either as plain text or as `{"ip": "<value>"}` JSON, matching the format the real service would return.
+
+Services covered include: `api.ipify.org`, `icanhazip.com`, `checkip.amazonaws.com`, `ifconfig.me`, `httpbin.org/ip`, `ipecho.net/plain`, `myexternalip.com`, `wtfismyip.com`, `api4.my-ip.io`, `ip-api.com`, `ipinfo.io/ip`, and 10+ others.
+
+When `spoof_public_ip` is blank (the default) the normal response body is served for all requests.
+
+### Response Delay
+
+The `response_delay_ms` option (default `0`) inserts an artificial sleep before every HTTP response. Values of 50–200 ms simulate realistic network round-trip latency and defeat timing-based sandbox-detection techniques used by some malware families.
+
 ### Logged per request (when `log_requests: true`)
 
 ```
@@ -95,6 +107,13 @@ HTTP  POST /gate.php from 192.168.100.20
 ```bash
 curl -v http://127.0.0.1/any/path/at/all
 curl -v -X POST http://127.0.0.1/gate.php -d "bot_id=abc123"
+
+# Verify public-IP spoof (requires spoof_public_ip set, e.g. "93.184.216.34")
+curl -H "Host: api.ipify.org" http://127.0.0.1/
+# → 93.184.216.34
+
+curl -H "Host: httpbin.org" http://127.0.0.1/ip
+# → {"origin": "93.184.216.34"}
 ```
 
 ---
@@ -118,6 +137,10 @@ curl -v -X POST http://127.0.0.1/gate.php -d "bot_id=abc123"
 
 The certificate is auto-generated at `certs/server.crt` / `certs/server.key` on first start if not present.
 
+### Public-IP Spoof and Response Delay
+
+The HTTPS service shares the same public-IP spoof and response delay logic as HTTP. Both are configured in `general.spoof_public_ip` and `https.response_delay_ms` respectively. See the [HTTP section](#http-service) above for full details.
+
 ### Verifying
 
 ```bash
@@ -126,6 +149,10 @@ curl -kv https://127.0.0.1/
 
 # Check TLS details
 openssl s_client -connect 127.0.0.1:443 -no_ssl3 -no_tls1 2>&1 | head -30
+
+# Verify public-IP spoof over TLS
+curl -k -H "Host: api.ipify.org" https://127.0.0.1/
+# → 93.184.216.34
 ```
 
 ---

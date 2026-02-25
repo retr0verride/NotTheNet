@@ -40,6 +40,8 @@ Man page available at [`man/notthenet.1`](man/notthenet.1) — install with `sud
 | **TCP Catch-All** | Receives any TCP connection redirected by iptables; responds with `200 OK`. |
 | **UDP Catch-All** | Optional UDP drain; responds with `OK`. |
 | **iptables manager** | Auto-applies NAT REDIRECT rules; cleanly restores originals on stop. |
+| **Public-IP spoof** | HTTP/HTTPS responses to 20+ well-known public-IP-check services (`api.ipify.org`, `icanhazip.com`, `checkip.amazonaws.com`, `ifconfig.me`, `httpbin.org`, and others) return a configurable fake IP. Defeats malware that queries these endpoints to detect sandbox environments. |
+| **Response delay** | Per-millisecond artificial delay on HTTP/HTTPS responses. 50–200 ms simulates realistic network latency and defeats timing-based sandbox detection. |
 | **Dark GUI** | Grouped sidebar, live colour-coded log panel with level filters, tooltips on every field and button. |
 | **Desktop integration** | App menu icon, pkexec/polkit privilege prompt — no terminal needed to launch. |
 
@@ -119,7 +121,9 @@ Key settings:
 | `general.redirect_ip` | IP all DNS queries resolve to (usually `127.0.0.1`) |
 | `general.interface` | Network interface to apply iptables rules on |
 | `general.auto_iptables` | Auto-manage iptables NAT rules |
+| `general.spoof_public_ip` | Fake public IP returned to well-known IP-check services (e.g. `"93.184.216.34"`). Leave blank to disable. |
 | `dns.custom_records` | Per-hostname overrides: `{"c2.evil.com": "127.0.0.1"}` |
+| `http.response_delay_ms` / `https.response_delay_ms` | Artificial delay in ms before each HTTP/HTTPS response (50–200 ms recommended to defeat timing detection). |
 | `https.cert_file` / `key_file` | TLS cert paths (auto-generated if absent) |
 | `catch_all.excluded_ports` | Ports to EXCLUDE from TCP catch-all (e.g. `[22]` for SSH) |
 
