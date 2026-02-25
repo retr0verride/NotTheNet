@@ -41,6 +41,7 @@ In Proxmox web UI: **Node → System → Network → Create → Linux Bridge**
 | Field | Value |
 |-------|-------|
 | Name | `vmbr1` |
+| **Bridge ports** | ***(leave blank)*** |
 | IP address | *(leave blank)* |
 | Subnet mask | *(leave blank)* |
 | Gateway | *(leave blank)* |
@@ -49,7 +50,7 @@ In Proxmox web UI: **Node → System → Network → Create → Linux Bridge**
 
 Click **Create**, then **Apply Configuration**.
 
-> Leave the IP fields blank. This bridge is a dumb layer-2 switch — Kali provides all addressing and routing on it.
+> **No second physical NIC required.** Leaving **Bridge ports** empty creates a purely internal virtual switch that exists only between VMs — it does not touch any physical network adapter. Your Proxmox host only needs one NIC. `vmbr0` stays connected to the internet; `vmbr1` is completely air-gapped from the outside world, carrying only VM-to-VM traffic.
 
 ---
 
