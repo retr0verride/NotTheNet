@@ -87,18 +87,27 @@ In Proxmox: **kali-notthenet → Hardware → Network Device (net0) → Edit →
 
 > This cuts Kali's internet access. That is correct and intentional — during analysis Kali only needs the isolated lab network. To get internet back temporarily (e.g. to run `apt update`), switch the bridge back to `vmbr0`, update, then switch back to `vmbr1`.
 
-**Identify your NIC name:**
+**Assign the static IP — GUI (easiest):**
+
+Right-click the **network icon** in the Kali taskbar (bottom-right) → **Edit Connections…** (or **Network Connections**):
+
+1. Select the wired connection → click the **gear/edit** icon
+2. Go to the **IPv4 Settings** tab
+3. Set **Method** to `Manual`
+4. Click **Add** and enter:
+   - Address: `10.0.0.1`
+   - Netmask: `255.255.255.0`
+   - Gateway: *(leave blank)*
+5. Click **Save**
+6. Click the network icon again → disconnect and reconnect the wired connection to apply
+
+**Assign the static IP — terminal (alternative):**
 
 ```bash
+# Find your NIC name first (eth0, ens18, etc.)
 ip link show
-```
 
-You will see `lo` plus one NIC — either a traditional name (`eth0`) or a predictable name (`ens18`, `enp6s18`, etc.). Note the name; use it in place of `eth0` in the commands below if yours differs.
-
-**Assign the static IP:**
-
-```bash
-# Use your actual NIC name if different from eth0
+# Replace eth0 with your actual NIC name if different
 export LAB_IF=eth0
 
 sudo nmcli con add \
@@ -119,8 +128,8 @@ sudo nmcli con up lab
 
 **Verify:**
 ```bash
-ip addr show "$LAB_IF"
-# Should show inet 10.0.0.1/24
+ip addr show
+# Should show inet 10.0.0.1/24 on your NIC
 ```
 
 ### 2.4 IP forwarding
