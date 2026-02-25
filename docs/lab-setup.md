@@ -115,6 +115,22 @@ echo "net.ipv4.ip_forward=1" | sudo tee /etc/sysctl.d/99-notthenet.conf
 sudo sysctl -p /etc/sysctl.d/99-notthenet.conf
 ```
 
+> **To undo IP forwarding** (e.g. when tearing down the lab or switching the Kali VM to a different role):
+>
+> ```bash
+> # Disable immediately (reverts to default until next reboot)
+> sudo sysctl -w net.ipv4.ip_forward=0
+>
+> # Remove the persistent file so it does not re-enable on next boot
+> sudo rm -f /etc/sysctl.d/99-notthenet.conf
+>
+> # Verify
+> sysctl net.ipv4.ip_forward
+> # Should print: net.ipv4.ip_forward = 0
+> ```
+>
+> NotTheNet automatically removes its iptables PREROUTING/OUTPUT rules when you click **■ Stop** or send `SIGTERM`. If the process was killed hard and rules were left behind, see [Removing leftover iptables rules](#removing-leftover-iptables-rules) in the Troubleshooting section below.
+
 ### 2.5 Install NotTheNet
 
 ```bash
@@ -533,4 +549,33 @@ Then retry **▶ Start** in NotTheNet.
 ### FlareVM still has real internet after removing vmbr0
 
 Check Proxmox → flarevm → Hardware — confirm only `vmbr1` is attached. Also confirm no VPN client or proxy is running inside FlareVM.
+
+### Removing leftover iptables rules
+
+If NotTheNet was killed unexpectedly (power loss, `kill -9`, host crash) it may not have had a chance to clean up its NAT rules. To remove them manually:
+
+```bash
+# List all NOTTHENET rules and their line numbers
+sudo iptables -t nat -L PREROUTING --line-numbers -n -v
+sudo iptables -t nat -L OUTPUT --line-numbers -n -v
+
+# Delete each NOTTHENET rule by line number (repeat for each)
+# Example: delete line 1 from PREROUTING
+sudo iptables -t nat -D PREROUTING 1
+
+# Or flush *all* NAT rules if the machine is used solely for this lab
+sudo iptables -t nat -F
+
+# Confirm the table is clean
+sudo iptables -t nat -L -n -v
+```
+
+To also disable IP forwarding at the same time:
+
+```bash
+sudo sysctl -w net.ipv4.ip_forward=0
+sudo rm -f /etc/sysctl.d/99-notthenet.conf
+```
+
+After restarting NotTheNet normally (**▶ Start**), it will re-apply only its own rules cleanly.
 
