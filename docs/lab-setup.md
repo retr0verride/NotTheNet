@@ -80,7 +80,7 @@ Boot the ISO and run a standard Kali install. When complete, remove the ISO from
 
 ### 2.3 Configure the lab interface
 
-> **Note on interface names:** Modern Kali (and any Debian/Ubuntu system on Proxmox KVM) uses predictable interface names such as `ens18`, `ens19`, `enp6s18`, etc. — **not** `eth0`/`eth1`. The exact names depend on your Proxmox slot numbering. Always identify the real names before running the commands below.
+> **Note on interface names:** Kali on Proxmox KVM can use either traditional names (`eth0`, `eth1`) or predictable names (`ens18`, `ens19`, `enp6s18`, etc.) depending on the NIC model and Proxmox configuration. Either is normal. Always identify the real names with `ip link show` before running the commands below.
 
 **Step 1 — Identify both NICs:**
 
@@ -88,15 +88,24 @@ Boot the ISO and run a standard Kali install. When complete, remove the ISO from
 ip link show
 ```
 
-You will see output like:
+You should see three entries — `lo` plus two NICs. Examples of what the output may look like:
+
 ```
+# Traditional naming (VirtIO / e1000e)
 1: lo: ...
-2: ens18: <BROADCAST,MULTICAST,UP> ...
-3: ens19: <BROADCAST,MULTICAST> ...
+2: eth0: <BROADCAST,MULTICAST,UP> ...     ← has an IP → vmbr0 (internet)
+3: eth1: <BROADCAST,MULTICAST> ...         ← no IP    → vmbr1 (lab)
+
+# Predictable naming (common with newer kernels)
+1: lo: ...
+2: ens18: <BROADCAST,MULTICAST,UP> ...    ← has an IP → vmbr0 (internet)
+3: ens19: <BROADCAST,MULTICAST> ...        ← no IP    → vmbr1 (lab)
 ```
 
 - The NIC that already has an IP (check with `ip addr show`) is your `vmbr0` (internet) adapter — leave it alone.
 - The NIC with **no IP** is your `vmbr1` (isolated lab) adapter. Note its name — it is the one you will configure below.
+
+> **Only one NIC (besides `lo`) visible?** The second NIC hasn't been added to the VM yet. In Proxmox: **VM → Hardware → Add → Network Device**, bridge `vmbr1`, then run `ip link show` again.
 
 **Step 2 — Set the interface name as a variable** (makes the copy-paste commands below work regardless of the actual name):
 
