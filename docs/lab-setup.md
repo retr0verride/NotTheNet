@@ -16,19 +16,19 @@
 │  │  NotTheNet       │      │  Malware sample      │ │
 │  │  10.0.0.1        │◄─────│  10.0.0.50           │ │
 │  │                  │      │  GW: 10.0.0.1        │ │
-│  │  eth0 → vmbr0    │      │  DNS: 10.0.0.1       │ │
-│  │  ens19 → vmbr1   │      │  NIC: vmbr1 only     │ │
+│  │  eth0 → vmbr1    │      │  DNS: 10.0.0.1       │ │
+│  │  (single NIC)    │      │  eth0 → vmbr1        │ │
 │  └──────────────────┘      └──────────────────────┘ │
-│          │                          │                │
-│     ┌────┴──────────────────────────┘                │
-│     │         vmbr1 (isolated — no gateway)          │
-│     │                                                │
-│  ┌──┴───────┐                                        │
-│  │  vmbr0   │ ← internet (Kali only, for setup)      │
-└──┴──────────┴────────────────────────────────────────┘
+│                │                     │               │
+│          ┌─────┴─────────────────────┘               │
+│          │      vmbr1 (isolated — no gateway)         │
+│                                                     │
+│          vmbr0 ← internet (used during setup only,  │
+│                  by switching the NIC bridge)        │
+└─────────────────────────────────────────────────────┘
 ```
 
-All DNS queries, HTTP/HTTPS requests, SMTP, POP3, IMAP, FTP, and any other TCP/UDP traffic from FlareVM lands on NotTheNet running on Kali. FlareVM has **no route to the real internet**.
+Each VM has **one NIC**. During setup you switch that NIC to `vmbr0` for internet access, then switch it back to `vmbr1` for analysis. When both VMs are on `vmbr1`, FlareVM has **no route to the real internet** — only to NotTheNet on Kali.
 
 ---
 
@@ -69,11 +69,9 @@ Proxmox → **Create VM**:
 | CPU | 2+ cores |
 | RAM | 4 GB+ |
 
-**Network tab:**
-- `net0` → `vmbr0` (your normal internet bridge) — for setup and SSH
-- Add a second NIC after creation: `net1` → `vmbr1` (isolated lab)
+**Network tab:** `net0` → `vmbr0` — for the initial Kali install and downloading NotTheNet (internet access needed).
 
-To add the second NIC after creation: **VM → Hardware → Add → Network Device**, bridge `vmbr1`.
+> After NotTheNet is installed you will switch this NIC to `vmbr1` in Proxmox (see section 2.3). No second NIC is required.
 
 ### 2.2 Install Kali
 
@@ -81,43 +79,28 @@ Boot the ISO and run a standard Kali install. When complete, remove the ISO from
 
 ### 2.3 Configure the lab interface
 
-> **Note on interface names:** Kali on Proxmox KVM can use either traditional names (`eth0`, `eth1`) or predictable names (`ens18`, `ens19`, `enp6s18`, etc.) depending on the NIC model and Proxmox configuration. Either is normal. Always identify the real names with `ip link show` before running the commands below.
+At this point Kali's NIC is on `vmbr0` and has internet access — use it to install NotTheNet first (section 2.5), then come back here to switch to the isolated bridge.
 
-**Step 1 — Identify both NICs:**
+**Switch Kali's NIC to `vmbr1`:**
+
+In Proxmox: **kali-notthenet → Hardware → Network Device (net0) → Edit → Bridge: `vmbr1`** → OK.
+
+> This cuts Kali's internet access. That is correct and intentional — during analysis Kali only needs the isolated lab network. To get internet back temporarily (e.g. to run `apt update`), switch the bridge back to `vmbr0`, update, then switch back to `vmbr1`.
+
+**Identify your NIC name:**
 
 ```bash
 ip link show
 ```
 
-You should see three entries — `lo` plus two NICs. Examples of what the output may look like:
+You will see `lo` plus one NIC — either a traditional name (`eth0`) or a predictable name (`ens18`, `enp6s18`, etc.). Note the name; use it in place of `eth0` in the commands below if yours differs.
 
-```
-# Traditional naming (VirtIO / e1000e)
-1: lo: ...
-2: eth0: <BROADCAST,MULTICAST,UP> ...     ← has an IP → vmbr0 (internet)
-3: eth1: <BROADCAST,MULTICAST> ...         ← no IP    → vmbr1 (lab)
-
-# Predictable naming (common with newer kernels)
-1: lo: ...
-2: ens18: <BROADCAST,MULTICAST,UP> ...    ← has an IP → vmbr0 (internet)
-3: ens19: <BROADCAST,MULTICAST> ...        ← no IP    → vmbr1 (lab)
-```
-
-- The NIC that already has an IP (check with `ip addr show`) is your `vmbr0` (internet) adapter — leave it alone.
-- The NIC with **no IP** is your `vmbr1` (isolated lab) adapter. Note its name — it is the one you will configure below.
-
-> **Only one NIC (besides `lo`) visible?** The second NIC hasn't been added to the VM yet. In Proxmox: **VM → Hardware → Add → Network Device**, bridge `vmbr1`, then run `ip link show` again.
-
-**Step 2 — Set the interface name as a variable** (makes the copy-paste commands below work regardless of the actual name):
+**Assign the static IP:**
 
 ```bash
-# Replace ens19 with your actual lab NIC name from the output above
-export LAB_IF=ens19
-```
+# Use your actual NIC name if different from eth0
+export LAB_IF=eth0
 
-**Step 3 — Assign a static IP persistently:**
-
-```bash
 sudo nmcli con add \
   type ethernet \
   ifname "$LAB_IF" \
@@ -127,46 +110,24 @@ sudo nmcli con add \
 sudo nmcli con up lab
 ```
 
-> If you see `Warning: There is another connection with the name 'lab'`, a previous attempt left a stale profile. Remove it first:
+> If you see `Warning: There is another connection with the name 'lab'`, a previous attempt left a stale profile:
 > ```bash
 > sudo nmcli con delete lab
 > sudo nmcli con add type ethernet ifname "$LAB_IF" con-name lab ip4 10.0.0.1/24
 > sudo nmcli con up lab
 > ```
 
-**Step 4 — Verify:**
+**Verify:**
 ```bash
 ip addr show "$LAB_IF"
 # Should show inet 10.0.0.1/24
 ```
 
-### 2.4 Enable IP forwarding
+### 2.4 IP forwarding
 
-NotTheNet's `gateway` iptables mode requires the kernel to forward packets between interfaces:
+ip forwarding is **not required** for this single-NIC setup. NotTheNet's iptables PREROUTING rules redirect traffic arriving from FlareVM directly to local service ports — packets never need to be forwarded between two interfaces.
 
-```bash
-sudo sysctl -w net.ipv4.ip_forward=1
-
-echo "net.ipv4.ip_forward=1" | sudo tee /etc/sysctl.d/99-notthenet.conf
-
-sudo sysctl -p /etc/sysctl.d/99-notthenet.conf
-```
-
-> **To undo IP forwarding** (e.g. when tearing down the lab or switching the Kali VM to a different role):
->
-> ```bash
-> # Disable immediately (reverts to default until next reboot)
-> sudo sysctl -w net.ipv4.ip_forward=0
->
-> # Remove the persistent file so it does not re-enable on next boot
-> sudo rm -f /etc/sysctl.d/99-notthenet.conf
->
-> # Verify
-> sysctl net.ipv4.ip_forward
-> # Should print: net.ipv4.ip_forward = 0
-> ```
->
-> NotTheNet automatically removes its iptables PREROUTING/OUTPUT rules when you click **■ Stop** or send `SIGTERM`. If the process was killed hard and rules were left behind, see [Removing leftover iptables rules](#removing-leftover-iptables-rules) in the Troubleshooting section below.
+> If you ever switch to a two-NIC Kali setup (internet + lab simultaneously), you would need `sudo sysctl -w net.ipv4.ip_forward=1`. Not needed here.
 
 ### 2.5 Install NotTheNet
 
@@ -193,8 +154,8 @@ Click **⚙ General** in the sidebar and set:
 |-------|-------|-------|
 | Bind IP | `0.0.0.0` | Listen on all interfaces |
 | Redirect IP | `10.0.0.1` | Kali's lab IP — all DNS resolves here |
-| Interface | `ens19` | **Your vmbr1 NIC name** — use the name identified in step 2.3, not `eth1` |
-| iptables mode | `gateway` | PREROUTING — intercepts traffic from other hosts |
+| Interface | `eth0` | Your NIC name — use the name from `ip link show` (may be `ens18` etc.) |
+| iptables mode | `gateway` | PREROUTING — intercepts traffic arriving from FlareVM |
 | Auto iptables | ✔ | Rules applied/removed automatically on start/stop |
 | Log level | `INFO` | Increase to `DEBUG` for detailed per-packet logging |
 | Log to file | ✔ | Written to `logs/notthenet.log` |
@@ -270,13 +231,13 @@ ping 10.0.0.1
 
 ### 3.5 Install FlareVM
 
-> **Before running the FlareVM installer**, make sure NotTheNet is **running** on Kali. The installer downloads hundreds of tools over HTTP/HTTPS — all of those requests will hit NotTheNet's fake HTTP server and fail. You need **real internet access for the install**, so temporarily add `vmbr0` to the FlareVM VM just for this step.
+> **FlareVM installer needs real internet.** Before running the installer, temporarily switch FlareVM's NIC bridge to `vmbr0`.
 
-**Temporary internet for FlareVM install:**
-1. Proxmox → FlareVM → **Hardware → Add → Network Device** → bridge `vmbr0`
-2. Inside FlareVM, set this second NIC to DHCP and verify you have internet
-3. Proceed with FlareVM install
-4. **After FlareVM finishes**: remove the `vmbr0` NIC from the VM hardware
+**Switch FlareVM to internet temporarily:**
+
+Proxmox → **flarevm → Hardware → Network Device (net0) → Edit → Bridge: `vmbr0`** → OK.
+
+Inside FlareVM, set this NIC to DHCP (**Network Settings → adapter → Properties → IPv4 → Obtain automatically**) and verify you have internet (`curl https://www.google.com` or open a browser).
 
 **FlareVM install steps:**
 
@@ -284,7 +245,6 @@ Open PowerShell as Administrator on FlareVM:
 
 ```powershell
 Set-ExecutionPolicy Unrestricted -Force
-
 
 $installer = "$env:TEMP\flarevm.ps1"
 (New-Object Net.WebClient).DownloadFile(
@@ -297,7 +257,11 @@ Unblock-File $installer
 
 The installer opens a GUI letting you choose which tool packages to install. Select what you need for your analysis workflow (the defaults are a good starting point). Installation takes 1–2 hours depending on what you select.
 
-When complete, **remove the `vmbr0` NIC** from FlareVM in Proxmox hardware settings. From this point on FlareVM has no real internet.
+**After FlareVM install completes — switch back to the isolated bridge:**
+
+Proxmox → **flarevm → Hardware → Network Device (net0) → Edit → Bridge: `vmbr1`** → OK.
+
+Then inside FlareVM, re-apply the static IP from section 3.4 (it will have been overwritten by DHCP). From this point on FlareVM has no real internet.
 
 ### 3.6 Take a clean baseline snapshot
 
@@ -562,8 +526,8 @@ One record per line, `hostname = ip` format. These take precedence over the defa
 ### FlareVM traffic not being intercepted
 
 1. Confirm iptables mode is `gateway` (not `loopback`) in NotTheNet General settings
-2. Confirm IP forwarding is enabled on Kali: `sysctl net.ipv4.ip_forward` should return `1`
-3. Check iptables rules exist: `sudo iptables -t nat -L PREROUTING -n -v | grep NOTTHENET`
+2. Check iptables rules exist: `sudo iptables -t nat -L PREROUTING -n -v | grep NOTTHENET`
+3. Confirm FlareVM's NIC is on `vmbr1` and Kali's NIC is also on `vmbr1` (Proxmox Hardware settings for each VM)
 4. Confirm FlareVM's default gateway is `10.0.0.1`: `ipconfig` on FlareVM
 
 ### DNS queries not resolving to 10.0.0.1
