@@ -17,7 +17,7 @@
 │  │  10.0.0.1        │◄─────│  10.0.0.50           │ │
 │  │                  │      │  GW: 10.0.0.1        │ │
 │  │  eth0 → vmbr0    │      │  DNS: 10.0.0.1       │ │
-│  │  eth1 → vmbr1    │      │  NIC: vmbr1 only     │ │
+│  │  ens19 → vmbr1   │      │  NIC: vmbr1 only     │ │
 │  └──────────────────┘      └──────────────────────┘ │
 │          │                          │                │
 │     ┌────┴──────────────────────────┘                │
@@ -80,27 +80,54 @@ Boot the ISO and run a standard Kali install. When complete, remove the ISO from
 
 ### 2.3 Configure the lab interface
 
-Log in to Kali and identify both NICs:
+> **Note on interface names:** Modern Kali (and any Debian/Ubuntu system on Proxmox KVM) uses predictable interface names such as `ens18`, `ens19`, `enp6s18`, etc. — **not** `eth0`/`eth1`. The exact names depend on your Proxmox slot numbering. Always identify the real names before running the commands below.
+
+**Step 1 — Identify both NICs:**
 
 ```bash
 ip link show
 ```
 
-Assign a static IP to the lab interface persistently:
+You will see output like:
+```
+1: lo: ...
+2: ens18: <BROADCAST,MULTICAST,UP> ...
+3: ens19: <BROADCAST,MULTICAST> ...
+```
+
+- The NIC that already has an IP (check with `ip addr show`) is your `vmbr0` (internet) adapter — leave it alone.
+- The NIC with **no IP** is your `vmbr1` (isolated lab) adapter. Note its name — it is the one you will configure below.
+
+**Step 2 — Set the interface name as a variable** (makes the copy-paste commands below work regardless of the actual name):
+
+```bash
+# Replace ens19 with your actual lab NIC name from the output above
+export LAB_IF=ens19
+```
+
+**Step 3 — Assign a static IP persistently:**
 
 ```bash
 sudo nmcli con add \
   type ethernet \
-  ifname eth1 \
+  ifname "$LAB_IF" \
   con-name lab \
   ip4 10.0.0.1/24
 
 sudo nmcli con up lab
 ```
 
-Verify:
+> If you see `Warning: There is another connection with the name 'lab'`, a previous attempt left a stale profile. Remove it first:
+> ```bash
+> sudo nmcli con delete lab
+> sudo nmcli con add type ethernet ifname "$LAB_IF" con-name lab ip4 10.0.0.1/24
+> sudo nmcli con up lab
+> ```
+
+**Step 4 — Verify:**
 ```bash
-ip addr show eth1
+ip addr show "$LAB_IF"
+# Should show inet 10.0.0.1/24
 ```
 
 ### 2.4 Enable IP forwarding
@@ -156,7 +183,7 @@ Click **⚙ General** in the sidebar and set:
 |-------|-------|-------|
 | Bind IP | `0.0.0.0` | Listen on all interfaces |
 | Redirect IP | `10.0.0.1` | Kali's lab IP — all DNS resolves here |
-| Interface | `eth1` | Your vmbr1 NIC name |
+| Interface | `ens19` | **Your vmbr1 NIC name** — use the name identified in step 2.3, not `eth1` |
 | iptables mode | `gateway` | PREROUTING — intercepts traffic from other hosts |
 | Auto iptables | ✔ | Rules applied/removed automatically on start/stop |
 | Log level | `INFO` | Increase to `DEBUG` for detailed per-packet logging |
@@ -346,7 +373,9 @@ Expected: no output / command returns after 5 seconds. If a banner appears, Flar
 
 ## Part 5 — Wireshark Setup (Kali)
 
-Kali is the gateway for all FlareVM traffic — every packet passes through `eth1` before NotTheNet processes it. Capturing on that interface gives a complete packet-level record of everything the sample sends, independent of what NotTheNet logs.
+Kali is the gateway for all FlareVM traffic — every packet passes through the lab NIC (`ens19` in the example, your actual name from section 2.3) before NotTheNet processes it. Capturing on that interface gives a complete packet-level record of everything the sample sends, independent of what NotTheNet logs.
+
+> Substitute `ens19` below with your real lab interface name identified in section 2.3.
 
 ### 5.1 Install Wireshark / tshark
 
@@ -372,7 +401,7 @@ newgrp wireshark
 sudo wireshark &
 ```
 
-Select interface **eth1** (`vmbr1`, the lab-side NIC) and click the blue shark fin to start. Useful display filters:
+Select your lab interface (`ens19` / whatever name you identified in section 2.3 — it is the one on `vmbr1`) and click the blue shark fin to start. Useful display filters:
 
 | Display filter | What it shows |
 |----------------|---------------|
@@ -389,7 +418,8 @@ Select interface **eth1** (`vmbr1`, the lab-side NIC) and click the blue shark f
 `tshark` is better for long sessions — it writes directly to `.pcapng` without opening a GUI.
 
 ```bash
-sudo tshark -i eth1 \
+# Replace ens19 with your actual lab interface name (identified in section 2.3)
+sudo tshark -i ens19 \
   -f "host 10.0.0.50" \
   -b filesize:102400 -b files:5 \
   -w ~/captures/flarevm-$(date +%Y%m%d-%H%M%S).pcapng
@@ -398,7 +428,7 @@ sudo tshark -i eth1 \
 Stop with **Ctrl+C**. To target specific protocols only (smaller files):
 
 ```bash
-sudo tshark -i eth1 \
+sudo tshark -i ens19 \
   -f "host 10.0.0.50 and (port 53 or port 80 or port 443 or port 25 or port 21)" \
   -w ~/captures/flarevm-targeted.pcapng
 ```
