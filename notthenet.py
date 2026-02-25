@@ -36,7 +36,7 @@ from utils.logging_utils import setup_logging
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 APP_TITLE = "NotTheNet — Fake Internet Simulator"
-APP_VERSION = "2026.02.24-1"
+APP_VERSION = "2026.02.24-2"
 PAD = 8
 FIELD_WIDTH = 22
 LOG_MAX_LINES = 2000  # Cap displayed log lines to avoid memory creep
