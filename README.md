@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/retr0verride/NotTheNet/actions/workflows/ci.yml"><img src="https://github.com/retr0verride/NotTheNet/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://www.bestpractices.dev/projects/12084"><img src="https://www.bestpractices.dev/projects/12084/badge" alt="OpenSSF Best Practices"></a>
+  <a href="https://www.bestpractices.dev/projects/12084"><img src="https://img.shields.io/cii/summary/12084?label=openssf%20best%20practices" alt="OpenSSF Best Practices"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/retr0verride/NotTheNet" alt="License"></a>
   <img src="https://img.shields.io/badge/python-3.9%2B-blue" alt="Python 3.9+">
 </p>
