@@ -165,8 +165,12 @@ fi
 gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
 update-desktop-database -q /usr/share/applications 2>/dev/null || true
 mandb -q 2>/dev/null || true
-# Restart XFCE panel to reload icon cache and avoid gear-icon fallback
-pgrep -x xfce4-panel >/dev/null && DISPLAY="${DISPLAY:-:0}" xfce4-panel --restart 2>/dev/null || true
+# Restart XFCE panel to reload icon cache and avoid gear-icon fallback.
+# Run as the desktop user so D-Bus can reach the session bus.
+_panel_user="${SUDO_USER:-$(logname 2>/dev/null || true)}"
+if pgrep -x xfce4-panel >/dev/null && [[ -n "$_panel_user" ]]; then
+    runuser -u "$_panel_user" -- xfce4-panel --restart 2>/dev/null || true
+fi
 
 # ── Uninstall launcher (/usr/bin/notthenet-uninstall) ────────────────────────
 cat > /usr/bin/notthenet-uninstall << 'EOF'
