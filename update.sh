@@ -35,6 +35,40 @@ if [ -n "$CONFIG_BACKUP" ]; then
     echo "[*] Restored your local config.json"
 fi
 
+# ── 3b. Merge new default config keys into user config ───────────────────────
+# If a new release adds config keys, they won't be in the user's restored file.
+# This deep-merges the repo defaults into the user config: new keys are added
+# with their default values, existing user values are never overwritten.
+DEFAULT_CFG="$(git show HEAD:config.json 2>/dev/null || true)"
+if [ -n "$DEFAULT_CFG" ] && [ -f config.json ]; then
+    python3 - "$DEFAULT_CFG" << 'PYEOF'
+import json, sys
+
+defaults = json.loads(sys.argv[1])
+with open("config.json") as f:
+    user = json.load(f)
+
+changed = False
+for section, keys in defaults.items():
+    if section not in user:
+        continue  # don't inject sections the user never had
+    if not isinstance(keys, dict) or not isinstance(user[section], dict):
+        continue
+    for key, val in keys.items():
+        if key not in user[section]:
+            user[section][key] = val
+            changed = True
+
+if changed:
+    with open("config.json", "w") as f:
+        json.dump(user, f, indent=2)
+        f.write("\n")
+    print("[*] Config migrated — new default keys added to config.json")
+else:
+    print("[*] Config up to date — no new keys to add")
+PYEOF
+fi
+
 # ── 4. Reinstall package (picks up any dependency / entry-point changes) ─────
 if [ -d "venv" ]; then
     PYTHON="venv/bin/python"

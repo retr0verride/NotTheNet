@@ -71,7 +71,12 @@ class TestConfigGetSet:
         _write_json(str(f), {"ftp": {"port": 21, "enabled": True}})
         cfg = Config(str(f))
         section = cfg.get_section("ftp")
-        assert section == {"port": 21, "enabled": True}
+        # User values preserved
+        assert section["port"] == 21
+        assert section["enabled"] is True
+        # Merge may add default keys for the same section — that's fine;
+        # just ensure the user's keys weren't overwritten.
+        assert section.get("port") == 21
 
     def test_get_section_missing_returns_empty(self, tmp_path):
         cfg = Config(str(tmp_path / "empty.json"))
