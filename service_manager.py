@@ -8,12 +8,14 @@ from typing import Optional
 
 from config import Config
 from network.iptables_manager import IPTablesManager
+from network.tcp_fingerprint import apply_os_fingerprint
 from services.catch_all import CatchAllTCPService, CatchAllUDPService
 from services.dns_server import DNSService
 from services.ftp_server import FTPService
 from services.http_server import HTTPService, HTTPSService
 from services.mail_server import IMAPService, POP3Service, SMTPService
 from utils.cert_utils import ensure_certs
+from utils.json_logger import close_json_logger, init_json_logger
 from utils.privilege import require_root_or_warn
 from utils.validators import validate_config
 
@@ -50,6 +52,13 @@ class ServiceManager:
         bind_ip = self.config.get("general", "bind_ip") or "0.0.0.0"
         spoof_ip = str(self.config.get("general", "spoof_public_ip") or "")
 
+        # --- Start structured JSON event logger if enabled ---
+        json_logging = self.config.get("general", "json_logging")
+        if json_logging:
+            json_path = self.config.get("general", "json_log_file") or "logs/events.jsonl"
+            init_json_logger(json_path, enabled=True)
+            logger.info("Structured JSON logging enabled → %s", json_path)
+
         # --- Ensure TLS certs exist before binding ---
         https_cfg = self.config.get_section("https")
         if https_cfg.get("enabled"):
@@ -57,6 +66,13 @@ class ServiceManager:
                 https_cfg.get("cert_file", "certs/server.crt"),
                 https_cfg.get("key_file", "certs/server.key"),
             )
+            # Ensure Root CA exists if dynamic certs enabled
+            if https_cfg.get("dynamic_certs"):
+                from utils.cert_utils import ensure_ca
+                ensure_ca("certs/ca.crt", "certs/ca.key")
+
+        # ----- Build merged config dicts with general settings -----
+        redirect_ip = self.config.get("general", "redirect_ip") or "127.0.0.1"
 
         # ----- Start services -----
         started = []
@@ -66,12 +82,22 @@ class ServiceManager:
             self._services["dns"] = dns
             started.append("dns")
 
-        http = HTTPService({**self.config.get_section("http"), "spoof_public_ip": spoof_ip}, bind_ip=bind_ip)
+        http_cfg = {
+            **self.config.get_section("http"),
+            "spoof_public_ip": spoof_ip,
+            "doh_redirect_ip": redirect_ip,
+        }
+        http = HTTPService(http_cfg, bind_ip=bind_ip)
         if http.start():
             self._services["http"] = http
             started.append("http")
 
-        https = HTTPSService({**self.config.get_section("https"), "spoof_public_ip": spoof_ip}, bind_ip=bind_ip)
+        https_merged = {
+            **self.config.get_section("https"),
+            "spoof_public_ip": spoof_ip,
+            "doh_redirect_ip": redirect_ip,
+        }
+        https = HTTPSService(https_merged, bind_ip=bind_ip)
         if https.start():
             self._services["https"] = https
             started.append("https")
@@ -110,6 +136,18 @@ class ServiceManager:
         if self.config.get("general", "auto_iptables"):
             self._apply_iptables()
 
+        # --- Apply TCP/IP OS fingerprint spoofing to server sockets ---
+        fp_enabled = self.config.get("general", "tcp_fingerprint")
+        fp_os = self.config.get("general", "tcp_fingerprint_os") or "windows"
+        if fp_enabled:
+            for name, svc in self._services.items():
+                sock = getattr(getattr(svc, '_server', None), 'socket', None)
+                if sock:
+                    try:
+                        apply_os_fingerprint(sock, fp_os)
+                    except Exception as e:
+                        logger.debug(f"TCP fingerprint on {name}: {e}")
+
         self._running = len(started) > 0
         logger.info(f"NotTheNet started: {', '.join(started) if started else 'none'}")
         return self._running
@@ -129,9 +167,11 @@ class ServiceManager:
             "imap":  ("tcp", self.config.get("imap",  "port") or 143),
             "ftp":   ("tcp", self.config.get("ftp",   "port") or 21),
         }
-        dns_port = self.config.get("dns", "port") or 53
-        service_ports["udp"].append(int(dns_port))
-        service_ports["tcp"].append(int(dns_port))
+        # Only add DNS port if the DNS service actually started
+        if "dns" in self._services:
+            dns_port = self.config.get("dns", "port") or 53
+            service_ports["udp"].append(int(dns_port))
+            service_ports["tcp"].append(int(dns_port))
 
         for svc, (proto, port) in port_map.items():
             if svc in self._services:
@@ -156,6 +196,8 @@ class ServiceManager:
         if self._iptables:
             self._iptables.remove_rules()
             self._iptables = None
+
+        close_json_logger()
 
         self._running = False
         logger.info("NotTheNet stopped.")

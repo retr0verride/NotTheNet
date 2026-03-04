@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "notthenet"
-version = "2026.02.24-2"
+version = "2026.03.04-1"
 description = "Fake internet simulator for malware analysis — INetSim/FakeNet-NG alternative"
 readme = "README.md"
 license = {text = "MIT"}
@@ -97,5 +97,6 @@ skips = [
     "B324",   # hashlib use — not for crypto here
     "B404",   # subprocess import — used safely with shell=False throughout
     "B603",   # subprocess without shell=True — shell=False is the secure pattern
+    "B606",   # os.startfile — intentional to open user's own log file
     "B607",   # partial executable path — intentional for cross-env portability
 ]

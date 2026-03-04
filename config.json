@@ -8,7 +8,11 @@
     "auto_iptables": true,
     "interface": "eth0",
     "iptables_mode": "loopback",
-    "spoof_public_ip": ""
+    "spoof_public_ip": "",
+    "json_logging": false,
+    "json_log_file": "logs/events.jsonl",
+    "tcp_fingerprint": false,
+    "tcp_fingerprint_os": "windows"
   },
   "dns": {
     "enabled": true,
@@ -26,7 +30,12 @@
     "response_body": "<html><body><h1>200 OK</h1></body></html>",
     "server_header": "Apache/2.4.51 (Debian)",
     "log_requests": true,
-    "response_delay_ms": 0
+    "response_delay_ms": 0,
+    "dynamic_responses": true,
+    "dynamic_response_rules": [],
+    "doh_sinkhole": true,
+    "doh_redirect_ip": "127.0.0.1",
+    "websocket_sinkhole": true
   },
   "https": {
     "enabled": true,
@@ -38,7 +47,13 @@
     "response_body": "<html><body><h1>200 OK</h1></body></html>",
     "server_header": "Apache/2.4.51 (Debian)",
     "log_requests": true,
-    "response_delay_ms": 0
+    "response_delay_ms": 0,
+    "dynamic_responses": true,
+    "dynamic_response_rules": [],
+    "dynamic_certs": true,
+    "doh_sinkhole": true,
+    "doh_redirect_ip": "127.0.0.1",
+    "websocket_sinkhole": true
   },
   "smtp": {
     "enabled": true,

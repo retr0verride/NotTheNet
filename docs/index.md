@@ -15,8 +15,8 @@ Welcome to the NotTheNet documentation hub. NotTheNet is a fake internet simulat
 | [Installation](installation.md) | System requirements, install steps, virtualenv setup |
 | [Configuration](configuration.md) | Full reference for every `config.json` field |
 | [Usage](usage.md) | GUI walkthrough, CLI/headless mode, command-line flags |
-| [Services](services.md) | DNS, HTTP/HTTPS, SMTP, POP3, IMAP, FTP, Catch-All details |
-| [Network & iptables](network.md) | How traffic redirection works, gateway vs loopback modes |
+| [Services](services.md) | DNS, HTTP/HTTPS, SMTP, POP3, IMAP, FTP, Catch-All, DoH sinkhole, WebSocket sinkhole, dynamic responses, JSON event logging |
+| [Network & iptables](network.md) | How traffic redirection works, gateway vs loopback modes, TCP/IP fingerprint spoofing |
 | [Security Hardening](security-hardening.md) | Lab network isolation, interface binding, privilege model |
 | [Troubleshooting](troubleshooting.md) | Common errors and fixes |
 | [Lab Setup: Proxmox + Kali + FlareVM](lab-setup.md) | Isolated lab wiring, IP forwarding, detonation workflow |
@@ -67,4 +67,10 @@ That's it. Every DNS query from the analysis machine now resolves to `127.0.0.1`
 | Privilege drop after bind | No | No | Runs as root; `pkexec` handles privilege for desktop launch |
 | Catch-all port redirect | Via config file | Via config file | Auto iptables NAT |
 | Log injection prevention | No | No | Yes (CWE-117 sanitised) |
+| DNS-over-HTTPS sinkhole | No | No | Yes (GET + POST wire-format) |
+| WebSocket sinkhole | No | No | Yes (RFC 6455 handshake + drain) |
+| Dynamic HTTP responses | No | No | Yes (70+ MIME types with valid file stubs) |
+| Dynamic TLS cert forging | No | No | Yes (per-domain via Root CA + SNI) |
+| TCP/IP OS fingerprint spoof | No | No | Yes (TTL, window size, DF, MSS) |
+| Structured JSON event log | No | No | Yes (JSONL per-request, pipeline-ready) |
 | Single file to read | No | No | Each concern in one module |

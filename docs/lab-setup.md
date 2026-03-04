@@ -172,8 +172,18 @@ Click **⚙ General** in the sidebar and set:
 Configure individual services as needed (all can be left at defaults for basic analysis):
 
 - **DNS** — leave `resolve_to` at `127.0.0.1`; it will be rewritten to `10.0.0.1` by iptables redirect
-- **HTTP/HTTPS** — default `200 OK` response with a generic body is fine
+- **HTTP/HTTPS** — default `200 OK` response with a generic body is fine; `dynamic_responses` is enabled by default and will serve correct MIME types + valid file stubs for 70+ extensions
+- **HTTPS** — `dynamic_certs` is enabled by default; a Root CA is auto-generated at `certs/ca.crt` — install it in FlareVM's trust store for seamless HTTPS interception (see section 4.9)
 - **Catch-All** — ensure it is enabled; this catches any ports not handled by a specific service
+
+**Optional advanced features:**
+
+| Feature | Setting | Recommended for |
+|---------|---------|----------------|
+| **TCP fingerprint spoof** | `tcp_fingerprint: true`, `tcp_fingerprint_os: "windows"` | Windows malware that checks OS fingerprints |
+| **JSON event logging** | `json_logging: true` | Automated pipelines (CAPEv2, Splunk, ELK) |
+| **DoH sinkhole** | `doh_sinkhole: true` (already default) | Malware that bypasses DNS via DoH |
+| **WebSocket sinkhole** | `websocket_sinkhole: true` (already default) | WebSocket-based C2 channels |
 
 Click **💾 Save**, then **▶ Start**.
 
@@ -351,6 +361,38 @@ Expected: `200 OK` — caught by the TCP Catch-All service. These appear in the 
 curl.exe -s -m 5 telnet://8.8.8.8:53
 ```
 Expected: no output / command returns after 5 seconds. If a banner appears, FlareVM still has a route to the real internet — re-check that `vmbr0` is not attached.
+
+### 4.9 Dynamic TLS certs (install Root CA)
+
+If `https.dynamic_certs` is enabled (default), install the Root CA so forged per-domain certs are trusted:
+
+1. Copy `certs/ca.crt` from Kali to FlareVM (e.g. via the Python HTTP server in Part 6)
+2. On FlareVM: double-click `ca.crt` → **Install Certificate** → **Local Machine** → **Place all certificates in the following store** → **Trusted Root Certification Authorities** → Finish
+
+Verify:
+```cmd
+curl.exe -s https://evil-c2.com/
+```
+Expected: `200 OK` response **without** a certificate error (because the forged cert for `evil-c2.com` is signed by the now-trusted Root CA).
+
+### 4.10 Dynamic responses
+
+```cmd
+curl.exe -o test.exe http://10.0.0.1/update/payload.exe
+```
+Expected: a small file is downloaded. Inspecting with `file test.exe` (or a hex editor) should show a valid PE header (MZ magic bytes).
+
+### 4.11 JSON event logging
+
+If `json_logging` is enabled, check that events are being recorded:
+
+On Kali:
+```bash
+tail -f logs/events.jsonl
+```
+Expected: JSON objects appear in real time as FlareVM generates traffic. Each object has `timestamp`, `event`, `src_ip`, and service-specific fields.
+
+In the GUI: click **JSON Events** in the **ANALYSIS** sidebar group to view events in the live treeview.
 
 ---
 

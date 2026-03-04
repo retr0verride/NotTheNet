@@ -19,6 +19,7 @@ import threading
 import uuid
 from typing import Optional
 
+from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
 
 logger = logging.getLogger(__name__)
@@ -99,6 +100,9 @@ class _FTPSession(threading.Thread):
     def run(self):
         safe_addr = sanitize_ip(self.addr[0])
         logger.info(f"FTP connection from {safe_addr}")
+        jl = get_json_logger()
+        if jl:
+            jl.log("ftp_connection", src_ip=self.addr[0])
         try:
             self._send(sanitize_log_string(self.banner, max_length=200))
             self.conn.settimeout(30)
@@ -234,6 +238,11 @@ class _FTPSession(threading.Thread):
             logger.info(
                 f"FTP: upload from {safe_addr} saved as {safe_fname} ({received} bytes)"
             )
+            jl = get_json_logger()
+            if jl:
+                jl.log("ftp_upload", src_ip=self.addr[0],
+                       filename=remote_name, saved_as=safe_fname,
+                       bytes_received=received)
             self._send("226 Transfer complete")
         except Exception as e:
             logger.error(f"FTP: upload error: {e}")

@@ -18,8 +18,8 @@ NotTheNet simulates the internet for malware being analysed in an isolated envir
 | [Installation](docs/installation.md) | System requirements, install steps, virtualenv setup |
 | [Configuration](docs/configuration.md) | Full reference for every `config.json` field |
 | [Usage](docs/usage.md) | GUI walkthrough, CLI/headless mode, command-line flags |
-| [Services](docs/services.md) | DNS, HTTP/HTTPS, SMTP, POP3, IMAP, FTP, Catch-All technical details |
-| [Network & iptables](docs/network.md) | Traffic redirection, loopback vs gateway mode, manual rules |
+| [Services](docs/services.md) | DNS, HTTP/HTTPS, SMTP, POP3, IMAP, FTP, Catch-All, DoH/WebSocket sinkhole, dynamic responses |
+| [Network & iptables](docs/network.md) | Traffic redirection, loopback vs gateway mode, TCP/IP fingerprint spoofing |
 | [Security Hardening](docs/security-hardening.md) | Lab isolation, interface binding, privilege model, OpenSSF practices |
 | [Troubleshooting](docs/troubleshooting.md) | Common errors and fixes |
 | [Lab Setup: Proxmox + Kali + FlareVM](docs/lab-setup.md) | Isolated lab wiring, IP forwarding, detonation workflow |
@@ -42,7 +42,13 @@ Man page available at [`man/notthenet.1`](man/notthenet.1) — install with `sud
 | **iptables manager** | Auto-applies NAT REDIRECT rules; cleanly restores originals on stop. |
 | **Public-IP spoof** | HTTP/HTTPS responses to 20+ well-known public-IP-check services (`api.ipify.org`, `icanhazip.com`, `checkip.amazonaws.com`, `ifconfig.me`, `httpbin.org`, and others) return a configurable fake IP. Defeats malware that queries these endpoints to detect sandbox environments. |
 | **Response delay** | Per-millisecond artificial delay on HTTP/HTTPS responses. 50–200 ms simulates realistic network latency and defeats timing-based sandbox detection. |
-| **Dark GUI** | Grouped sidebar, live colour-coded log panel with level filters, tooltips on every field and button. |
+| **Dynamic responses** | Extension-based response engine (70+ file types). Requests for `.exe`, `.dll`, `.pdf`, `.zip`, etc. return correct MIME types with minimal valid file stubs (magic bytes + headers). Custom regex rules supported. |
+| **DNS-over-HTTPS sinkhole** | Intercepts DoH queries (`application/dns-message`, `/dns-query`) via GET and POST. Prevents malware from bypassing the fake DNS server. |
+| **WebSocket sinkhole** | Completes RFC 6455 handshake, drains up to 4 KB of frames, logs hex preview, sends clean close. Satisfies WebSocket-based C2. |
+| **Dynamic TLS certs** | Auto-generated Root CA + per-domain cert forging via SNI. Each HTTPS connection gets a cert matching the requested hostname. Install `certs/ca.crt` in the analysis VM for seamless interception. |
+| **TCP/IP fingerprint spoof** | Modifies TTL, TCP window size, DF bit, and MSS on listening sockets to mimic Windows, Linux, macOS, or Solaris. Defeats OS fingerprinting-based sandbox detection. |
+| **JSON event logging** | Structured JSONL per-request logging. Pipeline-ready for CAPEv2, Splunk, ELK. GUI includes a live JSON Events viewer with search and filtering. |
+| **Dark GUI** | Grouped sidebar, live colour-coded log panel with level filters, JSON Events viewer, zoom controls (70%–200%), tooltips on every field and button. |
 | **Desktop integration** | App menu icon, pkexec/polkit privilege prompt — no terminal needed to launch. |
 
 ---
@@ -122,6 +128,12 @@ Key settings:
 | `general.interface` | Network interface to apply iptables rules on |
 | `general.auto_iptables` | Auto-manage iptables NAT rules |
 | `general.spoof_public_ip` | Fake public IP returned to well-known IP-check services (e.g. `"93.184.216.34"`). Leave blank to disable. |
+| `general.json_logging` | Enable structured JSON event logging to `json_log_file` (JSONL format). |
+| `general.tcp_fingerprint` | Enable TCP/IP OS fingerprint spoofing (`tcp_fingerprint_os`: `windows`/`linux`/`macos`/`solaris`). |
+| `http.dynamic_responses` | Enable extension-based MIME types + valid file stubs for 70+ extensions. |
+| `http.doh_sinkhole` | Intercept DNS-over-HTTPS queries (GET + POST wire-format). |
+| `http.websocket_sinkhole` | Accept and sinkhole WebSocket upgrade requests. |
+| `https.dynamic_certs` | Forge per-domain TLS certs via auto-generated Root CA + SNI callback. |
 | `dns.custom_records` | Per-hostname overrides: `{"c2.evil.com": "127.0.0.1"}` |
 | `http.response_delay_ms` / `https.response_delay_ms` | Artificial delay in ms before each HTTP/HTTPS response (50–200 ms recommended to defeat timing detection). |
 | `https.cert_file` / `key_file` | TLS cert paths (auto-generated if absent) |
@@ -137,15 +149,19 @@ config.py             ← JSON config loader / saver / validator
 service_manager.py    ← Orchestrates all services + iptables lifecycle
 services/
   dns_server.py       ← dnslib-based DNS (UDP + TCP, all → redirect_ip)
-  http_server.py      ← HTTP + HTTPS (hardened TLS)
+  http_server.py      ← HTTP + HTTPS (hardened TLS, dynamic certs, DoH/WS sinkhole)
   mail_server.py      ← SMTP + POP3 + IMAP
   ftp_server.py       ← FTP (PASV only, PORT disabled)
   catch_all.py        ← TCP/UDP catch-all
+  doh_websocket.py    ← DNS-over-HTTPS + WebSocket sinkhole handlers
+  dynamic_response.py ← Extension→MIME map + valid file stub generator
 network/
   iptables_manager.py ← NAT redirect rules, save/restore
+  tcp_fingerprint.py  ← TCP/IP OS fingerprint spoofing (TTL, window, DF, MSS)
 utils/
-  cert_utils.py       ← RSA-4096 self-signed TLS cert generation
+  cert_utils.py       ← RSA-4096 self-signed certs + Root CA + dynamic cert forging
   logging_utils.py    ← Log sanitization (CWE-117 prevention)
+  json_logger.py      ← Structured JSON Lines event logger (thread-safe, size-capped)
   privilege.py        ← Root check + drop_privileges() helper (for future bind-then-drop)
   validators.py       ← Input validation for all external data
 tests/
@@ -186,7 +202,9 @@ Key hardening highlights:
 - Log output: all untrusted strings sanitized (ANSI/CRLF stripped)
 - File saves: UUID filenames only — attacker never controls path
 - TLS: minimum 1.2, ECDHE+AEAD ciphers, `OP_NO_SSLv2/3/TLSv1/1.1`
+- Dynamic certs: hostname sanitised for path traversal; Root CA + per-domain keys at `0o600`
 - Private key: written with mode `0o600`
+- JSON log: 500 MB file-size cap; thread-safe singleton; no eval of logged data
 - Privilege: runs as root scoped to the isolated interface; `bind_ip` limits exposure to the analysis adapter
 
 ---

@@ -4,6 +4,7 @@ Sanitizes log output to prevent log injection attacks (CWE-117).
 Never logs raw untrusted bytes verbatim.
 """
 
+import ipaddress
 import logging
 import logging.handlers
 import os
@@ -40,7 +41,6 @@ def sanitize_log_string(value: str, max_length: int = 512) -> str:
 
 def sanitize_ip(addr: str) -> str:
     """Validate and return an IP address string, or '<invalid>' if not safe."""
-    import ipaddress
     try:
         return str(ipaddress.ip_address(addr))
     except ValueError:
@@ -49,7 +49,6 @@ def sanitize_ip(addr: str) -> str:
 
 def sanitize_hostname(hostname: str, max_length: int = 253) -> str:
     """Return a sanitized hostname (RFC 1123), replacing unsafe chars."""
-    import re
     if not hostname:
         return "<empty>"
     safe = re.sub(r"[^a-zA-Z0-9.\-]", "[?]", hostname)

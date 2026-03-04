@@ -11,17 +11,30 @@ Security notes (OpenSSF):
 - Thread-per-connection model with a bounded ThreadPoolExecutor
 """
 
+from __future__ import annotations
+
 import http.server
 import logging
 import os
+import select
 import socketserver
 import ssl
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
 
+from services.doh_websocket import (
+    DOH_CONTENT_TYPE,
+    build_websocket_close_frame,
+    build_websocket_handshake_response,
+    handle_doh_get,
+    handle_doh_post,
+    is_doh_request,
+    is_websocket_upgrade,
+)
+from services.dynamic_response import compile_custom_rules, resolve_dynamic_response
 from utils.cert_utils import ensure_certs
+from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
 
 logger = logging.getLogger(__name__)
@@ -88,7 +101,10 @@ def _load_response_body(config: dict) -> str:
 
 
 def _make_handler(response_code: int, response_body: str, server_header: str,
-                  log_requests: bool, spoof_ip: str = "", delay_ms: int = 0):
+                  log_requests: bool, spoof_ip: str = "", delay_ms: int = 0,
+                  dynamic_responses: bool = False, custom_rules: list | None = None,
+                  doh_enabled: bool = False, doh_redirect_ip: str = "127.0.0.1",
+                  websocket_sinkhole: bool = False):
     """Factory: create a BaseHTTPRequestHandler subclass with captured config."""
 
     class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
@@ -98,6 +114,11 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
         _log_requests = log_requests
         _spoof_ip = spoof_ip
         _delay_ms = delay_ms
+        _dynamic_responses = dynamic_responses
+        _custom_rules = compile_custom_rules(custom_rules or [])
+        _doh_enabled = doh_enabled
+        _doh_redirect_ip = doh_redirect_ip
+        _websocket_sinkhole = websocket_sinkhole
 
         # Suppress default BaseHTTPServer stderr logging (we do our own)
         def log_message(self, fmt, *args):
@@ -135,17 +156,112 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
             except (BrokenPipeError, ConnectionResetError):
                 pass
 
+        def _handle_doh_request(self):
+            """Handle a DNS-over-HTTPS (DoH) request and return a DNS response."""
+            safe_addr = sanitize_ip(self.client_address[0])
+            path = self.path or "/"
+            if self.command == "GET":
+                response_data = handle_doh_get(path, self._doh_redirect_ip)
+            else:
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_length) if content_length > 0 else b""
+                response_data = handle_doh_post(body, self._doh_redirect_ip)
+
+            if response_data:
+                if self._log_requests:
+                    logger.info(f"DoH   request from {safe_addr} -> sinkholed")
+                jl = get_json_logger()
+                if jl:
+                    jl.log("doh_request", src_ip=self.client_address[0],
+                           method=self.command or "", path=self.path or "/")
+                try:
+                    self.send_response(200)
+                    self.send_header("Content-Type", DOH_CONTENT_TYPE)
+                    self.send_header("Content-Length", str(len(response_data)))
+                    self.send_header("Cache-Control", "no-cache")
+                    self.send_header("Server", self._server_header)
+                    self.end_headers()
+                    self.wfile.write(response_data)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+            else:
+                # Couldn't parse DoH — fall through to normal response
+                self._send_normal_response()
+
+        def _handle_websocket_upgrade(self):
+            """Complete a WebSocket handshake then send a close frame."""
+            safe_addr = sanitize_ip(self.client_address[0])
+            ws_key = self.headers.get("Sec-WebSocket-Key", "")
+            if not ws_key:
+                self._send_normal_response()
+                return
+
+            if self._log_requests:
+                safe_path = sanitize_log_string(self.path or "/", 256)
+                logger.info(
+                    f"WS    WebSocket upgrade from {safe_addr} "
+                    f"path={safe_path} -> sinkholed"
+                )
+            jl = get_json_logger()
+            if jl:
+                jl.log("websocket_upgrade", src_ip=self.client_address[0],
+                       path=self.path or "/")
+
+            try:
+                # Send 101 Switching Protocols
+                handshake = build_websocket_handshake_response(ws_key)
+                self.wfile.write(handshake)
+                self.wfile.flush()
+
+                # Drain up to 4KB of incoming WebSocket frames (log preview)
+                readable, _, _ = select.select([self.rfile], [], [], 2.0)
+                if readable:
+                    try:
+                        data = self.rfile.read1(4096) if hasattr(self.rfile, 'read1') else self.rfile.read(4096)
+                        if data and self._log_requests:
+                            preview = sanitize_log_string(
+                                data[:64].hex(), 128
+                            )
+                            logger.debug(f"WS    received frame preview: {preview}")
+                    except Exception:
+                        pass
+
+                # Send close frame
+                close_frame = build_websocket_close_frame(1000, "sinkholed")
+                self.wfile.write(close_frame)
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                pass
+
         def _send_fake_response(self):
             # Optional artificial delay (simulates realistic network latency,
             # defeats timing-based sandbox detection)
             if self._delay_ms > 0:
                 time.sleep(self._delay_ms / 1000.0)
+
+            # --- DNS over HTTPS (DoH) interception ---
+            if self._doh_enabled:
+                ct = self.headers.get("Content-Type", "")
+                if is_doh_request(ct, self.path):
+                    self._handle_doh_request()
+                    return
+
+            # --- WebSocket sinkhole ---
+            if self._websocket_sinkhole:
+                hdrs = {k: self.headers.get(k, "") for k in ("Connection", "Upgrade", "Sec-WebSocket-Key")}
+                if is_websocket_upgrade(hdrs):
+                    self._handle_websocket_upgrade()
+                    return
+
             # Public IP spoof: intercept well-known IP-check hostnames
             if self._spoof_ip:
                 host = self.headers.get("Host", "").split(":")[0].strip().lower()
                 if host in _IP_CHECK_HOSTS:
                     self._send_ip_check_response(host)
                     return
+            self._send_normal_response()
+
+        def _send_normal_response(self):
             if self._log_requests:
                 safe_path = sanitize_log_string(self.path, max_length=256)
                 safe_addr = sanitize_ip(self.client_address[0])
@@ -153,14 +269,37 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
                     f"HTTP  {sanitize_log_string(self.command)} {safe_path} "
                     f"from {safe_addr}"
                 )
+
+            # Structured JSON logging
+            jl = get_json_logger()
+            if jl:
+                jl.log("http_request",
+                       method=self.command or "",
+                       path=self.path or "/",
+                       src_ip=self.client_address[0],
+                       host=self.headers.get("Host", ""),
+                       user_agent=self.headers.get("User-Agent", ""),
+                       content_type=self.headers.get("Content-Type", ""))
+
+            # --- Dynamic response: match path to MIME type + stub body ---
+            if self._dynamic_responses:
+                content_type, body = resolve_dynamic_response(
+                    self.path or "/",
+                    custom_rules=self._custom_rules,
+                    fallback_body=self._response_body,
+                )
+            else:
+                content_type = "text/html; charset=utf-8"
+                body = self._response_body
+
             try:
                 self.send_response(self._response_code)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.send_header("Content-Length", str(len(self._response_body)))
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(body)))
                 self.send_header("Server", self._server_header)
                 self.send_header("Connection", "close")
                 self.end_headers()
-                self.wfile.write(self._response_body)
+                self.wfile.write(body)
             except (BrokenPipeError, ConnectionResetError):
                 pass  # Client disconnected — normal for malware scanners
 
@@ -207,8 +346,13 @@ class HTTPService:
         self.log_requests = config.get("log_requests", True)
         self.spoof_ip = str(config.get("spoof_public_ip", "") or "").strip()
         self.delay_ms = int(config.get("response_delay_ms", 0) or 0)
-        self._server: Optional[_ThreadedServer] = None
-        self._thread: Optional[threading.Thread] = None
+        self.dynamic_responses = config.get("dynamic_responses", False)
+        self.custom_rules = config.get("dynamic_response_rules", [])
+        self.doh_enabled = config.get("doh_sinkhole", False)
+        self.doh_redirect_ip = config.get("doh_redirect_ip", "127.0.0.1")
+        self.websocket_sinkhole = config.get("websocket_sinkhole", False)
+        self._server: _ThreadedServer | None = None
+        self._thread: threading.Thread | None = None
 
     def start(self) -> bool:
         if not self.enabled:
@@ -217,6 +361,11 @@ class HTTPService:
             self.response_code, self.response_body,
             self.server_header, self.log_requests,
             spoof_ip=self.spoof_ip, delay_ms=self.delay_ms,
+            dynamic_responses=self.dynamic_responses,
+            custom_rules=self.custom_rules,
+            doh_enabled=self.doh_enabled,
+            doh_redirect_ip=self.doh_redirect_ip,
+            websocket_sinkhole=self.websocket_sinkhole,
         )
         try:
             self._server = _ThreadedServer((self.bind_ip, self.port), handler)
@@ -257,8 +406,14 @@ class HTTPSService:
         self.log_requests = config.get("log_requests", True)
         self.spoof_ip = str(config.get("spoof_public_ip", "") or "").strip()
         self.delay_ms = int(config.get("response_delay_ms", 0) or 0)
-        self._server: Optional[_ThreadedServer] = None
-        self._thread: Optional[threading.Thread] = None
+        self.dynamic_responses = config.get("dynamic_responses", False)
+        self.custom_rules = config.get("dynamic_response_rules", [])
+        self.dynamic_certs = config.get("dynamic_certs", False)
+        self.doh_enabled = config.get("doh_sinkhole", False)
+        self.doh_redirect_ip = config.get("doh_redirect_ip", "127.0.0.1")
+        self.websocket_sinkhole = config.get("websocket_sinkhole", False)
+        self._server: _ThreadedServer | None = None
+        self._thread: threading.Thread | None = None
 
     def _build_ssl_context(self) -> ssl.SSLContext:
         """
@@ -299,10 +454,22 @@ class HTTPSService:
             self.response_code, self.response_body,
             self.server_header, self.log_requests,
             spoof_ip=self.spoof_ip, delay_ms=self.delay_ms,
+            dynamic_responses=self.dynamic_responses,
+            custom_rules=self.custom_rules,
+            doh_enabled=self.doh_enabled,
+            doh_redirect_ip=self.doh_redirect_ip,
+            websocket_sinkhole=self.websocket_sinkhole,
         )
         try:
             self._server = _ThreadedServer((self.bind_ip, self.port), handler)
-            self._server.socket = self._build_ssl_context().wrap_socket(
+            ssl_ctx = self._build_ssl_context()
+            if self.dynamic_certs:
+                from utils.cert_utils import DynamicCertCache
+                self._cert_cache = DynamicCertCache(
+                    self.cert_file, self.key_file
+                )
+                ssl_ctx.sni_callback = self._cert_cache.sni_callback
+            self._server.socket = ssl_ctx.wrap_socket(
                 self._server.socket, server_side=True
             )
             self._thread = threading.Thread(

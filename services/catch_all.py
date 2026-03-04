@@ -18,6 +18,7 @@ import socketserver
 import threading
 from typing import Optional
 
+from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,9 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
         safe_addr = sanitize_ip(self.client_address[0])
         port = self.client_address[1]
         logger.info(f"CATCH-ALL TCP from {safe_addr}:{port}")
+        jl = get_json_logger()
+        if jl:
+            jl.log("catch_all_tcp", src_ip=self.client_address[0], src_port=port)
         try:
             self.request.settimeout(SESSION_TIMEOUT)
             # Send a generic banner
@@ -127,6 +131,10 @@ class CatchAllUDPService:
                 data, addr = self._sock.recvfrom(4096)
                 safe_addr = sanitize_ip(addr[0])
                 logger.info(f"CATCH-ALL UDP from {safe_addr}:{addr[1]} ({len(data)} bytes)")
+                jl = get_json_logger()
+                if jl:
+                    jl.log("catch_all_udp", src_ip=addr[0], src_port=addr[1],
+                           data_len=len(data))
                 self._sock.sendto(b"OK\r\n", addr)
             except Exception as e:
                 if not self._stop_event.is_set():

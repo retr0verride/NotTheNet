@@ -134,7 +134,16 @@ That's fine — most malware either:
 - Uses certificate pinning (won't connect to anything fake anyway)
 - Validates trust on first connect (TOFU) — accepts self-signed on first connection
 
-For malware that does strict CA validation, configure your analysis environment to trust the self-signed cert, or use a CA-signed cert from a private CA you control.
+For malware that does strict CA validation, install the Root CA (`certs/ca.crt`) in the analysis VM's trust store. When `https.dynamic_certs` is enabled, NotTheNet auto-generates a Root CA at `certs/ca.crt` / `certs/ca.key` and forges per-domain certs signed by it — installing the CA once makes all forged certs trusted.
+
+### Dynamic Certificate Security
+
+When `https.dynamic_certs` is enabled:
+
+- **Root CA** (`certs/ca.crt`, `certs/ca.key`) — auto-generated with 4096-bit RSA and 10-year validity. Private key written with mode `0o600`.
+- **Per-domain certs** — generated on-the-fly via `DynamicCertCache`, a thread-safe LRU cache (max 500 entries). Temp cert files use sanitised hostnames (path traversal characters stripped) and mode `0o600`.
+- **SNI-based cert switching** — an `ssl.SSLContext` SNI callback reads the requested hostname from `ClientHello` and selects the matching forged cert. Unknown hostnames get the default self-signed cert.
+- **AuthorityKeyIdentifier** extension links each forged cert to the Root CA for proper chain validation.
 
 ---
 
@@ -155,6 +164,15 @@ Log directories are created with mode `0o700`. Log files inherit the umask of th
 ### Rotating logs
 
 Logs rotate at 10 MB with 5 backups (50 MB maximum total). This prevents disk exhaustion from captured verbose malware traffic.
+
+### JSON Event Log Security
+
+When `general.json_logging` is enabled:
+
+- **File size cap:** 500 MB — logging stops when the cap is reached to prevent disk exhaustion
+- **Thread-safe writes:** All log writes go through a single `JsonEventLogger` singleton with proper locking
+- **No eval/exec:** JSON events are serialised with `json.dumps()` — no user-controlled data is ever evaluated as code
+- **Auto-flush:** Events are flushed immediately so data is not lost on crash
 
 If you need longer retention, archive logs before the backups roll over:
 ```bash
@@ -218,6 +236,9 @@ Everything else (HTTP, SMTP, FTP, TCP/UDP servers, iptables management, GUI) use
 | Input validation | `utils/validators.py` validates all external inputs at the boundary |
 | Least privilege | Runs as root only for port binding and iptables; isolated to the analysis network interface via `bind_ip` |
 | Secure defaults | TLS 1.2+, 4096-bit keys, ECDHE ciphers by default |
+| Dynamic cert security | Hostname sanitisation prevents path traversal in temp cert filenames |
+| JSON log size cap | 500 MB cap prevents disk exhaustion from verbose malware traffic |
+| WebSocket frame handling | Minimal parsing (4 KB drain limit), no execution of frame payloads |
 | `SECURITY.md` | Present in repo root |
 | `.gitignore` | Blocks private keys and captured malware artifacts |
 
@@ -250,4 +271,7 @@ Before each analysis session:
 - [ ] NotTheNet is running and **all expected services show green** in the sidebar
 - [ ] Verified DNS resolution: `dig @<notthenet-ip> test.com +short` returns expected IP
 - [ ] Log directory is **writable** and has sufficient disk space
+- [ ] If using `dynamic_certs`, install `certs/ca.crt` in the analysis VM's **trust store** for seamless HTTPS interception
+- [ ] If using `tcp_fingerprint`, set `tcp_fingerprint_os` to match the **expected OS** of the analysis target (e.g. `"windows"` for FlareVM)
+- [ ] If using `json_logging`, confirm `json_log_file` path is writable and monitor disk usage (500 MB cap)
 - [ ] Malware artifacts (`logs/emails`, `logs/ftp_uploads`) from **previous sessions are archived** or cleared

@@ -18,6 +18,7 @@ Security notes (OpenSSF):
 import logging
 from typing import Optional
 
+from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_hostname, sanitize_ip
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,13 @@ class _FakeResolver:
 
             safe_name = sanitize_hostname(qname)
             logger.info(f"DNS query  type={qtype} name={safe_name}")
+
+            # Structured JSON logging
+            jl = get_json_logger()
+            if jl:
+                src = handler.client_address[0] if hasattr(handler, 'client_address') else ''
+                jl.log("dns_query", qtype=str(qtype), qname=qname, src_ip=src,
+                       resolve_to=self.redirect_ip)
 
             # --- Custom record override ---
             if qname in self.custom_records:

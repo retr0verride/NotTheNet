@@ -17,6 +17,7 @@ import threading
 import uuid
 from typing import Optional
 
+from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,9 @@ class _SMTPClientThread(threading.Thread):
     def run(self):
         safe_addr = sanitize_ip(self.addr[0])
         logger.info(f"SMTP connection from {safe_addr}")
+        jl = get_json_logger()
+        if jl:
+            jl.log("smtp_connection", src_ip=self.addr[0])
         try:
             banner = sanitize_log_string(self.banner, max_length=200)
             self._send(banner)
@@ -213,14 +217,15 @@ class SMTPService:
 # ---------------------------------------------------------------------------
 
 def _make_pop3_handler(hostname: str = "mail.notthenet.local"):
-    import socketserver
-
     class POP3Handler(socketserver.BaseRequestHandler):
         _hostname = hostname
 
         def handle(self):
             safe_addr = sanitize_ip(self.client_address[0])
             logger.info(f"POP3 connection from {safe_addr}")
+            jl = get_json_logger()
+            if jl:
+                jl.log("pop3_connection", src_ip=self.client_address[0])
             try:
                 self._send(f"+OK {self._hostname} POP3 server ready")
                 self.request.settimeout(30)
@@ -309,6 +314,9 @@ def _make_imap_handler(hostname: str):
         def handle(self):
             safe_addr = sanitize_ip(self.client_address[0])
             logger.info(f"IMAP connection from {safe_addr}")
+            jl = get_json_logger()
+            if jl:
+                jl.log("imap_connection", src_ip=self.client_address[0])
             try:
                 self._send(f"* OK {self._hostname} IMAP4rev1 ready")
                 self.request.settimeout(30)

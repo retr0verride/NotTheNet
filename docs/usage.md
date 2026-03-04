@@ -59,6 +59,8 @@ sudo notthenet --config /path/to/my-lab.json
 ║  ◈  IMAP     ●  ║                                                       ║
 ║  ── FALLBACK ── ║                                                       ║
 ║  ◈  Catch-All ● ║                                                       ║
+║  ── ANALYSIS ── ║                                                       ║
+║  📊 JSON Events ║                                                       ║
 ╠══════════════════╩═══════════════════════════════════════════════════════╣
 ║  LIVE LOG     [DEBUG] [INFO] [WARNING] [ERROR]              [✕ Clear]   ║
 ║  10:23:01 [INFO]  notthenet.dns: DNS service started on 0.0.0.0:53      ║
@@ -76,7 +78,7 @@ The toolbar has three zones separated by dividers:
 |------|----------|
 | **Left — Brand** | Canvas-rendered globe+prohibition icon, "NotTheNet" wordmark, version and tagline |
 | **Centre — Controls** | **▶ Start** (green), **■ Stop** (red), **💾 Save**, **📂 Load…** |
-| **Right** | Root warning label if not running as root |
+| **Right** | Zoom controls (**A−**, percentage label, **A+**), root warning label if not running as root |
 
 A 2 px teal accent line runs along the very top of the toolbar.
 
@@ -86,6 +88,9 @@ A 2 px teal accent line runs along the very top of the toolbar.
 | **■ Stop** | Gracefully stops all services and removes iptables rules. |
 | **💾 Save** | Saves current GUI values to `config.json` (or the `--config` path). |
 | **📂 Load…** | Opens a file picker to load a different `.json` config file and rebuilds all panels. |
+| **A−** | Decrease zoom by 15% (also `Ctrl+-`). Range: 70%–200%. |
+| **A+** | Increase zoom by 15% (also `Ctrl+=`). Range: 70%–200%. |
+| **Ctrl+0** | Reset zoom to 100%. |
 
 All buttons change shade on hover. A `⚠ Not root` warning appears on the right if not running as root.
 
@@ -99,12 +104,19 @@ Services are grouped into labelled categories:
 | **NETWORK** | DNS, HTTP, HTTPS, FTP |
 | **MAIL** | SMTP, POP3, IMAP |
 | **FALLBACK** | Catch-All |
+| **ANALYSIS** | JSON Events |
 
 Click any row to open the configuration panel. The active row is highlighted with a darker background and bold text.
 
 ### Configuration Panels
 
 Each panel maps directly to a section in `config.json`. All fields are validated when **▶ Start** is clicked. See the [Configuration Reference](configuration.md) for every field.
+
+New fields in this release:
+
+- **General panel:** JSON Logging (toggle + file path), TCP Fingerprint (toggle + OS profile dropdown)
+- **HTTP panel:** Dynamic Responses (toggle), DoH Sinkhole (toggle + redirect IP), WebSocket Sinkhole (toggle), Dynamic Response Rules (JSON array editor)
+- **HTTPS panel:** All of the above plus Dynamic Certificates (toggle)
 
 > **Tip:** Hover over any field label, entry box, checkbox, toolbar button, or sidebar item for a tooltip explaining what it does and what values are accepted.
 

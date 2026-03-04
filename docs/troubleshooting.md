@@ -15,6 +15,12 @@
 - [iptables rules left behind after crash](#iptables-rules-left-behind-after-crash)
 - [Python import errors](#python-import-errors)
 - [Getting a debug trace](#getting-a-debug-trace)
+- [DoH sinkhole not intercepting queries](#doh-sinkhole-not-intercepting-queries)
+- [WebSocket connections not captured](#websocket-connections-not-captured)
+- [Dynamic responses returning wrong type](#dynamic-responses-returning-wrong-type)
+- [Dynamic TLS certs not working](#dynamic-tls-certs-not-working)
+- [TCP fingerprint not applied](#tcp-fingerprint-not-applied)
+- [JSON event log not created](#json-event-log-not-created)
 
 ---
 
@@ -409,3 +415,69 @@ sudo notthenet --nogui --loglevel DEBUG 2>&1 | tee debug.log
 Or in the GUI, set `Log Level` to `DEBUG` before clicking Start.
 
 Include the relevant portion of `debug.log` when opening a GitHub issue.
+
+---
+
+## DoH sinkhole not intercepting queries
+
+**Symptom:** Malware bypasses the fake DNS server by using DNS-over-HTTPS and resolves real IPs.
+
+1. Confirm `doh_sinkhole` is `true` in both `http` and `https` config sections
+2. Check the log for `DoH` entries — if no entries appear, the malware may be using a non-standard DoH endpoint
+3. Verify the malware is sending `Content-Type: application/dns-message` or requesting `/dns-query`
+4. Check `doh_redirect_ip` is set correctly (should match your NotTheNet host IP)
+
+---
+
+## WebSocket connections not captured
+
+**Symptom:** Malware opens WebSocket connections but they don't appear in the log.
+
+1. Confirm `websocket_sinkhole` is `true` in both `http` and `https` config sections
+2. The WebSocket sinkhole only triggers on proper upgrade requests (`Connection: Upgrade`, `Upgrade: websocket`). If malware uses a non-standard handshake, it falls through to the normal HTTP handler
+3. Check the log for `websocket_upgrade` events
+
+---
+
+## Dynamic responses returning wrong type
+
+**Symptom:** Requests for `.exe` or `.dll` return HTML instead of a PE stub.
+
+1. Confirm `dynamic_responses` is `true` in the relevant `http`/`https` config section
+2. If you have custom `dynamic_response_rules`, check that regex patterns are valid (use Python `re` syntax)
+3. Custom rules take priority — a broad custom rule may be matching before the extension map
+4. Check the request path actually contains the extension (some malware uses extensionless paths)
+
+---
+
+## Dynamic TLS certs not working
+
+**Symptom:** All HTTPS connections get the same self-signed cert instead of per-domain certs.
+
+1. Confirm `https.dynamic_certs` is `true`
+2. Check that `certs/ca.crt` and `certs/ca.key` exist — they are auto-generated on first start. If missing, restart NotTheNet
+3. Check the log for SNI callback errors (set `log_level: DEBUG`)
+4. The client must send an SNI hostname in the `ClientHello` — connections with no SNI get the default cert
+5. To trust forged certs in the analysis VM, install `certs/ca.crt` in the trust store (see [Security Hardening](security-hardening.md))
+
+---
+
+## TCP fingerprint not applied
+
+**Symptom:** `nmap -O` still identifies the host as Linux even with `tcp_fingerprint_os: "windows"`.
+
+1. TCP fingerprint spoofing is **Linux only** — it has no effect on other platforms
+2. Confirm `general.tcp_fingerprint` is `true` and `tcp_fingerprint_os` is set to a valid profile
+3. Check the log for warnings about `setsockopt` failures (usually means the kernel doesn't support the option)
+4. Nmap OS detection uses many heuristics — TCP fingerprint spoofing covers TTL, window size, DF bit, and MSS but cannot control all parameters. It is most effective against simpler fingerprinting checks
+
+---
+
+## JSON event log not created
+
+**Symptom:** `json_logging` is enabled but no `.jsonl` file appears.
+
+1. Confirm `general.json_logging` is `true` in config
+2. Check `general.json_log_file` — the directory must exist and be writable (e.g. `logs/events.jsonl` requires `logs/` to exist)
+3. Check disk space — the logger stops writing at 500 MB
+4. Check the main log for errors from `json_logger` (set `log_level: DEBUG`)

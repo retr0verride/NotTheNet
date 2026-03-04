@@ -95,6 +95,40 @@ When `spoof_public_ip` is blank (the default) the normal response body is served
 
 The `response_delay_ms` option (default `0`) inserts an artificial sleep before every HTTP response. Values of 50–200 ms simulate realistic network round-trip latency and defeat timing-based sandbox-detection techniques used by some malware families.
 
+### Dynamic Response Engine
+
+**Config:** `http.dynamic_responses` (default: `true`)
+
+When a request path contains a recognisable file extension, the server returns a response with the correct MIME type and a minimal valid file stub — a tiny file with the correct magic bytes and headers sufficient to pass basic checks.
+
+**Covered extensions (70+):** `.exe`, `.dll`, `.bin`, `.elf`, `.so`, `.png`, `.jpg`, `.gif`, `.bmp`, `.ico`, `.pdf`, `.zip`, `.jar`, `.apk`, `.doc`, `.xls`, `.ppt`, `.docx`, `.xlsx`, `.pptx`, `.swf`, `.class`, `.ps1`, `.bat`, `.sh`, `.py`, `.vbs`, `.js`, `.mp3`, `.mp4`, `.avi`, `.woff`, `.ttf`, `.wasm`, and many more.
+
+**Custom rules** (`http.dynamic_response_rules`) take priority over the built-in map. Each rule is a regex pattern matched against the request path, with a MIME type and Base64-encoded body. See [Configuration → Dynamic Response Rules](configuration.md#dynamic-response-rules).
+
+**Resolution order:** custom rules → extension map → fallback static response (the configured `response_body` / `response_body_file`).
+
+### DNS-over-HTTPS (DoH) Sinkhole
+
+**Config:** `http.doh_sinkhole` (default: `true`)
+
+Detects DNS-over-HTTPS requests by:
+- `Content-Type: application/dns-message`
+- Request path `/dns-query`
+
+Handles both:
+- **GET** — base64url-encoded DNS query in the `?dns=` parameter
+- **POST** — raw DNS wire-format body
+
+Builds a DNS response using `dnslib` pointing to `http.doh_redirect_ip` (default: `127.0.0.1`). Prevents malware from bypassing the fake DNS server via DoH to services like `dns.google`, `cloudflare-dns.com`, or `dns.quad9.net`.
+
+### WebSocket Sinkhole
+
+**Config:** `http.websocket_sinkhole` (default: `true`)
+
+Detects WebSocket upgrade requests (`Connection: Upgrade`, `Upgrade: websocket`), completes the RFC 6455 handshake (101 Switching Protocols + `Sec-WebSocket-Accept`), drains up to 4 KB of incoming frames, logs a hex preview, then sends a clean close frame.
+
+This satisfies malware that uses WebSocket-based C2 channels — the connection completes successfully, and the C2 frame data is captured in the log.
+
 ### Logged per request (when `log_requests: true`)
 
 ```
@@ -114,6 +148,19 @@ curl -H "Host: api.ipify.org" http://127.0.0.1/
 
 curl -H "Host: httpbin.org" http://127.0.0.1/ip
 # → {"origin": "93.184.216.34"}
+
+# Verify dynamic response (returns a minimal valid PE stub)
+curl -o test.exe http://127.0.0.1/update/payload.exe
+file test.exe
+# → PE32 executable ...
+
+# Verify DoH sinkhole
+curl -H "Content-Type: application/dns-message" -X POST http://127.0.0.1/dns-query --data-binary @dns-query.bin
+# → DNS response pointing to doh_redirect_ip
+
+# Verify WebSocket sinkhole (using websocat or similar)
+websocat ws://127.0.0.1/ws
+# → Connection accepted, then cleanly closed
 ```
 
 ---
@@ -141,6 +188,33 @@ The certificate is auto-generated at `certs/server.crt` / `certs/server.key` on 
 
 The HTTPS service shares the same public-IP spoof and response delay logic as HTTP. Both are configured in `general.spoof_public_ip` and `https.response_delay_ms` respectively. See the [HTTP section](#http-service) above for full details.
 
+### Dynamic Responses, DoH Sinkhole, and WebSocket Sinkhole
+
+The HTTPS service supports the same dynamic response engine, DoH sinkhole, and WebSocket sinkhole as HTTP — all operating inside the TLS tunnel. See the [HTTP section](#http-service) for details; configuration keys are identical but under the `https` section.
+
+### Dynamic TLS Certificate Forging
+
+**Config:** `https.dynamic_certs` (default: `true`)
+
+When enabled, NotTheNet forges a unique TLS certificate for every hostname the client connects to. When malware connects to `https://evil-c2.com`, it receives a certificate with `CN=evil-c2.com` and a wildcard SAN (`*.evil-c2.com`), signed by NotTheNet's Root CA.
+
+**How it works:**
+
+1. On first start, a Root CA is auto-generated at `certs/ca.crt` / `certs/ca.key` (4096-bit RSA, 10-year validity)
+2. An SNI callback is set on the `ssl.SSLContext` — when a client sends a `ClientHello` with a hostname, the callback fires
+3. A per-domain certificate is generated on-the-fly, signed by the Root CA, with `AuthorityKeyIdentifier` extension
+4. Certificates are cached in a thread-safe LRU cache (max 500 entries) for performance
+5. Temporary cert files are written with sanitized filenames (hostname cleaned of path traversal characters) and mode `0o600`
+
+**Installing the Root CA in the analysis VM:**
+
+For malware that validates TLS certificates, install `certs/ca.crt` in the analysis VM's trust store:
+
+- **Windows (FlareVM):** Double-click `ca.crt` → Install → Local Machine → Trusted Root Certification Authorities
+- **Linux:** `sudo cp certs/ca.crt /usr/local/share/ca-certificates/notthenet.crt && sudo update-ca-certificates`
+
+This allows full HTTPS interception without certificate errors.
+
 ### Verifying
 
 ```bash
@@ -153,6 +227,14 @@ openssl s_client -connect 127.0.0.1:443 -no_ssl3 -no_tls1 2>&1 | head -30
 # Verify public-IP spoof over TLS
 curl -k -H "Host: api.ipify.org" https://127.0.0.1/
 # → 93.184.216.34
+
+# Verify dynamic cert forging (check CN matches requested host)
+openssl s_client -connect 127.0.0.1:443 -servername evil-c2.com 2>/dev/null | openssl x509 -noout -subject
+# → subject=CN = evil-c2.com
+
+# Verify dynamic response over HTTPS
+curl -ko /dev/null -w "%{content_type}" https://127.0.0.1/malware.dll
+# → application/x-msdownload
 ```
 
 ---
@@ -356,3 +438,26 @@ Enable only when you specifically need to trap UDP-based C2 protocols and have c
 echo -n "hello" | nc -u 127.0.0.1 9998
 # OK
 ```
+
+---
+
+## JSON Event Logging
+
+**File:** `utils/json_logger.py`  
+**Config:** `general.json_logging`, `general.json_log_file`
+
+When enabled, every service emits structured JSON events to a single `.jsonl` file. Each line is a self-contained JSON object with a timestamp, event type, source IP, and service-specific fields.
+
+The logger is a module-level singleton (`JsonEventLogger`) that is thread-safe, file-size capped (500 MB), and auto-flushed. The convenience function `json_event()` is a fast no-op when logging is disabled, so there is zero overhead when the feature is off.
+
+### Example events
+
+```json
+{"timestamp": "2026-03-04T14:23:01.123Z", "event": "dns_query", "src_ip": "10.0.0.50", "query_name": "evil-c2.com", "query_type": "A", "response_ip": "10.0.0.1"}
+{"timestamp": "2026-03-04T14:23:01.456Z", "event": "http_request", "src_ip": "10.0.0.50", "method": "GET", "path": "/gate.php", "host": "evil-c2.com"}
+{"timestamp": "2026-03-04T14:23:02.789Z", "event": "doh_request", "src_ip": "10.0.0.50", "method": "POST", "query_name": "dns.google", "response_ip": "10.0.0.1"}
+```
+
+### Viewing events in the GUI
+
+The GUI includes a **JSON Events** page under the **ANALYSIS** sidebar group. It provides a live-updating treeview (polling every 1 s), text search, event-type dropdown filter, and a detail panel showing the raw JSON of the selected event.

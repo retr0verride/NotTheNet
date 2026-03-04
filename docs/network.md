@@ -10,6 +10,7 @@
 - [Excluding Ports from Catch-All](#excluding-ports-from-catch-all)
 - [Network Namespace Isolation (Advanced)](#network-namespace-isolation-advanced)
 - [Common Network Configurations](#common-network-configurations)
+- [TCP/IP OS Fingerprint Spoofing](#tcpip-os-fingerprint-spoofing)
 
 ---
 
@@ -315,4 +316,42 @@ sudo ip netns del malware-analysis
     "resolve_to": "192.168.200.1"
   }
 }
+```
+
+---
+
+## TCP/IP OS Fingerprint Spoofing
+
+**File:** `network/tcp_fingerprint.py`  
+**Config:** `general.tcp_fingerprint`, `general.tcp_fingerprint_os`
+
+Advanced malware and network scanners (Nmap, p0f) fingerprint the operating system by analysing low-level TCP/IP parameters in SYN-ACK packets — specifically the IP TTL, TCP window size, Don't Fragment (DF) bit, and Maximum Segment Size (MSS). When these values don't match the expected OS, malware may detect it is running in a sandbox and alter its behaviour.
+
+When `tcp_fingerprint` is enabled, NotTheNet modifies these parameters on every listening socket after services bind but before accepting connections. This makes responses appear to come from the configured OS.
+
+### OS Profiles
+
+| Profile | TTL | TCP Window Size | DF Bit | MSS |
+|---------|-----|----------------|--------|-----|
+| `windows` | 128 | 65535 | Set | 1460 |
+| `linux` | 64 | 29200 | Set | 1460 |
+| `macos` | 64 | 65535 | Set | 1460 |
+| `solaris` | 255 | 49640 | Set | 1460 |
+
+### Platform Limitation
+
+TCP fingerprint spoofing uses Linux-specific `setsockopt` constants (`IP_TTL`, `TCP_WINDOW_CLAMP`, `IP_MTU_DISCOVER`, `TCP_MAXSEG`). It has no effect on other operating systems. Errors are logged as warnings but do not prevent services from starting.
+
+### Verifying
+
+```bash
+# From the analysis VM, scan NotTheNet with Nmap OS detection
+nmap -O 10.0.0.1
+
+# Or use p0f to passively fingerprint
+p0f -i eth0
+
+# Check TTL in response
+ping -c 1 10.0.0.1
+# TTL should match the configured profile (128 for windows, 64 for linux, etc.)
 ```

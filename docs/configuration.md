@@ -34,6 +34,10 @@ Global settings that apply to all services.
 | `auto_iptables` | bool | `true` | Automatically apply iptables NAT REDIRECT rules when services start, and remove them when stopped. |
 | `iptables_mode` | string | `"loopback"` | How iptables rules are applied. `"loopback"` = OUTPUT chain (local-only). `"gateway"` = PREROUTING chain (intercept traffic from other hosts). See [Network & iptables](network.md). |
 | `spoof_public_ip` | string | `""` | When set, HTTP/HTTPS requests to well-known public-IP-check services (`api.ipify.org`, `icanhazip.com`, `checkip.amazonaws.com`, `ifconfig.me`, `httpbin.org`, and 15+ others) return this IP as plain text or JSON instead of the normal response body. Defeats malware that queries these services to detect sandbox environments. Leave blank to disable. Example: `"93.184.216.34"`. |
+| `json_logging` | bool | `false` | Enable structured JSON Lines event logging. Every intercepted request is written as a JSON object to the event log file — one line per event. Useful for automated pipelines (CAPEv2, Splunk, ELK). |
+| `json_log_file` | string | `"logs/events.jsonl"` | Path to the JSON Lines event log file. Relative paths resolve from the project root. File is size-capped at 500 MB. |
+| `tcp_fingerprint` | bool | `false` | Enable TCP/IP OS fingerprint spoofing on all listening sockets. Modifies low-level TCP parameters so responses appear to come from the configured OS. Linux only. |
+| `tcp_fingerprint_os` | string | `"windows"` | OS profile for TCP fingerprint spoofing. One of: `"windows"` (TTL=128, Win=65535), `"linux"` (TTL=64, Win=29200), `"macos"` (TTL=64, Win=65535), `"solaris"` (TTL=255, Win=49640). |
 
 ### Example
 
@@ -46,7 +50,11 @@ Global settings that apply to all services.
   "log_level": "INFO",
   "log_to_file": true,
   "auto_iptables": true,
-  "iptables_mode": "loopback"
+  "iptables_mode": "loopback",
+  "json_logging": true,
+  "json_log_file": "logs/events.jsonl",
+  "tcp_fingerprint": true,
+  "tcp_fingerprint_os": "windows"
 }
 ```
 
@@ -97,6 +105,11 @@ Fake HTTP server — returns a canned response to every request regardless of me
 | `server_header` | string | `"Apache/2.4.51 (Debian)"` | Value of the `Server:` response header. Change to mimic target infrastructure. |
 | `log_requests` | bool | `true` | Log each HTTP request (method, path, client IP). |
 | `response_delay_ms` | int | `0` | Artificial delay in milliseconds before each response. Values of 50–200 ms simulate realistic network latency and defeat timing-based sandbox detection. `0` = no delay. |
+| `dynamic_responses` | bool | `true` | Enable the dynamic response engine. When a request path contains a recognisable file extension (`.exe`, `.dll`, `.pdf`, `.zip`, `.png`, etc.), the server returns a response with the correct MIME type and a minimal valid file stub (correct magic bytes/headers). Covers 70+ extensions. |
+| `dynamic_response_rules` | array | `[]` | Custom regex-based response rules. Each rule is an object with `pattern` (regex matched against the request path), `mime` (MIME type), and `body` (Base64-encoded response body). Custom rules take priority over the built-in extension map. |
+| `doh_sinkhole` | bool | `true` | Intercept DNS-over-HTTPS (DoH) queries. Detects requests by `Content-Type: application/dns-message` or the `/dns-query` path. Handles both GET (base64url `?dns=` parameter) and POST (raw wire-format body). Resolves all queries to `doh_redirect_ip`. |
+| `doh_redirect_ip` | string | `"127.0.0.1"` | IP address to return for all intercepted DoH queries. |
+| `websocket_sinkhole` | bool | `true` | Accept and sinkhole WebSocket upgrade requests. Completes the RFC 6455 handshake (101 Switching Protocols), drains up to 4 KB of incoming frames, logs a hex preview, then sends a clean close frame. Satisfies malware using WebSocket-based C2. |
 
 ---
 
@@ -116,6 +129,12 @@ Fake HTTPS server with hardened TLS. Shares response configuration with HTTP.
 | `server_header` | string | `"Apache/2.4.51 (Debian)"` | `Server:` header value. |
 | `log_requests` | bool | `true` | Log HTTPS requests. |
 | `response_delay_ms` | int | `0` | Artificial delay in milliseconds before each response. Same as HTTP — 50–200 ms recommended to defeat timing-based sandbox detection. |
+| `dynamic_responses` | bool | `true` | Enable the dynamic response engine (same behaviour as HTTP). |
+| `dynamic_response_rules` | array | `[]` | Custom regex-based response rules (same format as HTTP). |
+| `dynamic_certs` | bool | `true` | Enable per-domain TLS certificate forging. A Root CA is auto-generated at `certs/ca.crt` / `certs/ca.key`. On each TLS connection, the SNI hostname is read and a certificate with `CN=<hostname>` + wildcard SAN is forged on-the-fly, signed by the Root CA. Certificates are cached in a thread-safe LRU cache (max 500 entries). Install `certs/ca.crt` in the analysis VM's trust store for seamless HTTPS interception. |
+| `doh_sinkhole` | bool | `true` | Intercept DNS-over-HTTPS queries inside the TLS tunnel (same behaviour as HTTP). |
+| `doh_redirect_ip` | string | `"127.0.0.1"` | IP address to return for DoH queries over HTTPS. |
+| `websocket_sinkhole` | bool | `true` | Accept and sinkhole WebSocket upgrades inside the TLS tunnel (same behaviour as HTTP). |
 
 > **TLS details:** TLS 1.2 minimum. Protocols SSLv2, SSLv3, TLS 1.0, TLS 1.1 are disabled. Only ECDHE + AEAD cipher suites are accepted.
 
@@ -253,3 +272,110 @@ c2.evil-domain.xyz = 10.0.0.100
   "smtp":  { "enabled": true, "banner": "220 smtp.gmail.com ESMTP", "hostname": "smtp.gmail.com" }
 }
 ```
+
+### Full Interception (dynamic certs + dynamic responses + JSON logging)
+
+```json
+{
+  "general": {
+    "bind_ip": "0.0.0.0",
+    "redirect_ip": "10.0.0.1",
+    "interface": "eth0",
+    "iptables_mode": "gateway",
+    "json_logging": true,
+    "json_log_file": "logs/events.jsonl",
+    "tcp_fingerprint": true,
+    "tcp_fingerprint_os": "windows"
+  },
+  "http": {
+    "dynamic_responses": true,
+    "doh_sinkhole": true,
+    "websocket_sinkhole": true,
+    "dynamic_response_rules": [
+      { "pattern": "/update\\.php$", "mime": "application/octet-stream", "body": "TVqQ" }
+    ]
+  },
+  "https": {
+    "dynamic_responses": true,
+    "dynamic_certs": true,
+    "doh_sinkhole": true,
+    "websocket_sinkhole": true
+  }
+}
+```
+
+---
+
+## Dynamic Response Rules
+
+The `dynamic_response_rules` array (available in both `http` and `https`) lets you define custom regex-based rules that take priority over the built-in extension map.
+
+Each rule is an object with three keys:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `pattern` | string | Python regex matched against the full request path (e.g. `"/update\\.php$"`). |
+| `mime` | string | MIME type for the `Content-Type` header (e.g. `"application/octet-stream"`). |
+| `body` | string | Base64-encoded response body. Decoded before sending. |
+
+**Resolution order:** custom rules → extension map → fallback static response.
+
+```json
+"dynamic_response_rules": [
+  {
+    "pattern": "\\.config$",
+    "mime": "application/xml",
+    "body": "PD94bWwgdmVyc2lvbj0iMS4wIj8+Cjxjb25maWc+PC9jb25maWc+"
+  },
+  {
+    "pattern": "/gate\\.php",
+    "mime": "text/plain",
+    "body": "T0s="
+  }
+]
+```
+
+---
+
+## TCP/IP OS Fingerprint Profiles
+
+When `general.tcp_fingerprint` is enabled, NotTheNet modifies low-level TCP/IP stack parameters on every listening socket so that responses mimic the chosen operating system. This defeats fingerprinting-based sandbox detection (e.g. Nmap OS scan, p0f).
+
+| Profile | TTL | TCP Window Size | DF Bit | MSS |
+|---------|-----|----------------|--------|-----|
+| `windows` | 128 | 65535 | Set | 1460 |
+| `linux` | 64 | 29200 | Set | 1460 |
+| `macos` | 64 | 65535 | Set | 1460 |
+| `solaris` | 255 | 49640 | Set | 1460 |
+
+> **Linux only.** Uses Linux-specific `setsockopt` constants (`IP_TTL`, `TCP_WINDOW_CLAMP`, `IP_MTU_DISCOVER`, `TCP_MAXSEG`). Has no effect on other platforms.
+
+---
+
+## JSON Structured Event Logging
+
+When `general.json_logging` is enabled, every intercepted request is written as a single JSON object per line to the configured `json_log_file` (default: `logs/events.jsonl`).
+
+### Event Types
+
+| Event Type | Source Service | Key Fields |
+|-----------|---------------|------------|
+| `dns_query` | DNS | `query_name`, `query_type`, `response_ip` |
+| `http_request` | HTTP | `method`, `path`, `host`, `user_agent` |
+| `doh_request` | HTTP/HTTPS | `query_name`, `method`, `response_ip` |
+| `websocket_upgrade` | HTTP/HTTPS | `path`, `host` |
+| `smtp_connection` | SMTP | `client_ip`, `commands` |
+| `pop3_connection` | POP3 | `client_ip` |
+| `imap_connection` | IMAP | `client_ip` |
+| `ftp_connection` | FTP | `client_ip`, `commands` |
+| `ftp_upload` | FTP | `filename`, `size` |
+| `catch_all_tcp` | Catch-All | `client_ip`, `port`, `data_preview` |
+| `catch_all_udp` | Catch-All | `client_ip`, `port`, `data_preview` |
+
+### Integration with Analysis Pipelines
+
+The JSONL format is directly ingestible by:
+- **CAPEv2** — add the file as an auxiliary data source
+- **Splunk** — use the `monitor` input with `sourcetype=_json`
+- **ELK** — point Filebeat at the `.jsonl` file with JSON decoding enabled
+- **jq** — `cat logs/events.jsonl | jq '.event'` for quick command-line filtering

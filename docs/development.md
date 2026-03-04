@@ -111,9 +111,9 @@ pytest tests/ -v
 | Path | Contents |
 |------|----------|
 | `notthenet.py` | Main entry point — GUI, config, orchestration |
-| `services/` | One module per fake service (DNS, HTTP, SMTP, FTP, catch-all) |
-| `network/` | iptables management |
-| `utils/` | Certificates, logging, privilege drop, validators |
+| `services/` | One module per fake service (DNS, HTTP, SMTP, FTP, catch-all, DoH/WebSocket, dynamic responses) |
+| `network/` | iptables management, TCP/IP OS fingerprint spoofing |
+| `utils/` | Certificates (static + dynamic CA), logging, JSON event logger, privilege drop, validators |
 | `tests/` | pytest test suite (validators, logging utils, config) |
 | `config.json` | Default runtime configuration |
 | `docs/` | Documentation |

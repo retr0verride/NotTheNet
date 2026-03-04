@@ -16,6 +16,7 @@ Layout:
   └─────────────────────────────────────────────────────┘
 """
 
+import json
 import logging
 import os
 import queue
@@ -36,7 +37,7 @@ from utils.logging_utils import setup_logging
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 APP_TITLE = "NotTheNet — Fake Internet Simulator"
-APP_VERSION = "2026.02.24-2"
+APP_VERSION = "2026.03.04-1"
 PAD = 8
 FIELD_WIDTH = 22
 LOG_MAX_LINES = 2000  # Cap displayed log lines to avoid memory creep
@@ -411,6 +412,16 @@ class _GeneralPage(tk.Frame):
             ("Log to file",               "log_to_file",   True,
              "Write log output to a rotating file in the log directory\n"
              "in addition to the GUI log panel."),
+            ("JSON structured logging",    "json_logging",  False,
+             "Write every intercepted request as a JSON Lines (.jsonl) file\n"
+             "for automated pipeline ingestion (CAPEv2, Splunk, ELK).\n"
+             "Output: logs/events.jsonl  \u2014  one JSON object per line."),
+            ("TCP/IP fingerprint spoofing", "tcp_fingerprint", False,
+             "Modify TCP/IP stack parameters (TTL, window size, DF bit)\n"
+             "on all listening sockets so responses appear to come from\n"
+             "the selected OS. Defeats malware that fingerprints the\n"
+             "network stack (e.g. checking TTL=128 for Windows).\n"
+             "Select the target OS below."),
         ]
         for i, (label, key, default, tip) in enumerate(check_fields):
             val = self.cfg.get("general", key)
@@ -423,9 +434,332 @@ class _GeneralPage(tk.Frame):
             if tip:
                 tooltip(cb, tip)
 
+        # TCP fingerprint OS dropdown (shown after the checkboxes)
+        fp_row = len(fields) + len(check_fields)
+        fp_os_val = self.cfg.get("general", "tcp_fingerprint_os") or "windows"
+        v_fp = tk.StringVar(value=str(fp_os_val))
+        self.vars["tcp_fingerprint_os"] = v_fp
+        _row(f, "Fingerprint OS",
+             lambda v=v_fp: _combo(f, v, ["windows", "linux", "macos", "solaris"]),
+             fp_row,
+             tip="OS profile for TCP/IP fingerprint spoofing.\n"
+                 "windows — TTL=128, Window=65535 (Windows Server 2019+)\n"
+                 "linux   — TTL=64,  Window=29200 (Linux 5.x)\n"
+                 "macos   — TTL=64,  Window=65535 (macOS/BSD)\n"
+                 "solaris — TTL=255, Window=49640")
+
+        # JSON log file path
+        json_path_val = self.cfg.get("general", "json_log_file") or "logs/events.jsonl"
+        v_jp = tk.StringVar(value=str(json_path_val))
+        self.vars["json_log_file"] = v_jp
+        _row(f, "JSON Log File",
+             lambda v=v_jp: _entry(f, v),
+             fp_row + 1,
+             tip="Path to the JSON Lines event log file.\n"
+                 "Each intercepted request is written as one JSON object per line.\n"
+                 "Relative to the NotTheNet project root.")
+
     def apply_to_config(self):
         for key, var in self.vars.items():
             self.cfg.set("general", key, var.get())
+
+
+class _JsonEventsPage(tk.Frame):
+    """Live-updating JSON event log viewer with search and event-type filtering."""
+
+    _POLL_MS = 1000          # file-poll interval
+    _MAX_DISPLAY_ROWS = 5000 # cap rows to keep the Treeview responsive
+    _COLUMNS = ("timestamp", "event", "src_ip", "detail")
+
+    def __init__(self, parent, cfg: "Config"):
+        super().__init__(parent, bg=C_SURFACE)
+        self.cfg = cfg
+        self._file_pos = 0        # byte offset — resume reading from here
+        self._all_rows: list = [] # every parsed row (for re-filtering)
+        self._poll_job = None
+        self._search_var = tk.StringVar()
+        self._filter_var = tk.StringVar(value="ALL")
+        self._event_types: set = set()
+        self._build()
+
+    # ── UI construction ───────────────────────────────────────────────────
+
+    def _build(self):
+        # ── Toolbar row: search + filter + buttons ──
+        bar = tk.Frame(self, bg=C_SURFACE)
+        bar.pack(fill="x", padx=PAD, pady=(PAD, 4))
+
+        tk.Label(bar, text="Search:", bg=C_SURFACE, fg=C_SUBTLE,
+                 font=_f(9)).pack(side="left")
+        search_entry = _entry(bar, self._search_var, width=28)
+        search_entry.pack(side="left", padx=(4, 10))
+        self._search_var.trace_add("write", lambda *_: self._apply_filter())
+
+        tk.Label(bar, text="Event:", bg=C_SURFACE, fg=C_SUBTLE,
+                 font=_f(9)).pack(side="left")
+        self._filter_combo = _combo(bar, self._filter_var, ["ALL"], width=18)
+        self._filter_combo.pack(side="left", padx=(4, 10))
+        self._filter_var.trace_add("write", lambda *_: self._apply_filter())
+
+        btn_style = dict(relief="flat", bd=0, padx=10, pady=3,
+                         font=_f(8), cursor="hand2")
+        refresh_btn = tk.Button(
+            bar, text="⟳ Refresh", bg=C_HOVER, fg=C_TEXT,
+            command=self._full_reload, **btn_style,
+        )
+        refresh_btn.pack(side="left", padx=2)
+        _hover_bind(refresh_btn, C_HOVER, C_SELECTED)
+        tooltip(refresh_btn, "Re-read the entire JSON log file from disk.")
+
+        clear_btn = tk.Button(
+            bar, text="✕ Clear View", bg=C_HOVER, fg=C_TEXT,
+            command=self._clear_view, **btn_style,
+        )
+        clear_btn.pack(side="left", padx=2)
+        _hover_bind(clear_btn, C_HOVER, C_SELECTED)
+        tooltip(clear_btn,
+                "Clear the table (does NOT delete the file on disk).")
+
+        open_btn = tk.Button(
+            bar, text="📂 Open File", bg=C_HOVER, fg=C_TEXT,
+            command=self._open_file_external, **btn_style,
+        )
+        open_btn.pack(side="left", padx=2)
+        _hover_bind(open_btn, C_HOVER, C_SELECTED)
+        tooltip(open_btn,
+                "Open the raw .jsonl file in the system default editor.")
+
+        # Row count label (right side)
+        self._count_label = tk.Label(
+            bar, text="0 events", bg=C_SURFACE, fg=C_DIM, font=_f(8),
+        )
+        self._count_label.pack(side="right")
+
+        # ── Treeview ──
+        tree_frame = tk.Frame(self, bg=C_SURFACE)
+        tree_frame.pack(fill="both", expand=True, padx=PAD, pady=(0, PAD))
+
+        style = ttk.Style(self)
+        style.configure(
+            "JsonLog.Treeview",
+            background=C_ENTRY_BG,
+            foreground=C_ENTRY_FG,
+            fieldbackground=C_ENTRY_BG,
+            rowheight=22,
+            font=_f(8),
+        )
+        style.configure(
+            "JsonLog.Treeview.Heading",
+            background=C_PANEL,
+            foreground=C_ACCENT,
+            font=_f(8, True),
+        )
+        style.map("JsonLog.Treeview",
+                  background=[("selected", C_SELECTED)],
+                  foreground=[("selected", C_TEXT)])
+
+        self._tree = ttk.Treeview(
+            tree_frame,
+            columns=self._COLUMNS,
+            show="headings",
+            selectmode="extended",
+            style="JsonLog.Treeview",
+        )
+        self._tree.heading("timestamp", text="Timestamp", anchor="w")
+        self._tree.heading("event",     text="Event",     anchor="w")
+        self._tree.heading("src_ip",    text="Source IP", anchor="w")
+        self._tree.heading("detail",    text="Detail",    anchor="w")
+
+        self._tree.column("timestamp", width=180, minwidth=140, stretch=False)
+        self._tree.column("event",     width=150, minwidth=100, stretch=False)
+        self._tree.column("src_ip",    width=120, minwidth=80,  stretch=False)
+        self._tree.column("detail",    width=500, minwidth=200, stretch=True)
+
+        vsb = ttk.Scrollbar(tree_frame, orient="vertical",
+                            command=self._tree.yview)
+        hsb = ttk.Scrollbar(tree_frame, orient="horizontal",
+                            command=self._tree.xview)
+        self._tree.configure(yscrollcommand=vsb.set,
+                             xscrollcommand=hsb.set)
+
+        self._tree.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+        tree_frame.rowconfigure(0, weight=1)
+        tree_frame.columnconfigure(0, weight=1)
+
+        # ── Detail panel at bottom ──
+        detail_frame = _section_frame(self, "Selected Event (raw JSON)")
+        detail_frame.pack(fill="x", padx=PAD, pady=(0, PAD))
+        self._detail_text = scrolledtext.ScrolledText(
+            detail_frame, height=4, bg=C_ENTRY_BG, fg=C_ENTRY_FG,
+            insertbackground=C_ACCENT, relief="flat", font=_f(8),
+            highlightthickness=1, highlightbackground=C_BORDER,
+            highlightcolor=C_ACCENT, state="disabled", wrap="word",
+        )
+        self._detail_text.pack(fill="x")
+        self._tree.bind("<<TreeviewSelect>>", self._on_select)
+
+        # Kick off file polling
+        self._poll_job = self.after(500, self._poll_file)
+
+    # ── Data loading ──────────────────────────────────────────────────────
+
+    def _get_log_path(self) -> str:
+        return str(self.cfg.get("general", "json_log_file") or "logs/events.jsonl")
+
+    def _poll_file(self):
+        """Incrementally read new lines appended since last poll."""
+        path = self._get_log_path()
+        try:
+            with open(path, encoding="utf-8") as fh:
+                fh.seek(self._file_pos)
+                new_lines = fh.readlines()
+                self._file_pos = fh.tell()
+        except (OSError, FileNotFoundError):
+            new_lines = []
+
+        if new_lines:
+            added = 0
+            for line in new_lines:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                row = self._obj_to_row(obj)
+                self._all_rows.append((row, obj))
+                added += 1
+
+                # Track event types for filter dropdown
+                evt = obj.get("event", "")
+                if evt and evt not in self._event_types:
+                    self._event_types.add(evt)
+                    choices = ["ALL"] + sorted(self._event_types)
+                    self._filter_combo.configure(values=choices)
+
+            if added:
+                self._apply_filter()
+
+        self._poll_job = self.after(self._POLL_MS, self._poll_file)
+
+    def _full_reload(self):
+        """Re-read the entire file from offset 0."""
+        self._file_pos = 0
+        self._all_rows.clear()
+        self._event_types.clear()
+        self._filter_combo.configure(values=["ALL"])
+        for iid in self._tree.get_children():
+            self._tree.delete(iid)
+        self._poll_file()
+
+    def _clear_view(self):
+        """Clear the table without deleting the file."""
+        self._all_rows.clear()
+        for iid in self._tree.get_children():
+            self._tree.delete(iid)
+        self._count_label.configure(text="0 events")
+
+    @staticmethod
+    def _obj_to_row(obj: dict) -> tuple:
+        """Extract display columns from a JSON event dict."""
+        ts = obj.get("timestamp", "")
+        evt = obj.get("event", "")
+        src = obj.get("src_ip", "")
+        # Build a compact detail string from remaining keys
+        skip = {"timestamp", "epoch", "event", "src_ip"}
+        parts = [f"{k}={v}" for k, v in obj.items() if k not in skip]
+        detail = "  ".join(parts)
+        return (ts, evt, src, detail)
+
+    # ── Filtering ─────────────────────────────────────────────────────────
+
+    def _apply_filter(self, *_args):
+        """Rebuild the Treeview to show only matching rows."""
+        search = self._search_var.get().strip().lower()
+        evt_filter = self._filter_var.get()
+
+        for iid in self._tree.get_children():
+            self._tree.delete(iid)
+
+        count = 0
+        start = max(0, len(self._all_rows) - self._MAX_DISPLAY_ROWS)
+        for row, obj in self._all_rows[start:]:
+            # Event type filter
+            if evt_filter != "ALL" and obj.get("event", "") != evt_filter:
+                continue
+            # Text search (across all values)
+            if search:
+                haystack = " ".join(str(v) for v in obj.values()).lower()
+                if search not in haystack:
+                    continue
+            self._tree.insert("", "end", values=row)
+            count += 1
+
+        self._count_label.configure(
+            text=f"{count} event{'s' if count != 1 else ''}"
+                 f" (of {len(self._all_rows)} total)"
+        )
+        # Auto-scroll to bottom
+        children = self._tree.get_children()
+        if children:
+            self._tree.see(children[-1])
+
+    # ── Selection detail ──────────────────────────────────────────────────
+
+    def _on_select(self, _event=None):
+        sel = self._tree.selection()
+        if not sel:
+            return
+        item = self._tree.item(sel[0])
+        values = item.get("values", ())
+        # Find the matching raw JSON object
+        ts = values[0] if values else ""
+        matched = None
+        for row, obj in reversed(self._all_rows):
+            if row[0] == ts:
+                matched = obj
+                break
+        self._detail_text.configure(state="normal")
+        self._detail_text.delete("1.0", "end")
+        if matched:
+            self._detail_text.insert(
+                "1.0", json.dumps(matched, indent=2, default=str)
+            )
+        else:
+            self._detail_text.insert("1.0", str(values))
+        self._detail_text.configure(state="disabled")
+
+    # ── External open ─────────────────────────────────────────────────────
+
+    def _open_file_external(self):
+        """Open the .jsonl file in the OS default application."""
+        import subprocess
+        path = os.path.abspath(self._get_log_path())
+        if not os.path.exists(path):
+            messagebox.showinfo("Not Found",
+                                f"JSON log file does not exist yet:\n{path}")
+            return
+        try:
+            if sys.platform == "win32":
+                os.startfile(path)  # noqa: S606 — intentional; opens user's own log file
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", path])
+            else:
+                subprocess.Popen(["xdg-open", path])
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not open file:\n{e}")
+
+    def destroy(self):
+        if self._poll_job:
+            self.after_cancel(self._poll_job)
+            self._poll_job = None
+        super().destroy()
+
+    def apply_to_config(self):
+        pass  # read-only page — nothing to save
 
 
 class _ServicePage(tk.Frame):
@@ -881,6 +1215,13 @@ class NotTheNetApp(tk.Tk):
                               "TCP/UDP catch-all — iptables redirects all traffic\n"
                               "not handled by specific services to these ports.")
 
+        # Group: Logging / analysis
+        self._add_sidebar_section(left, "ANALYSIS")
+        self._add_sidebar_btn(left, "json_events", "◈  JSON Events",
+                              "Live view of structured JSON event log.\n"
+                              "Shows every intercepted request with search\n"
+                              "and event-type filtering.")
+
         # ── Right: config pages ──
         right = tk.Frame(body, bg=C_SURFACE)
         body.add(right, minsize=500)
@@ -961,7 +1302,20 @@ class NotTheNetApp(tk.Tk):
         self._pages["http"] = _ServicePage(
             self._page_container, self._cfg, "http", http_fields,
             [("Enabled", "enabled", True, _ENABLED),
-             ("Log Requests", "log_requests", True, _LOG_REQ)],
+             ("Log Requests", "log_requests", True, _LOG_REQ),
+             ("Dynamic Responses", "dynamic_responses", True,
+              "Serve context-aware responses based on requested file extension.\n"
+              "If malware requests /payload.dll, it gets a valid PE stub.\n"
+              "If it requests an image, it gets a valid PNG/JPEG header.\n"
+              "Defeats sandbox detection that checks Content-Type vs extension."),
+             ("DoH Sinkhole", "doh_sinkhole", True,
+              "Intercept DNS-over-HTTPS (DoH) queries embedded in HTTPS traffic.\n"
+              "Resolves DoH requests to the configured redirect_ip,\n"
+              "preventing malware from bypassing the fake DNS server."),
+             ("WebSocket Sinkhole", "websocket_sinkhole", True,
+              "Accept WebSocket upgrade requests, complete the handshake,\n"
+              "and then send a close frame. Satisfies malware that uses\n"
+              "WebSocket-based C2 channels.")],
         )
 
         https_fields = [
@@ -991,7 +1345,22 @@ class NotTheNetApp(tk.Tk):
         self._pages["https"] = _ServicePage(
             self._page_container, self._cfg, "https", https_fields,
             [("Enabled", "enabled", True, _ENABLED),
-             ("Log Requests", "log_requests", True, _LOG_REQ)],
+             ("Log Requests", "log_requests", True, _LOG_REQ),
+             ("Dynamic Responses", "dynamic_responses", True,
+              "Serve context-aware responses based on requested file extension.\n"
+              "Same as the HTTP option — applied inside the TLS tunnel."),
+             ("Dynamic Certificates", "dynamic_certs", True,
+              "Forge a unique TLS certificate for each domain on-the-fly.\n"
+              "When malware connects to https://evil-c2.com, a cert with\n"
+              "CN=evil-c2.com and matching SANs is generated instantly,\n"
+              "signed by NotTheNet\u2019s Root CA. Install the CA cert in the\n"
+              "analysis VM\u2019s trust store for seamless interception."),
+             ("DoH Sinkhole", "doh_sinkhole", True,
+              "Intercept DNS-over-HTTPS queries inside the TLS tunnel.\n"
+              "Responds with the configured redirect_ip."),
+             ("WebSocket Sinkhole", "websocket_sinkhole", True,
+              "Accept and sinkhole WebSocket upgrade requests\n"
+              "inside the TLS tunnel.")],
         )
 
         for section, fields, checks in [
@@ -1045,6 +1414,11 @@ class NotTheNetApp(tk.Tk):
             self._pages[section] = _ServicePage(
                 self._page_container, self._cfg, section, fields, checks
             )
+
+        # JSON events viewer page
+        self._pages["json_events"] = _JsonEventsPage(
+            self._page_container, self._cfg
+        )
 
         # Catch-all page
         catch_fields = [
