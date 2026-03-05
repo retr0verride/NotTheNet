@@ -7,16 +7,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ## [Unreleased]
 
+---
+
+## [2026.03.05-1] — 2026-03-05
+
 ### Added
-- GitHub Actions CI pipeline (ruff, mypy, bandit, pytest, build) on Python 3.9–3.12
-- OpenSSF Best Practices badge
-- Auto-merge of new default config keys on update and app startup (`config.py`, `update.sh`)
-- `CONTRIBUTING.md` with PR process, code style, and test policy
-- `CHANGELOG.md` (this file)
-- Dependabot configuration for pip dependency monitoring
+- **IRC server** (port 6667) — full RFC 1459 registration burst, CAP negotiation, channel JOIN with NAMREPLY/TOPIC, PRIVMSG/NOTICE JSON logging; captures botnet C2 traffic (`irc_server.py`)
+- **TFTP server** (port 69) — RFC 1350 RRQ/WRQ; stub read response; WRQ uploads saved to `logs/tftp_uploads/` with UUID prefix and 10 MB cap; path traversal protection (`tftp_server.py`)
+- **SMTPS** (port 465), **POP3S** (port 995), **IMAPS** (port 993) — implicit TLS variants of all three mail services using existing cert infrastructure
+- **Offline / air-gap USB install tooling** — `make-bundle.ps1` generates a single self-contained `notthenet-bundle.sh` with Linux Python wheels embedded as base64; `install-offline.sh` and `prepare-usb.ps1` as lighter-weight alternatives
+
+### Changed
+- Lab defaults: `redirect_ip` and `dns.resolve_to` → `10.10.10.1`; `iptables_mode` → `gateway`; `json_logging` → `true`; `tcp_fingerprint` → `true`
+- GUI sidebar groups updated to include SMTPS, POP3S, IMAPS, IRC, TFTP
 
 ### Fixed
-- XFCE4 panel restart now runs as the desktop user (`runuser`) to avoid D-Bus `ServiceUnknown` error
+- DNS AAAA queries now return empty NOERROR (correct fallback to A) instead of wrong record type
+- SMTP AUTH state checked before command dispatch to prevent auth bypass
+- IMAP missing EXAMINE and STATUS commands added
+- HTTP HEAD requests no longer include a body in NCSI and IP-check response paths
 
 ---
 
