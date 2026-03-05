@@ -41,6 +41,12 @@ Thumbs.db
 # iptables save
 /tmp/notthenet_iptables_save.rules
 
+# Offline install wheelhouse (populated by prepare-usb.ps1)
+wheelhouse/
+
+# Generated single-file bundle (produced by make-bundle.ps1)
+notthenet-bundle.sh
+
 # mypy cache
 .mypy_cache/
 
