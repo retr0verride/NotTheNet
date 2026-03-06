@@ -105,10 +105,14 @@ if [[ $EUID -eq 0 ]]; then
         gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
         # Restart XFCE panel so it reloads the icon cache; prevents other panel
         # icons from showing as white gears after the cache is rebuilt.
-        # Must run as the desktop user (not root) so D-Bus finds the session.
+        # Use kill+relaunch instead of --restart to avoid a DBus error dialog
+        # when the session bus address is not available under runuser.
         _panel_user="${SUDO_USER:-${LOGNAME:-$(logname 2>/dev/null || true)}}"
         if pgrep -x xfce4-panel >/dev/null && [[ -n "$_panel_user" ]]; then
-            runuser -u "$_panel_user" -- xfce4-panel --restart 2>/dev/null || true
+            _disp=$(runuser -u "$_panel_user" -- bash -c 'echo ${DISPLAY:-:0}' 2>/dev/null || echo ':0')
+            runuser -u "$_panel_user" -- env DISPLAY="$_disp" pkill -x xfce4-panel 2>/dev/null || true
+            sleep 0.3
+            runuser -u "$_panel_user" -- env DISPLAY="$_disp" xfce4-panel 2>/dev/null &
         fi
         echo "[*] Icon updated"
     fi
