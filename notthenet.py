@@ -37,7 +37,7 @@ from utils.logging_utils import setup_logging
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 APP_TITLE = "NotTheNet — Fake Internet Simulator"
-APP_VERSION = "2026.03.06-6"
+APP_VERSION = "2026.03.06-7"
 PAD = 8
 FIELD_WIDTH = 22
 LOG_MAX_LINES = 2000  # Cap displayed log lines to avoid memory creep
@@ -332,7 +332,7 @@ def _section_frame(parent, title: str):
 
 def _row(parent, label: str, widget_factory, row: int,
          col_offset: int = 0, tip: str = "", info_panel=None, default: str = ""):
-    """Lay out a label + widget pair; update info_panel on focus/hover when provided."""
+    """Lay out a label + widget pair; update info_panel on click/focus when provided."""
     lbl = tk.Label(parent, text=label, bg=C_SURFACE, fg=C_SUBTLE,
                    font=_f(9), anchor="e")
     lbl.grid(row=row, column=col_offset, sticky="e", padx=(0, 6), pady=4)
@@ -341,12 +341,11 @@ def _row(parent, label: str, widget_factory, row: int,
     if info_panel and tip:
         def _show(_e=None, _t=label, _d=tip, _def=default):
             info_panel.show(_t, _d, str(_def))
-        lbl.bind("<Enter>", _show)
-        w.bind("<Enter>", _show)
         w.bind("<FocusIn>", _show)
-    elif tip:
-        tooltip(lbl, tip)
-        tooltip(w, tip)
+    else:
+        if tip:
+            tooltip(lbl, tip)
+            tooltip(w, tip)
     return w
 
 
@@ -416,7 +415,20 @@ class _GeneralPage(tk.Frame):
         self._build()
 
     def _build(self):
-        f = _section_frame(self, "General Settings")
+        # Horizontal split: form on left, info panel on right
+        outer = tk.Frame(self, bg=C_SURFACE)
+        outer.pack(fill="both", expand=True)
+
+        self._left_frame = tk.Frame(outer, bg=C_SURFACE)
+        self._left_frame.pack(side="left", fill="both", expand=True)
+
+        right = tk.Frame(outer, bg=C_SURFACE, width=240)
+        right.pack(side="right", fill="y", padx=(0, PAD + 4), pady=PAD + 4)
+        right.pack_propagate(False)
+        self._info_panel = _InfoPanel(right)
+        self._info_panel.pack(fill="both", expand=True)
+
+        f = _section_frame(self._left_frame, "General Settings")
         f.pack(fill="x", padx=PAD + 4, pady=PAD + 4)
 
         fields = [
@@ -432,8 +444,8 @@ class _GeneralPage(tk.Frame):
              "Run 'ip link' to list available interfaces."),
             ("iptables Mode", "iptables_mode", "gateway",
              "How iptables REDIRECT rules are applied.\n"
-             "loopback — OUTPUT chain, intercepts traffic from this machine only (default).\n"
-             "gateway  — PREROUTING chain, intercepts traffic from other hosts on the network.\n"
+             "loopback \u2014 OUTPUT chain, intercepts traffic from this machine only (default).\n"
+             "gateway  \u2014 PREROUTING chain, intercepts traffic from other hosts on the network.\n"
              "Use gateway when NotTheNet is acting as a network gateway for a malware VM.",
              ["loopback", "gateway"]),
             ("Log Directory", "log_dir",      "logs",
@@ -457,9 +469,11 @@ class _GeneralPage(tk.Frame):
             v = tk.StringVar(value=str(val))
             self.vars[key] = v
             if choices:
-                _row(f, label, lambda v=v, c=choices: _combo(f, v, c), row, tip=tip)
+                _row(f, label, lambda v=v, c=choices: _combo(f, v, c), row,
+                     tip=tip, info_panel=self._info_panel, default=default)
             else:
-                _row(f, label, lambda v=v: _entry(f, v), row, tip=tip)
+                _row(f, label, lambda v=v: _entry(f, v), row,
+                     tip=tip, info_panel=self._info_panel, default=default)
 
         check_fields = [
             ("Enable auto-iptables rules", "auto_iptables", True,
@@ -488,7 +502,10 @@ class _GeneralPage(tk.Frame):
             cb = _check(f, label, v)
             cb.grid(row=len(fields) + i, column=0, columnspan=2, sticky="w", pady=4)
             if tip:
-                tooltip(cb, tip)
+                def _show(_e=None, _lbl=label, _tip=tip, _def=str(default)):
+                    self._info_panel.show(_lbl, _tip, _def)
+                cb.bind("<FocusIn>", _show)
+                cb.bind("<ButtonRelease-1>", _show)
 
         # TCP fingerprint OS dropdown (shown after the checkboxes)
         fp_row = len(fields) + len(check_fields)
@@ -499,10 +516,11 @@ class _GeneralPage(tk.Frame):
              lambda v=v_fp: _combo(f, v, ["windows", "linux", "macos", "solaris"]),
              fp_row,
              tip="OS profile for TCP/IP fingerprint spoofing.\n"
-                 "windows — TTL=128, Window=65535 (Windows Server 2019+)\n"
-                 "linux   — TTL=64,  Window=29200 (Linux 5.x)\n"
-                 "macos   — TTL=64,  Window=65535 (macOS/BSD)\n"
-                 "solaris — TTL=255, Window=49640")
+                 "windows \u2014 TTL=128, Window=65535 (Windows Server 2019+)\n"
+                 "linux   \u2014 TTL=64,  Window=29200 (Linux 5.x)\n"
+                 "macos   \u2014 TTL=64,  Window=65535 (macOS/BSD)\n"
+                 "solaris \u2014 TTL=255, Window=49640",
+             info_panel=self._info_panel, default="windows")
 
         # JSON log file path
         json_path_val = self.cfg.get("general", "json_log_file") or "logs/events.jsonl"
@@ -513,7 +531,8 @@ class _GeneralPage(tk.Frame):
              fp_row + 1,
              tip="Path to the JSON Lines event log file.\n"
                  "Each intercepted request is written as one JSON object per line.\n"
-                 "Relative to the NotTheNet project root.")
+                 "Relative to the NotTheNet project root.",
+             info_panel=self._info_panel, default="logs/events.jsonl")
 
     def apply_to_config(self):
         for key, var in self.vars.items():
@@ -831,9 +850,20 @@ class _ServicePage(tk.Frame):
         self._build()
 
     def _build(self):
-        self._info_panel = _InfoPanel(self)
+        # Horizontal split: form on left, info panel on right
+        outer = tk.Frame(self, bg=C_SURFACE)
+        outer.pack(fill="both", expand=True)
 
-        f = _section_frame(self, self.section.upper() + " Service")
+        self._left_frame = tk.Frame(outer, bg=C_SURFACE)
+        self._left_frame.pack(side="left", fill="both", expand=True)
+
+        right = tk.Frame(outer, bg=C_SURFACE, width=240)
+        right.pack(side="right", fill="y", padx=(0, PAD + 4), pady=PAD + 4)
+        right.pack_propagate(False)
+        self._info_panel = _InfoPanel(right)
+        self._info_panel.pack(fill="both", expand=True)
+
+        f = _section_frame(self._left_frame, self.section.upper() + " Service")
         f.pack(fill="x", padx=PAD + 4, pady=PAD + 4)
 
         for i, item in enumerate(self.fields):
@@ -864,9 +894,7 @@ class _ServicePage(tk.Frame):
                 def _show(_e=None, _lbl=label, _tip=tip, _def=str(default)):
                     self._info_panel.show(_lbl, _tip, _def)
                 cb.bind("<FocusIn>", _show)
-                cb.bind("<Enter>", _show)
-
-        self._info_panel.pack(fill="x", padx=PAD + 4, pady=(0, PAD + 4))
+                cb.bind("<ButtonRelease-1>", _show)
 
     def apply_to_config(self):
         for key, var in self.vars.items():
@@ -900,7 +928,7 @@ class _DNSPage(_ServicePage):
         self._build_custom_records()
 
     def _build_custom_records(self):
-        f2 = _section_frame(self, "Custom DNS Records  (name = IP)")
+        f2 = _section_frame(self._left_frame, "Custom DNS Records  (name = IP)")
         f2.pack(fill="both", expand=True, padx=PAD + 4, pady=(0, PAD + 4))
         hint = tk.Label(f2, text="One entry per line:  example.com = 192.168.1.1",
                         bg=C_SURFACE, fg=C_DIM, font=_f(8))
