@@ -47,7 +47,7 @@ class ServiceManager:
         errors = self.validate()
         if errors:
             for e in errors:
-                logger.error(f"Config error: {e}")
+                logger.error("Config error: %s", e)
             return False
 
         require_root_or_warn()
@@ -194,10 +194,10 @@ class ServiceManager:
                     try:
                         apply_os_fingerprint(sock, fp_os)
                     except Exception as e:
-                        logger.debug(f"TCP fingerprint on {name}: {e}")
+                        logger.debug("TCP fingerprint on %s: %s", name, e)
 
         self._running = len(started) > 0
-        logger.info(f"NotTheNet started: {', '.join(started) if started else 'none'}")
+        logger.info("NotTheNet started: %s", ', '.join(started) if started else 'none')
         return self._running
 
     def _apply_iptables(self):
@@ -246,11 +246,11 @@ class ServiceManager:
 
     def stop(self):
         """Stop all services and remove iptables rules."""
-        for name, svc in list(self._services.items()):
+        for name, svc in self._services.items():
             try:
                 svc.stop()
             except Exception as e:
-                logger.warning(f"Error stopping {name}: {e}")
+                logger.warning("Error stopping %s: %s", name, e)
         self._services.clear()
 
         if self._iptables:

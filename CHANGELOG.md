@@ -9,6 +9,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ---
 
+## [2026.03.06-10] — 2026-03-06
+
+### Fixed
+- **Headless mode crash** — removed invalid `name=` keyword argument from `setup_logging()` call that caused a `TypeError` on startup with `--nogui`
+- **Protected member access** — GUI now reads running service state via the public `ServiceManager.status()` API instead of `_services` directly
+- **Logging performance** — converted f-string arguments in `service_manager.py` log calls to lazy `%`-style formatting
+- **Spurious `list()` copy** — removed unnecessary `list()` wrap on `dict.items()` in `ServiceManager.stop()`
+- **Pylance false positive** — added `# type: ignore[attr-defined]` to `os.geteuid()` call that is already guarded by `os.name != "nt"`
+
+---
+
 ## [2026.03.06-2] — 2026-03-06
 
 ### Fixed

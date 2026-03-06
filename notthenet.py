@@ -37,7 +37,7 @@ from utils.logging_utils import setup_logging
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 APP_TITLE = "NotTheNet — Fake Internet Simulator"
-APP_VERSION = "2026.03.06-9"
+APP_VERSION = "2026.03.06-10"
 PAD = 8
 FIELD_WIDTH = 22
 LOG_MAX_LINES = 2000  # Cap displayed log lines to avoid memory creep
@@ -1270,7 +1270,7 @@ class NotTheNetApp(tk.Tk):
         tooltip(btn_zoom_in, "Zoom in  (Ctrl+=)")
 
         # Root warning (right side)
-        if os.name != "nt" and os.geteuid() != 0:
+        if os.name != "nt" and os.geteuid() != 0:  # type: ignore[attr-defined]
             warn = tk.Label(
                 inner,
                 text="⚠  Not root — ports <1024 may fail",
@@ -1935,7 +1935,7 @@ class NotTheNetApp(tk.Tk):
             self._btn_start.configure(state="disabled")
             self._btn_stop.configure(state="normal")
             self._status_label.configure(text="●  Running", fg=C_GREEN)
-            running = set(self._manager._services.keys()) if self._manager else set()
+            running = set(self._manager.status().keys()) if self._manager else set()
             # catch_all sidebar key maps to catch_tcp / catch_udp in _services
             if "catch_tcp" in running or "catch_udp" in running:
                 running.add("catch_all")
@@ -2058,7 +2058,6 @@ def main():
             log_dir=cfg.get("general", "log_dir") or os.path.join(_script_dir, "logs"),
             log_level=log_level,
             log_to_file=bool(cfg.get("general", "log_to_file")),
-            name="notthenet",
         )
 
         if args.nogui:
