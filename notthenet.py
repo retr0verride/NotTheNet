@@ -37,7 +37,7 @@ from utils.logging_utils import setup_logging
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 APP_TITLE = "NotTheNet — Fake Internet Simulator"
-APP_VERSION = "2026.03.06-2"
+APP_VERSION = "2026.03.06-3"
 PAD = 8
 FIELD_WIDTH = 22
 LOG_MAX_LINES = 2000  # Cap displayed log lines to avoid memory creep
@@ -1308,6 +1308,19 @@ class NotTheNetApp(tk.Tk):
             font=_f(9), anchor="w",
         )
         btn.pack(side="left", fill="x", expand=True, ipady=5)
+
+        # Store row + btn so _show_page can highlight the active item
+        self._service_btns[key] = (row, btn)
+
+        # Click anywhere on the row navigates to the page
+        row.bind("<Button-1>", lambda _e=None: self._show_page(key))
+        btn.bind("<Button-1>", lambda _e=None: self._show_page(key))
+        _hover_bind(row, C_PANEL, C_HOVER)
+        _hover_bind(btn, C_PANEL, C_HOVER)
+
+        if tip:
+            tooltip(row, tip)
+            tooltip(btn, tip)
 
         dot = None
         if show_dot:
