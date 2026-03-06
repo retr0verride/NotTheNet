@@ -37,7 +37,7 @@ from utils.logging_utils import setup_logging
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 APP_TITLE = "NotTheNet — Fake Internet Simulator"
-APP_VERSION = "2026.03.06-10"
+APP_VERSION = "2026.03.06-11"
 PAD = 8
 FIELD_WIDTH = 22
 LOG_MAX_LINES = 2000  # Cap displayed log lines to avoid memory creep
@@ -554,6 +554,27 @@ class _GeneralPage(tk.Frame):
                  "Relative to the NotTheNet project root.",
              info_panel=self._info_panel, default="logs/events.jsonl", var=v_jp)
 
+        # ── Defaults button (bottom-right of section) ──────────────────────
+        self._defaults: dict = {item[1]: item[2] for item in fields}
+        self._defaults.update({item[1]: item[2] for item in check_fields})
+        self._defaults["tcp_fingerprint_os"] = "windows"
+        self._defaults["json_log_file"] = "logs/events.jsonl"
+
+        _def_btn = tk.Button(
+            f, text="\u21ba  Defaults",
+            bg=C_HOVER, fg=C_TEXT,
+            relief="flat", bd=0, padx=10, pady=4,
+            font=_f(9), cursor="hand2",
+            command=self._reset_defaults,
+        )
+        _def_btn.grid(row=fp_row + 2, column=1, sticky="e", pady=(10, 4))
+        _hover_bind(_def_btn, C_HOVER, C_SELECTED)
+        tooltip(_def_btn, "Reset all fields to their suggested defaults")
+
+    def _reset_defaults(self):
+        for key, val in self._defaults.items():
+            self.vars[key].set(val)
+
     def apply_to_config(self):
         for key, var in self.vars.items():
             self.cfg.set("general", key, var.get())
@@ -914,6 +935,29 @@ class _ServicePage(tk.Frame):
             if tip:
                 tooltip(cb, tip)
 
+        # ── Defaults button (bottom-right of section) ──────────────────────
+        self._defaults: dict = {}
+        for item in self.fields:
+            self._defaults[item[1]] = str(item[2])
+        for item in self.checks:
+            self._defaults[item[1]] = item[2]
+
+        _def_btn = tk.Button(
+            f, text="\u21ba  Defaults",
+            bg=C_HOVER, fg=C_TEXT,
+            relief="flat", bd=0, padx=10, pady=4,
+            font=_f(9), cursor="hand2",
+            command=self._reset_defaults,
+        )
+        _def_btn.grid(row=len(self.fields) + len(self.checks), column=1,
+                      sticky="e", pady=(10, 4))
+        _hover_bind(_def_btn, C_HOVER, C_SELECTED)
+        tooltip(_def_btn, "Reset all fields to their suggested defaults")
+
+    def _reset_defaults(self):
+        for key, val in self._defaults.items():
+            self.vars[key].set(val)
+
     def apply_to_config(self):
         for key, var in self.vars.items():
             self.cfg.set(self.section, key, var.get())
@@ -962,7 +1006,7 @@ class _DNSPage(_ServicePage):
             command=self._open_records_popup,
             **_btn_style,
         )
-        btn.grid(row=btn_row, column=0, columnspan=2, sticky="w", pady=(10, 4))
+        btn.grid(row=btn_row, column=0, columnspan=1, sticky="w", pady=(10, 4))
         _hover_bind(btn, C_HOVER, C_SELECTED)
         tooltip(btn, "Edit per-hostname DNS overrides.\nFormat: hostname = IP  (one per line)")
 

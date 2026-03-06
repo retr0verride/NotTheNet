@@ -9,6 +9,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ---
 
+## [2026.03.06-11] — 2026-03-06
+
+### Added
+- **↺ Defaults button** — every service config section (General, DNS, HTTP, HTTPS, SMTP, FTP, etc.) now has a "↺ Defaults" button in the bottom-right corner of the form that resets all fields and checkboxes in that section to their suggested defaults in one click
+
+### Changed
+- DNS page: "Custom DNS Records…" button shares the defaults footer row (left side) rather than spanning the full width
+
+---
+
 ## [2026.03.06-10] — 2026-03-06
 
 ### Fixed
