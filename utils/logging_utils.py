@@ -68,7 +68,9 @@ def setup_logging(
     - Sanitized formatter
     """
     level = getattr(logging, log_level.upper(), logging.INFO)
-    logger = logging.getLogger(name)
+    # Use the root logger so all module loggers (services.*, service_manager, etc.)
+    # propagate here automatically — avoids silent log loss when __name__ != 'notthenet'.
+    logger = logging.getLogger()
     logger.setLevel(level)
 
     formatter = logging.Formatter(

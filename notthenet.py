@@ -901,7 +901,8 @@ class NotTheNetApp(tk.Tk):
         self.minsize(round(_BASE_MIN_W * z), round(_BASE_MIN_H * z))
 
         # Set up logging → queue bridge
-        root_logger = logging.getLogger("notthenet")
+        # Attach to root logger so messages from all modules (services.*, etc.) appear.
+        root_logger = logging.getLogger()
         qh = _QueueHandler(self._log_queue)
         qh.setFormatter(
             logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -1261,7 +1262,7 @@ class NotTheNetApp(tk.Tk):
         ).pack(anchor="w", padx=4)
 
     def _add_sidebar_btn(self, parent, key: str, label: str, tip: str = ""):
-        """Add one sidebar service button."""
+        """Add one sidebar service button with a status dot on the right."""
         row = tk.Frame(parent, bg=C_PANEL, cursor="hand2")
         row.pack(fill="x", pady=1)
 
@@ -1272,18 +1273,28 @@ class NotTheNetApp(tk.Tk):
         )
         btn.pack(side="left", fill="x", expand=True, ipady=5)
 
+        dot = tk.Label(
+            row, text="●",
+            bg=C_PANEL, fg=C_DIM,
+            font=_f(8), padx=6,
+        )
+        dot.pack(side="right")
+
         def _click(_e=None):
             self._show_page(key)
 
         row.bind("<Button-1>", _click)
         btn.bind("<Button-1>", _click)
+        dot.bind("<Button-1>", _click)
         _hover_bind(row, C_PANEL, C_HOVER)
         _hover_bind(btn, C_PANEL, C_HOVER)
+        _hover_bind(dot, C_PANEL, C_HOVER)
 
         if tip:
             tooltip(row, tip)
 
         self._service_btns[key] = (row, btn)
+        self._svc_vars[key] = dot
 
     def _build_pages(self):
         """Create one config page per service."""
@@ -1551,14 +1562,17 @@ class NotTheNetApp(tk.Tk):
 
         for k, widgets in self._service_btns.items():
             row, btn = widgets
+            dot = self._svc_vars.get(k)
             if k == key:
                 row.configure(bg=C_SELECTED)
-                btn.configure(bg=C_SELECTED, fg=C_TEXT,
-                              font=_f(9, True))
+                btn.configure(bg=C_SELECTED, fg=C_TEXT, font=_f(9, True))
+                if dot:
+                    dot.configure(bg=C_SELECTED)
             else:
                 row.configure(bg=C_PANEL)
-                btn.configure(bg=C_PANEL, fg=C_SUBTLE,
-                              font=_f(9))
+                btn.configure(bg=C_PANEL, fg=C_SUBTLE, font=_f(9))
+                if dot:
+                    dot.configure(bg=C_PANEL)
 
     def _build_log_panel(self, parent):
         # Header bar
@@ -1718,6 +1732,9 @@ class NotTheNetApp(tk.Tk):
             self._btn_start.configure(state="disabled")
             self._btn_stop.configure(state="normal")
             self._status_label.configure(text="●  Running", fg=C_GREEN)
+            running = set(self._manager._services.keys()) if self._manager else set()
+            for key, dot in self._svc_vars.items():
+                dot.configure(fg=C_GREEN if key in running else C_DIM)
         else:
             self._status_label.configure(text="●  Failed — check log", fg=C_RED)
 
@@ -1740,6 +1757,8 @@ class NotTheNetApp(tk.Tk):
         self._btn_start.configure(state="normal")
         self._btn_stop.configure(state="disabled")
         self._status_label.configure(text="●  Stopped", fg=C_DIM)
+        for dot in self._svc_vars.values():
+            dot.configure(fg=C_DIM)
 
     def _on_save(self):
         self._apply_all_pages_to_config()
