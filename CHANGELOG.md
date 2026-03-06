@@ -7,8 +7,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ## [Unreleased]
 
+---
+
+## [2026.03.06-1] — 2026-03-06
+
 ### Fixed
 - **Silent log loss** — `setup_logging` and the GUI live-log queue handler now attach to the root logger instead of the named `"notthenet"` logger; module loggers (`services.*`, `service_manager`, `network.*`) propagate correctly so all service bind messages, connection events, and iptables output now appear in the live log and `logs/notthenet.log`
+- **Sidebar service indicators** — per-service `●` dot added to the right of each sidebar row; turns green for running services after ▶ Start, resets to grey on ■ Stop
 
 ---
 
