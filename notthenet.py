@@ -37,7 +37,7 @@ from utils.logging_utils import setup_logging
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 APP_TITLE = "NotTheNet — Fake Internet Simulator"
-APP_VERSION = "2026.03.06-12"
+APP_VERSION = "2026.03.06-13"
 PAD = 8
 FIELD_WIDTH = 22
 LOG_MAX_LINES = 2000  # Cap displayed log lines to avoid memory creep
@@ -1378,10 +1378,23 @@ class NotTheNetApp(tk.Tk):
              "Fake IRC server — accepts botnet C2 connections on TCP/6667.\n"
              "Provides realistic welcome sequence and channel join so bots\n"
              "proceed to sit awaiting commands."),
-            ("tftp",  "◈  TFTP",
+            ("tftp",    "◈  TFTP",
              "Fake TFTP server — handles RRQ (serves stub file) and WRQ\n"
              "(saves uploads) on UDP/69. Used for payload staging and\n"
              "lateral movement exfiltration."),
+            ("telnet",  "◈  Telnet",
+             "Fake Telnet server (TCP/23) — Mirai and virtually all IoT botnets\n"
+             "authenticate through Telnet. Logs credentials and simulates a\n"
+             "BusyBox shell to keep bots alive and issuing commands."),
+            ("socks5",  "◈  SOCKS5",
+             "Fake SOCKS5 proxy (TCP/1080) — SystemBC, QakBot, Cobalt Strike\n"
+             "and many RATs tunnel C2 through SOCKS5.\n"
+             "The CONNECT request reveals the real C2 host and port even when\n"
+             "DNS is fake."),
+            ("ircs",    "◈  IRC/TLS",
+             "TLS-wrapped fake IRC server (TCP/6697) — modern botnets use SSL\n"
+             "IRC to avoid plaintext interception. Same full sinkhole logic as\n"
+             "the plain IRC service, with TLS handshake on top."),
         ]:
             self._add_sidebar_btn(sb_inner, key, label, tip)
 
@@ -1721,6 +1734,55 @@ class NotTheNetApp(tk.Tk):
                  "Disable to silently reject all upload attempts with\n"
                  "TFTP error code 2 (Access violation)."),
             ],
+        )
+
+        # Telnet page
+        self._pages["telnet"] = _ServicePage(
+            self._page_container, self._cfg, "telnet",
+            [
+                ("Port",   "port",   "23",
+                 f"TCP port for the Telnet server. Default: 23. {_PORT_ROOT}"),
+                ("Banner", "banner", "router login",
+                 "Text displayed before the login prompt.\n"
+                 "Common Mirai targets: 'router login', 'BusyBox on OpenWrt',\n"
+                 "'(none)' — match whatever the target bot expects."),
+                ("Prompt", "prompt", "# ",
+                 "Shell prompt shown to the bot after login.\n"
+                 "'# ' implies a root shell; '$ ' implies a normal user.\n"
+                 "Mirai simply issues commands without checking the prompt."),
+            ],
+            [("Enabled", "enabled", True, _ENABLED)],
+        )
+
+        # SOCKS5 page
+        self._pages["socks5"] = _ServicePage(
+            self._page_container, self._cfg, "socks5",
+            [
+                ("Port", "port", "1080",
+                 f"TCP port for the SOCKS5 proxy. Default: 1080. {_PORT_ROOT}\n"
+                 "Every CONNECT request logs the real destination host and port\n"
+                 "the malware was trying to reach — the highest-value intel\n"
+                 "this service captures."),
+            ],
+            [("Enabled", "enabled", True, _ENABLED)],
+        )
+
+        # IRC/TLS page
+        self._pages["ircs"] = _ServicePage(
+            self._page_container, self._cfg, "ircs",
+            [
+                ("Port",     "port",     "6697",
+                 f"TCP port for the TLS-wrapped IRC server. Default: 6697. {_PORT_ROOT}"),
+                ("Hostname", "hostname", "irc.example.com",
+                 "IRC server hostname in the 001–004 welcome burst."),
+                ("Network",  "network",  "IRCnet",
+                 "IRC network name sent in RPL_ISUPPORT (005)."),
+                ("Channel",  "channel",  "botnet",
+                 "Default channel name. Bots typically JOIN a hard-coded name."),
+                ("MOTD",     "motd",     "Welcome to NotTheNet IRC.",
+                 "Message of the Day text sent after successful registration."),
+            ],
+            [("Enabled", "enabled", True, _ENABLED)],
         )
 
         # Catch-all page

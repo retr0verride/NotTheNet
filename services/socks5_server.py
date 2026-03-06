@@ -1,0 +1,396 @@
+"""
+NotTheNet - Fake SOCKS5 Proxy Server (port 1080)
+
+Why this matters:
+    A large proportion of modern malware does NOT connect directly to its C2.
+    Instead, it routes all C2 traffic through a SOCKS5 proxy — typically another
+    infected host or a rented proxy service.  Families that do this include:
+
+      SystemBC     — uses SOCKS5 exclusively for all C2 tunnelling
+      QakBot       — SOCKS5 proxy module embedded in the loader
+      Cobalt Strike — systemwide SOCKS5 proxy for post-exploit tunnelling
+      Emotet        — proxy module chains infections together
+      DarkComet/RATs — proxied C2 to hide operator's real IP
+
+    Key intelligence captured here:
+      - The *real* destination host:port the malware is trying to reach
+        (visible inside the SOCKS5 CONNECT request, even if the outer DNS
+        query is fake).  This gives you the true C2 address.
+      - The protocol the malware speaks after the proxy is established
+        (HTTP beacon, TLS, custom binary — all logged).
+
+    This server:
+      1. Completes the SOCKS5 RFC 1928 handshake (no-auth)
+      2. Accepts CONNECT requests for IPv4, IPv6, and domain targets
+      3. Logs the requested destination (the critical intel)
+      4. Replies with a success response so the malware continues
+      5. Snoops the tunnelled traffic using the same protocol-aware
+         logic as the catch-all: TLS wrap if TLS ClientHello detected,
+         HTTP 200 for HTTP requests, generic banner otherwise
+
+Security notes (OpenSSF):
+- BIND and UDP ASSOCIATE commands are refused (SSRF / amplification vectors)
+- Destination host from CONNECT is sanitized before logging (log injection)
+- Received tunnel data is log-sanitized (max LOG_PREVIEW bytes shown)
+- Each session runs in a daemon thread; cannot block process exit
+- Sessions are bounded to SESSION_TIMEOUT
+"""
+
+import logging
+import os
+import socket
+import ssl
+import struct
+import threading
+from typing import Optional
+
+from utils.json_logger import get_json_logger
+from utils.logging_utils import sanitize_ip, sanitize_log_string
+
+logger = logging.getLogger(__name__)
+
+SESSION_TIMEOUT = 30   # seconds
+LOG_PREVIEW     = 256  # max bytes logged per tunnel chunk (sanitized)
+
+# ─── SOCKS5 constants (RFC 1928) ─────────────────────────────────────────────
+_VER    = 0x05
+_CMD_CONNECT  = 0x01
+_CMD_BIND     = 0x02
+_CMD_UDP      = 0x03
+_ATYP_IPV4    = 0x01
+_ATYP_DOMAIN  = 0x03
+_ATYP_IPV6    = 0x04
+_REP_OK       = 0x00
+_REP_REFUSED  = 0x05
+
+# Response: success, bind IP 0.0.0.0, bind port 0
+_CONNECT_OK   = struct.pack("!BBBBIH", _VER, _REP_OK, 0, _ATYP_IPV4, 0, 0)
+_CONNECT_FAIL = struct.pack("!BBBBIH", _VER, _REP_REFUSED, 0, _ATYP_IPV4, 0, 0)
+
+# ─── Protocol detection / response (mirrors catch_all.py logic) ──────────────
+_HTTP_PREFIXES = (b"GET ", b"POST", b"PUT ", b"HEAD", b"OPTI", b"DELE", b"PATC")
+
+_HTTP_200 = (
+    b"HTTP/1.1 200 OK\r\n"
+    b"Server: Apache/2.4.57\r\n"
+    b"Content-Type: text/html\r\n"
+    b"Content-Length: 0\r\n"
+    b"Connection: close\r\n"
+    b"\r\n"
+)
+_GENERIC_BANNER = b"200 OK\r\n"
+
+
+def _detect_protocol(peek: bytes) -> str:
+    if not peek:
+        return "unknown"
+    if peek[:4] in _HTTP_PREFIXES:
+        return "http"
+    if len(peek) >= 2 and peek[0] == 0x16 and peek[1] == 0x03:
+        return "tls"
+    return "unknown"
+
+
+class _Socks5Session(threading.Thread):
+    """Handles one SOCKS5 client session."""
+
+    def __init__(
+        self,
+        conn: socket.socket,
+        addr: tuple,
+        cert_path: str,
+        key_path: str,
+        sem: Optional[threading.BoundedSemaphore] = None,
+    ):
+        super().__init__(daemon=True)
+        self.conn      = conn
+        self.addr      = addr
+        self.cert_path = cert_path
+        self.key_path  = key_path
+        self._sem      = sem
+
+    # ── I/O helpers ──────────────────────────────────────────────────────────
+
+    def _recv_exact(self, n: int) -> Optional[bytes]:
+        """Read exactly n bytes, returning None on EOF/error."""
+        buf = b""
+        while len(buf) < n:
+            try:
+                chunk = self.conn.recv(n - len(buf))
+            except OSError:
+                return None
+            if not chunk:
+                return None
+            buf += chunk
+        return buf
+
+    def _send(self, data: bytes):
+        try:
+            self.conn.sendall(data)
+        except OSError:
+            pass
+
+    # ── SOCKS5 handshake ──────────────────────────────────────────────────────
+
+    def _handshake(self) -> bool:
+        """
+        SOCKS5 method negotiation (RFC 1928 §3).
+        Returns True if the client is SOCKS5 and we agreed on no-auth (0x00).
+        """
+        header = self._recv_exact(2)
+        if not header or header[0] != _VER:
+            return False
+        n_methods = header[1]
+        if n_methods < 1:
+            return False
+        _methods = self._recv_exact(n_methods)
+        # Always select no-auth (0x00) regardless of what the client offers
+        self._send(bytes([_VER, 0x00]))
+        return True
+
+    def _read_connect(self) -> Optional[tuple[str, int]]:
+        """
+        Read a SOCKS5 CONNECT request (RFC 1928 §4).
+        Returns (destination_host, destination_port) or None on error.
+        BIND and UDP ASSOCIATE are rejected (SSRF/amplification vectors).
+        """
+        req = self._recv_exact(4)
+        if not req or req[0] != _VER:
+            return None
+
+        cmd  = req[1]
+        atyp = req[3]
+
+        if cmd != _CMD_CONNECT:
+            # BIND and UDP ASSOCIATE refused
+            self._send(_CONNECT_FAIL)
+            return None
+
+        if atyp == _ATYP_IPV4:
+            raw = self._recv_exact(4)
+            if not raw:
+                return None
+            host = socket.inet_ntoa(raw)
+
+        elif atyp == _ATYP_DOMAIN:
+            length_byte = self._recv_exact(1)
+            if not length_byte:
+                return None
+            raw = self._recv_exact(length_byte[0])
+            if not raw:
+                return None
+            host = raw.decode("utf-8", errors="replace")
+
+        elif atyp == _ATYP_IPV6:
+            raw = self._recv_exact(16)
+            if not raw:
+                return None
+            host = socket.inet_ntop(socket.AF_INET6, raw)
+
+        else:
+            return None
+
+        port_raw = self._recv_exact(2)
+        if not port_raw:
+            return None
+        port = struct.unpack("!H", port_raw)[0]
+        return host, port
+
+    # ── Tunnel snooping ───────────────────────────────────────────────────────
+
+    def _snoop_tunnel(self, destination: str, dest_port: int, safe_addr: str):
+        """
+        After sending CONNECT OK, snoop the tunnelled connection.
+        Detect the protocol (TLS / HTTP / unknown) and respond accordingly,
+        then log all data received for forensic capture.
+        """
+        sock = self.conn
+        sock.settimeout(0.5)
+
+        # Peek at first bytes to detect protocol
+        try:
+            peek = sock.recv(8, socket.MSG_PEEK)
+        except OSError:
+            peek = b""
+
+        protocol = _detect_protocol(peek)
+
+        # If TLS ClientHello → wrap the tunnel connection
+        if protocol == "tls":
+            if (
+                self.cert_path
+                and self.key_path
+                and os.path.exists(self.cert_path)
+                and os.path.exists(self.key_path)
+            ):
+                try:
+                    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+                    ctx.load_cert_chain(
+                        certfile=self.cert_path, keyfile=self.key_path
+                    )
+                    sock = ctx.wrap_socket(sock, server_side=True)
+                    logger.debug(
+                        f"SOCKS5 TLS tunnel handshake complete: {safe_addr} "
+                        f"→ {destination}:{dest_port}"
+                    )
+                except ssl.SSLError as e:
+                    logger.debug(f"SOCKS5 TLS wrap failed {safe_addr}: {e}")
+                    return   # socket state is unrecoverable after partial handshake
+            self.conn = sock  # keep reference so close() works
+
+        sock.settimeout(SESSION_TIMEOUT)
+
+        # Read first payload
+        first_data = b""
+        try:
+            first_data = sock.recv(4096)
+        except OSError:
+            pass
+
+        if first_data:
+            preview = sanitize_log_string(
+                first_data[:LOG_PREVIEW].decode("utf-8", errors="replace")
+            )
+            logger.debug(
+                f"SOCKS5 [{protocol.upper()}] tunnel {safe_addr} "
+                f"→ {destination}:{dest_port}  {len(first_data)}B: {preview}"
+            )
+
+        # Respond
+        response = _HTTP_200 if protocol in ("http", "tls") else _GENERIC_BANNER
+        try:
+            sock.sendall(response)
+        except OSError:
+            return
+
+        # Drain follow-on messages
+        try:
+            while True:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                preview = sanitize_log_string(
+                    chunk[:LOG_PREVIEW].decode("utf-8", errors="replace")
+                )
+                logger.debug(
+                    f"SOCKS5 [{protocol.upper()}] follow-on {safe_addr} "
+                    f"→ {destination}:{dest_port}  {len(chunk)}B: {preview}"
+                )
+        except OSError:
+            pass
+
+    # ── Thread main ───────────────────────────────────────────────────────────
+
+    def run(self):
+        safe_addr = sanitize_ip(self.addr[0])
+        jl = get_json_logger()
+        try:
+            self.conn.settimeout(SESSION_TIMEOUT)
+
+            if not self._handshake():
+                logger.debug(f"SOCKS5 bad handshake from {safe_addr}")
+                return
+
+            result = self._read_connect()
+            if result is None:
+                return
+
+            destination, dest_port = result
+            safe_dest = sanitize_log_string(destination)
+            logger.info(
+                f"SOCKS5 CONNECT [{safe_addr}] → {safe_dest}:{dest_port}"
+            )
+            if jl:
+                jl.log(
+                    "socks5_connect",
+                    src_ip=self.addr[0],
+                    destination=destination,
+                    dest_port=dest_port,
+                )
+
+            # Report success to the client
+            self._send(_CONNECT_OK)
+
+            # Snoop & respond to tunnelled traffic
+            self._snoop_tunnel(destination, dest_port, safe_addr)
+
+        except OSError:
+            pass
+        finally:
+            if self._sem is not None:
+                self._sem.release()
+            try:
+                self.conn.close()
+            except OSError:
+                pass
+            logger.debug(f"SOCKS5 [{safe_addr}] session ended")
+
+
+class Socks5Service:
+    """Fake SOCKS5 proxy server — captures tunnelled C2 destinations."""
+
+    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+        self.enabled   = config.get("enabled", True)
+        self.port      = int(config.get("port", 1080))
+        self.bind_ip   = bind_ip
+        self.cert_path = str(config.get("cert_file", "certs/server.crt"))
+        self.key_path  = str(config.get("key_file",  "certs/server.key"))
+        self._sem      = threading.BoundedSemaphore(int(config.get("max_connections", 200)))
+        self._sock:   Optional[socket.socket] = None
+        self._thread: Optional[threading.Thread] = None
+        self._stop    = threading.Event()
+
+    def start(self) -> bool:
+        if not self.enabled:
+            return False
+        try:
+            self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self._sock.bind((self.bind_ip, self.port))
+            self._sock.listen(50)
+            self._sock.settimeout(1.0)
+            self._stop.clear()
+            self._thread = threading.Thread(
+                target=self._serve, daemon=True, name="socks5-server"
+            )
+            self._thread.start()
+            logger.info(f"SOCKS5 proxy service started on {self.bind_ip}:{self.port}")
+            return True
+        except OSError as e:
+            logger.error(f"SOCKS5 failed to bind: {e}")
+            return False
+
+    def _serve(self):
+        while not self._stop.is_set():
+            try:
+                conn, addr = self._sock.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            if not self._sem.acquire(blocking=False):
+                logger.debug("SOCKS5 at capacity, dropping %s", sanitize_ip(addr[0]))
+                conn.close()
+                continue
+            _Socks5Session(
+                conn, addr,
+                cert_path=self.cert_path,
+                key_path=self.key_path,
+                sem=self._sem,
+            ).start()
+
+    def stop(self):
+        self._stop.set()
+        if self._sock:
+            try:
+                self._sock.close()
+            except OSError:
+                pass
+        if self._thread:
+            self._thread.join(timeout=3.0)
+        logger.info("SOCKS5 proxy service stopped.")
+
+    @property
+    def running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()

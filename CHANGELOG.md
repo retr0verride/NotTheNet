@@ -9,6 +9,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ---
 
+## [2026.03.06-13] — 2026-03-06
+
+### Added
+- **Telnet service (TCP/23)** — fake Telnet server targeting Mirai and IoT botnet families; sends RFC 854 IAC option negotiation, configurable device banner, accepts any credentials (logs username + password), simulates a BusyBox root shell; shell commands (id, uname, ls, wget, curl, etc.) return plausible-but-harmless output so bots keep executing
+- **SOCKS5 proxy service (TCP/1080)** — fake SOCKS5 server (RFC 1928) for malware families that tunnel C2 through SOCKS5 (SystemBC, QakBot, Cobalt Strike, DarkComet, Emotet); logs the real destination host and port from every CONNECT request — the highest-value intelligence captured; after handshake behaves like the catch-all (TLS wrap if TLS ClientHello, HTTP 200 for HTTP, generic banner otherwise)
+- **IRC/TLS service (TCP/6697)** — TLS-wrapped IRC sinkhole (`IRCSTLSService`); wraps accepted connections with existing certs before delegating to the full RFC 1459 handler; modern botnets using SSL IRC are now fully captured
+- **GUI sidebar entries** — Telnet, SOCKS5, and IRC/TLS added to the NETWORK group with status dots and configurable pages
+- **`max_connections` config key** — all manual-accept services (Telnet, SOCKS5, IRC, IRC/TLS) now respect a `max_connections` limit; CatchAllTCP enforces its limit via `_ReuseServer.process_request` override
+
+### Fixed
+- **Catch-all TLS fallthrough** — when certs are present but the TLS handshake fails (non-standard malware TLS stacks), the session now closes immediately instead of sending plaintext into a corrupted TLS stream
+- **SOCKS5 TLS fallthrough** — same fix applied to `_snoop_tunnel`; partial-handshake failure now returns immediately
+- **SMTP STARTTLS always returned 454** — now completes a real in-place TLS upgrade when certs are available; stealers (AgentTesla, FormBook) no longer bail before sending credentials
+- **IMAP/POP3 STARTTLS/STLS missing** — CAPABILITY/CAPA now advertises STARTTLS/STLS; both commands perform a real socket upgrade
+- **IRC silent crash** — `jl.log_event()` called in three places but `JsonEventLogger` only has `log()`; `AttributeError` was silently killing every IRC handler thread before the welcome burst was sent; fixed to `jl.log()`
+- **Telnet IAC stripping** — `_recv_line` now correctly handles 2-byte IAC commands (NOP, BRK, GA) and 3-byte WILL/WONT/DO/DONT sequences; previously always consumed 2 bytes regardless, corrupting credentials containing embedded option bytes
+- **`ServiceManager._services` dict race** — `start()` runs in a background thread while the GUI can call `status()` concurrently; added `threading.Lock`; `stop()` snapshots the dict before iterating and clearing to prevent `RuntimeError: dictionary changed size during iteration`
+- **`excluded_ports` missing TFTP and NTP** — added 69 and 123; if `redirect_udp` is enabled, TFTP uploads and NTP responses no longer fall through to the UDP catch-all
+- **Connection limit enforcement** — all services previously spawned unbounded threads per `accept()`; worm-phase malware could exhaust file descriptors and thread count; bounded semaphores now enforce limits
+
+### Changed
+- `config.json`: added `telnet`, `socks5`, `ircs` sections; `excluded_ports` sorted numerically
+- `service_manager.py`: imports and starts Telnet, SOCKS5, IRC/TLS; iptables `port_map` includes ports 23, 1080, 6697
+
+---
+
 ## [2026.03.06-12] — 2026-03-06
 
 ### Changed

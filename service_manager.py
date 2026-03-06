@@ -4,6 +4,7 @@ Orchestrates all fake network services and iptables rules.
 """
 
 import logging
+import threading
 from typing import Optional
 
 from config import Config
@@ -14,7 +15,9 @@ from services.dns_server import DNSService
 from services.ftp_server import FTPService
 from services.http_server import HTTPService, HTTPSService
 from services.mail_server import IMAPService, IMAPSService, POP3Service, POP3SService, SMTPService, SMTPSService
-from services.irc_server import IRCService
+from services.irc_server import IRCService, IRCSTLSService
+from services.telnet_server import TelnetService
+from services.socks5_server import Socks5Service
 from services.ntp_server import NTPService
 from services.tftp_server import TFTPService
 from utils.cert_utils import ensure_certs
@@ -34,6 +37,7 @@ class ServiceManager:
     def __init__(self, config: Config):
         self.config = config
         self._services: dict[str, object] = {}
+        self._lock = threading.Lock()
         self._iptables: Optional[IPTablesManager] = None
         self._running = False
 
@@ -180,6 +184,34 @@ class ServiceManager:
             self._services["tftp"] = tftp
             started.append("tftp")
 
+        telnet_cfg = {
+            **self.config.get_section("telnet"),
+        }
+        telnet = TelnetService(telnet_cfg, bind_ip=bind_ip)
+        if telnet.start():
+            self._services["telnet"] = telnet
+            started.append("telnet")
+
+        socks5_cfg = {
+            **self.config.get_section("socks5"),
+            "cert_file": https_cfg.get("cert_file", "certs/server.crt"),
+            "key_file":  https_cfg.get("key_file",  "certs/server.key"),
+        }
+        socks5 = Socks5Service(socks5_cfg, bind_ip=bind_ip)
+        if socks5.start():
+            self._services["socks5"] = socks5
+            started.append("socks5")
+
+        ircs_cfg = {
+            **self.config.get_section("ircs"),
+            "cert_file": https_cfg.get("cert_file", "certs/server.crt"),
+            "key_file":  https_cfg.get("key_file",  "certs/server.key"),
+        }
+        ircs = IRCSTLSService(ircs_cfg, bind_ip=bind_ip)
+        if ircs.start():
+            self._services["ircs"] = ircs
+            started.append("ircs")
+
         # --- Apply iptables rules after all services are bound ---
         if self.config.get("general", "auto_iptables"):
             self._apply_iptables()
@@ -218,6 +250,9 @@ class ServiceManager:
             "imaps": ("tcp", self.config.get("imaps", "port") or 993),
             "ftp":   ("tcp", self.config.get("ftp",   "port") or 21),
             "irc":   ("tcp", self.config.get("irc",   "port") or 6667),
+            "telnet": ("tcp", self.config.get("telnet", "port") or 23),
+            "socks5": ("tcp", self.config.get("socks5", "port") or 1080),
+            "ircs":   ("tcp", self.config.get("ircs",   "port") or 6697),
         }
         # TFTP uses UDP port 69
         if "tftp" in self._services:
@@ -246,12 +281,14 @@ class ServiceManager:
 
     def stop(self):
         """Stop all services and remove iptables rules."""
-        for name, svc in self._services.items():
+        with self._lock:
+            items = list(self._services.items())
+            self._services.clear()
+        for name, svc in items:
             try:
                 svc.stop()
             except Exception as e:
                 logger.warning("Error stopping %s: %s", name, e)
-        self._services.clear()
 
         if self._iptables:
             self._iptables.remove_rules()
@@ -264,8 +301,9 @@ class ServiceManager:
 
     def status(self) -> dict[str, bool]:
         """Return a dict of {service_name: is_running}."""
-        return {name: getattr(svc, "running", False)
-                for name, svc in self._services.items()}
+        with self._lock:
+            return {name: getattr(svc, "running", False)
+                    for name, svc in self._services.items()}
 
     @property
     def running(self) -> bool:

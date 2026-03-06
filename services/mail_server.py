@@ -44,13 +44,18 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
 class _SMTPClientThread(threading.Thread):
     """Handles a single SMTP client connection in its own thread."""
 
-    def __init__(self, conn, addr, hostname: str, banner: str, save_dir: Optional[str]):
+    def __init__(
+        self, conn, addr, hostname: str, banner: str, save_dir: Optional[str],
+        cert_path: str = "", key_path: str = "",
+    ):
         super().__init__(daemon=True)
         self.conn = conn
         self.addr = addr
         self.hostname = hostname
         self.banner = banner
         self.save_dir = save_dir
+        self.cert_path = cert_path
+        self.key_path = key_path
         self.data_mode = False
         self.mail_data: list = []
         self.current_size = 0
@@ -173,9 +178,25 @@ class _SMTPClientThread(threading.Thread):
         elif cmd.startswith("NOOP"):
             self._send("250 Ok")
         elif cmd.startswith("STARTTLS"):
-            # Acknowledge but do not actually upgrade; most malware falls
-            # back to unencrypted SMTP when TLS fails gracefully.
-            self._send("454 TLS not available due to temporary reason")
+            # Complete the TLS handshake so stealers that require STARTTLS
+            # (AgentTesla, FormBook on port 25) proceed to send credentials.
+            if (
+                self.cert_path
+                and self.key_path
+                and os.path.exists(self.cert_path)
+                and os.path.exists(self.key_path)
+            ):
+                self._send("220 Ready to start TLS")
+                try:
+                    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+                    ctx.load_cert_chain(certfile=self.cert_path, keyfile=self.key_path)
+                    self.conn = ctx.wrap_socket(self.conn, server_side=True)
+                    logger.debug(f"SMTP STARTTLS handshake complete: {safe_addr}")
+                except ssl.SSLError as e:
+                    logger.debug(f"SMTP STARTTLS handshake failed {safe_addr}: {e}")
+            else:
+                self._send("454 TLS not available due to temporary reason")
         else:
             self._send("500 Unrecognized command")
 
@@ -209,16 +230,20 @@ class _SMTPServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
 
-    def __init__(self, address, hostname, banner, save_dir):
+    def __init__(self, address, hostname, banner, save_dir,
+                 cert_path: str = "", key_path: str = ""):
         self.smtp_hostname = hostname
         self.smtp_banner = banner
         self.smtp_save_dir = save_dir
+        self.smtp_cert_path = cert_path
+        self.smtp_key_path = key_path
         super().__init__(address, None)
 
     def finish_request(self, request, client_address):
         t = _SMTPClientThread(
             request, client_address,
-            self.smtp_hostname, self.smtp_banner, self.smtp_save_dir
+            self.smtp_hostname, self.smtp_banner, self.smtp_save_dir,
+            cert_path=self.smtp_cert_path, key_path=self.smtp_key_path,
         )
         t.start()
 
@@ -266,6 +291,8 @@ class SMTPService:
         self.bind_ip = bind_ip
         self.hostname = config.get("hostname", "mail.notthenet.local")
         self.banner = config.get("banner", "220 mail.notthenet.local ESMTP")
+        self.cert_file = config.get("cert_file", "certs/server.crt")
+        self.key_file  = config.get("key_file",  "certs/server.key")
         save_emails = config.get("save_emails", True)
         self.save_dir = "logs/emails" if save_emails else None
         self._server: Optional[_SMTPServer] = None
@@ -277,8 +304,10 @@ class SMTPService:
         if self.save_dir:
             os.makedirs(self.save_dir, exist_ok=True)
         try:
+            ensure_certs(self.cert_file, self.key_file)
             self._server = _SMTPServer(
-                (self.bind_ip, self.port), self.hostname, self.banner, self.save_dir
+                (self.bind_ip, self.port), self.hostname, self.banner, self.save_dir,
+                cert_path=self.cert_file, key_path=self.key_file,
             )
             self._thread = threading.Thread(
                 target=self._server.serve_forever, daemon=True
@@ -368,9 +397,12 @@ class SMTPSService:
 # POP3
 # ---------------------------------------------------------------------------
 
-def _make_pop3_handler(hostname: str = "mail.notthenet.local"):
+def _make_pop3_handler(hostname: str = "mail.notthenet.local",
+                       cert_path: str = "", key_path: str = ""):
     class POP3Handler(socketserver.BaseRequestHandler):
         _hostname = hostname
+        _cert_path = cert_path
+        _key_path  = key_path
 
         def handle(self):
             safe_addr = sanitize_ip(self.client_address[0])
@@ -379,6 +411,13 @@ def _make_pop3_handler(hostname: str = "mail.notthenet.local"):
             if jl:
                 jl.log("pop3_connection", src_ip=self.client_address[0])
             try:
+                _tls_ready = (
+                    self._cert_path
+                    and self._key_path
+                    and os.path.exists(self._cert_path)
+                    and os.path.exists(self._key_path)
+                )
+                capa_extra = "+OK\r\nUSER\r\nUIDL\r\nSTLS\r\n." if _tls_ready else "+OK\r\nUSER\r\nUIDL\r\n."
                 self._send(f"+OK {self._hostname} POP3 server ready")
                 self.request.settimeout(30)
                 buf = b""
@@ -404,7 +443,30 @@ def _make_pop3_handler(hostname: str = "mail.notthenet.local"):
                             self._send("+OK Bye")
                             return
                         elif cmd.startswith("CAPA"):
-                            self._send("+OK\r\nUSER\r\nUIDL\r\n.")
+                            self._send(capa_extra)
+                        elif cmd.startswith("STLS"):
+                            if _tls_ready:
+                                self._send("+OK Begin TLS negotiation")
+                                try:
+                                    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                                    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+                                    ctx.load_cert_chain(
+                                        certfile=self._cert_path,
+                                        keyfile=self._key_path,
+                                    )
+                                    self.request = ctx.wrap_socket(
+                                        self.request, server_side=True
+                                    )
+                                    logger.debug(
+                                        f"POP3 STLS handshake complete: {safe_addr}"
+                                    )
+                                except ssl.SSLError as e:
+                                    logger.debug(
+                                        f"POP3 STLS handshake failed {safe_addr}: {e}"
+                                    )
+                                    return
+                            else:
+                                self._send("-ERR TLS not available")
                         else:
                             self._send("-ERR Unknown command")
             except Exception as e:
@@ -424,7 +486,9 @@ class POP3Service:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 110))
         self.bind_ip = bind_ip
-        self.hostname = config.get("hostname", "mail.notthenet.local")
+        self.hostname  = config.get("hostname",  "mail.notthenet.local")
+        self.cert_file = config.get("cert_file", "certs/server.crt")
+        self.key_file  = config.get("key_file",  "certs/server.key")
         self._server = None
         self._thread = None
 
@@ -432,7 +496,10 @@ class POP3Service:
         if not self.enabled:
             return False
         try:
-            handler = _make_pop3_handler(self.hostname)
+            ensure_certs(self.cert_file, self.key_file)
+            handler = _make_pop3_handler(
+                self.hostname, cert_path=self.cert_file, key_path=self.key_file
+            )
             self._server = _ReuseServer((self.bind_ip, self.port), handler)
             self._thread = threading.Thread(
                 target=self._server.serve_forever, daemon=True
@@ -510,9 +577,11 @@ class POP3SService:
 # IMAP
 # ---------------------------------------------------------------------------
 
-def _make_imap_handler(hostname: str):
+def _make_imap_handler(hostname: str, cert_path: str = "", key_path: str = ""):
     class IMAPHandler(socketserver.BaseRequestHandler):
-        _hostname = hostname
+        _hostname  = hostname
+        _cert_path = cert_path
+        _key_path  = key_path
 
         def handle(self):
             safe_addr = sanitize_ip(self.client_address[0])
@@ -521,6 +590,17 @@ def _make_imap_handler(hostname: str):
             if jl:
                 jl.log("imap_connection", src_ip=self.client_address[0])
             try:
+                _tls_ready = (
+                    self._cert_path
+                    and self._key_path
+                    and os.path.exists(self._cert_path)
+                    and os.path.exists(self._key_path)
+                )
+                capability = (
+                    "* CAPABILITY IMAP4rev1 STARTTLS"
+                    if _tls_ready else
+                    "* CAPABILITY IMAP4rev1"
+                )
                 self._send(f"* OK {self._hostname} IMAP4rev1 ready")
                 self.request.settimeout(30)
                 buf = b""
@@ -536,10 +616,33 @@ def _make_imap_handler(hostname: str):
                         if len(parts) < 2:
                             continue
                         tag, cmd = parts[0], parts[1].upper()
-                        if cmd == "LOGIN":
+                        if cmd == "STARTTLS":
+                            if _tls_ready:
+                                self._send(f"{tag} OK Begin TLS negotiation")
+                                try:
+                                    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                                    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+                                    ctx.load_cert_chain(
+                                        certfile=self._cert_path,
+                                        keyfile=self._key_path,
+                                    )
+                                    self.request = ctx.wrap_socket(
+                                        self.request, server_side=True
+                                    )
+                                    logger.debug(
+                                        f"IMAP STARTTLS handshake complete: {safe_addr}"
+                                    )
+                                except ssl.SSLError as e:
+                                    logger.debug(
+                                        f"IMAP STARTTLS handshake failed {safe_addr}: {e}"
+                                    )
+                                    return
+                            else:
+                                self._send(f"{tag} NO TLS not available")
+                        elif cmd == "LOGIN":
                             self._send(f"{tag} OK LOGIN completed")
                         elif cmd == "CAPABILITY":
-                            self._send(f"* CAPABILITY IMAP4rev1\r\n{tag} OK")
+                            self._send(f"{capability}\r\n{tag} OK")
                         elif cmd == "LIST":
                             self._send(f'* LIST () "/" INBOX\r\n{tag} OK LIST completed')
                         elif cmd == "SELECT":
@@ -593,7 +696,9 @@ class IMAPService:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 143))
         self.bind_ip = bind_ip
-        self.hostname = config.get("hostname", "mail.notthenet.local")
+        self.hostname  = config.get("hostname",  "mail.notthenet.local")
+        self.cert_file = config.get("cert_file", "certs/server.crt")
+        self.key_file  = config.get("key_file",  "certs/server.key")
         self._server = None
         self._thread = None
 
@@ -601,7 +706,10 @@ class IMAPService:
         if not self.enabled:
             return False
         try:
-            handler = _make_imap_handler(self.hostname)
+            ensure_certs(self.cert_file, self.key_file)
+            handler = _make_imap_handler(
+                self.hostname, cert_path=self.cert_file, key_path=self.key_file
+            )
             self._server = _ReuseServer((self.bind_ip, self.port), handler)
             self._thread = threading.Thread(
                 target=self._server.serve_forever, daemon=True

@@ -18,7 +18,9 @@ Security notes (OpenSSF):
 """
 
 import logging
+import os
 import socket
+import ssl
 import threading
 from typing import Optional
 
@@ -41,6 +43,7 @@ class _IRCClientThread(threading.Thread):
         network: str,
         channel: str,
         motd: str,
+        sem: Optional[threading.BoundedSemaphore] = None,
     ):
         super().__init__(daemon=True, name=f"irc-{addr[0]}:{addr[1]}")
         self.conn = conn
@@ -52,6 +55,7 @@ class _IRCClientThread(threading.Thread):
         self.nick: Optional[str] = None
         self.user: Optional[str] = None
         self.registered = False
+        self._sem = sem
 
     # ── I/O helpers ──────────────────────────────────────────────────────────
 
@@ -114,7 +118,7 @@ class _IRCClientThread(threading.Thread):
         logger.info(f"IRC  JOIN [{sanitize_ip(self.addr[0])}] {nick} -> {safe_chan}")
         jl = get_json_logger()
         if jl:
-            jl.log_event("irc_join", self.addr[0], nick=nick, channel=safe_chan)
+            jl.log("irc_join", src_ip=self.addr[0], nick=nick, channel=safe_chan)
 
         # Echo the join to the client (required for client-side channel tracking)
         self._send_raw(f":{nick}!{self.user}@{self.hostname} JOIN :{channel}")
@@ -134,7 +138,7 @@ class _IRCClientThread(threading.Thread):
         logger.info(f"IRC  [{safe_addr}] connected")
         jl = get_json_logger()
         if jl:
-            jl.log_event("irc_connect", self.addr[0])
+            jl.log("irc_connect", src_ip=self.addr[0])
         try:
             buf = b""
             while True:
@@ -151,6 +155,8 @@ class _IRCClientThread(threading.Thread):
         except (OSError, ConnectionResetError):
             pass
         finally:
+            if self._sem is not None:
+                self._sem.release()
             try:
                 self.conn.close()
             except OSError:
@@ -235,8 +241,9 @@ class _IRCClientThread(threading.Thread):
             )
             jl = get_json_logger()
             if jl:
-                jl.log_event(
-                    "irc_message", self.addr[0],
+                jl.log(
+                    "irc_message",
+                    src_ip=self.addr[0],
                     nick=self.nick, type=cmd, message=safe_msg[:200],
                 )
 
@@ -310,7 +317,7 @@ class _IRCClientThread(threading.Thread):
                 self._send(f"421 {self.nick} {cmd} :Unknown command")
 
 
-# ─── Service wrapper ──────────────────────────────────────────────────────────
+# ─── Service wrappers ────────────────────────────────────────────────────────
 
 
 class IRCService:
@@ -324,6 +331,7 @@ class IRCService:
         self.network = config.get("network", "FakeNet")
         self.channel = config.get("channel", "botnet")
         self.motd = config.get("motd", "Welcome to NotTheNet IRC.")
+        self._sem = threading.BoundedSemaphore(int(config.get("max_connections", 150)))
         self._sock: Optional[socket.socket] = None
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -357,12 +365,17 @@ class IRCService:
                 continue
             except OSError:
                 break
+            if not self._sem.acquire(blocking=False):
+                logger.debug("IRC at capacity, dropping %s", sanitize_ip(addr[0]))
+                conn.close()
+                continue
             _IRCClientThread(
                 conn, addr,
                 hostname=self.hostname,
                 network=self.network,
                 channel=self.channel,
                 motd=self.motd,
+                sem=self._sem,
             ).start()
 
     def stop(self):
@@ -375,6 +388,111 @@ class IRCService:
         if self._thread:
             self._thread.join(timeout=3.0)
         logger.info("IRC service stopped.")
+
+    @property
+    def running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
+
+class IRCSTLSService:
+    """
+    TLS-wrapped IRC server on port 6697 (ircs).
+
+    Modern botnets increasingly use SSL IRC to avoid plaintext interception.
+    This service wraps each accepted connection in TLS before handing it to
+    the same ``_IRCClientThread`` handler — giving you full IRC sinkholing
+    over encrypted channels with no code duplication.
+    """
+
+    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+        self.enabled   = config.get("enabled", True)
+        self.port      = int(config.get("port", 6697))
+        self.bind_ip   = bind_ip
+        self.hostname  = config.get("hostname",  "irc.example.com")
+        self.network   = config.get("network",   "FakeNet")
+        self.channel   = config.get("channel",   "botnet")
+        self.motd      = config.get("motd",      "Welcome to NotTheNet IRC.")
+        self.cert_path = str(config.get("cert_file", "certs/server.crt"))
+        self.key_path  = str(config.get("key_file",  "certs/server.key"))
+        self._sem      = threading.BoundedSemaphore(int(config.get("max_connections", 150)))
+        self._sock:   Optional[socket.socket] = None
+        self._thread: Optional[threading.Thread] = None
+        self._stop    = threading.Event()
+
+    def start(self) -> bool:
+        if not self.enabled:
+            return False
+        if not (
+            os.path.exists(self.cert_path) and os.path.exists(self.key_path)
+        ):
+            logger.warning(
+                "IRC/TLS (port %d): cert or key not found — skipping", self.port
+            )
+            return False
+        try:
+            self._ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            self._ssl_ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+            self._ssl_ctx.load_cert_chain(
+                certfile=self.cert_path, keyfile=self.key_path
+            )
+            self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self._sock.bind((self.bind_ip, self.port))
+            self._sock.listen(50)
+            self._sock.settimeout(1.0)
+            self._stop.clear()
+            self._thread = threading.Thread(
+                target=self._serve, daemon=True, name="ircs-server"
+            )
+            self._thread.start()
+            logger.info("IRC/TLS service started on %s:%d", self.bind_ip, self.port)
+            return True
+        except OSError as e:
+            logger.error("IRC/TLS failed to start: %s", e)
+            return False
+
+    def _serve(self):
+        while not self._stop.is_set():
+            try:
+                raw_conn, addr = self._sock.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            if not self._sem.acquire(blocking=False):
+                logger.debug("IRC/TLS at capacity, dropping %s", sanitize_ip(addr[0]))
+                raw_conn.close()
+                continue
+            # TLS wrap before handing to the IRC handler
+            try:
+                conn = self._ssl_ctx.wrap_socket(raw_conn, server_side=True)
+            except ssl.SSLError as e:
+                logger.debug("IRC/TLS handshake failed %s: %s", addr[0], e)
+                self._sem.release()   # release slot — session never started
+                try:
+                    raw_conn.close()
+                except OSError:
+                    pass
+                continue
+            _IRCClientThread(
+                conn, addr,
+                hostname=self.hostname,
+                network=self.network,
+                channel=self.channel,
+                motd=self.motd,
+                sem=self._sem,
+            ).start()
+
+    def stop(self):
+        self._stop.set()
+        if self._sock:
+            try:
+                self._sock.close()
+            except OSError:
+                pass
+        if self._thread:
+            self._thread.join(timeout=3.0)
+        logger.info("IRC/TLS service stopped.")
 
     @property
     def running(self) -> bool:
