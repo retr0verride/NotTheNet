@@ -9,6 +9,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ---
 
+## [2026.03.09-1] — 2026-03-09
+
+### Fixed
+- **`update.sh` dirty-file abort** — git pull aborted when tracked files other than `config.json` had local modifications (e.g. `notthenet-uninstall.sh`); those files are now reset before the pull, matching the existing `config.json` preservation logic
+
+---
+
 ## [2026.03.06-13] — 2026-03-06
 
 ### Added
