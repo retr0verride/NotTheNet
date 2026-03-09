@@ -21,6 +21,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+from typing import Optional
 
 from utils.logging_utils import sanitize_log_string
 from utils.validators import validate_port
@@ -93,6 +94,27 @@ def _restore_rules() -> bool:
     return False
 
 
+_IP_FORWARD_PATH = "/proc/sys/net/ipv4/ip_forward"
+
+
+def _read_ip_forward() -> Optional[str]:
+    try:
+        with open(_IP_FORWARD_PATH) as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def _write_ip_forward(value: str) -> bool:
+    try:
+        with open(_IP_FORWARD_PATH, "w") as f:
+            f.write(value + "\n")
+        return True
+    except OSError as e:
+        logger.warning("Could not write ip_forward: %s", e)
+        return False
+
+
 class IPTablesManager:
     """
     Manages iptables rules to redirect traffic to fake services.
@@ -112,6 +134,7 @@ class IPTablesManager:
         self.mode = config.get("iptables_mode", "loopback")
         self._rules_applied: list[list[str]] = []
         self._saved = False
+        self._prev_ip_forward: Optional[str] = None  # restored on stop
 
     def _validate_interface(self, iface: str) -> bool:
         """Validate interface name against /proc/net/dev."""
@@ -278,6 +301,21 @@ class IPTablesManager:
             if self._add_rule(icmp_rule):
                 ok_count += 1
 
+        # --- Enable ip_forward in gateway mode (required for PREROUTING DNAT) -
+        if self.mode == "gateway":
+            prev = _read_ip_forward()
+            if prev is not None and prev != "1":
+                if _write_ip_forward("1"):
+                    self._prev_ip_forward = prev
+                    logger.info("ip_forward enabled for gateway mode (was %s).", prev)
+                else:
+                    logger.warning(
+                        "Could not enable ip_forward; pings and forwarded traffic "
+                        "may not reach fake services."
+                    )
+            elif prev == "1":
+                logger.debug("ip_forward already enabled.")
+
         logger.info(
             f"Applied {ok_count} iptables NAT rules "
             f"(chain={chain}, mode={self.mode})"
@@ -303,6 +341,12 @@ class IPTablesManager:
         count = len(self._rules_applied)
         self._rules_applied.clear()
         logger.info(f"Removed {count} iptables rules.")
+
+        # Restore ip_forward to its previous value
+        if self._prev_ip_forward is not None:
+            if _write_ip_forward(self._prev_ip_forward):
+                logger.info("ip_forward restored to %s.", self._prev_ip_forward)
+            self._prev_ip_forward = None
 
     @staticmethod
     def list_notthenet_rules() -> list[str]:
