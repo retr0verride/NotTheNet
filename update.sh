@@ -25,6 +25,16 @@ if ! git diff --quiet config.json 2>/dev/null; then
 fi
 
 # ── 3. Pull latest code ───────────────────────────────────────────────────────
+# Discard local changes to any tracked files other than config.json so the
+# pull can complete cleanly (config.json was already handled above).
+OTHER_DIRTY=$(git diff --name-only 2>/dev/null | grep -v '^config\.json$' || true)
+if [ -n "$OTHER_DIRTY" ]; then
+    echo "[!] Discarding local changes to the following tracked files:"
+    echo "$OTHER_DIRTY" | sed 's/^/    /'
+    # xargs-safe: use git checkout -- with quoted names
+    echo "$OTHER_DIRTY" | xargs git checkout --
+fi
+
 echo "[*] Pulling latest changes from GitHub..."
 git pull origin master
 
