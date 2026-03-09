@@ -69,6 +69,7 @@ _desk_user="${SUDO_USER:-$(logname 2>/dev/null || true)}"
 if [[ -n "$_desk_user" ]]; then
     _home=$(getent passwd "$_desk_user" | cut -d: -f6)
     for f in \
+        "$_home/Desktop/notthenet.desktop" \
         "$_home/.local/share/applications/notthenet.desktop" \
         "$_home/.local/share/icons/hicolor/scalable/apps/notthenet.svg" \
         "$_home/.local/share/icons/hicolor/128x128/apps/notthenet.png"; do

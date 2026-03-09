@@ -166,6 +166,25 @@ if [[ $EUID -eq 0 ]]; then
     update-desktop-database -q /usr/share/applications 2>/dev/null || true
     info "Desktop entry installed: $DESKTOP_FILE"
 
+    # Place a clickable shortcut on the actual Desktop ─────────────────────
+    DESK_USER="${SUDO_USER:-$(logname 2>/dev/null || true)}"
+    if [[ -n "$DESK_USER" ]]; then
+        DESK_HOME=$(getent passwd "$DESK_USER" | cut -d: -f6)
+        DESK_DIR="${DESK_HOME}/Desktop"
+        if [[ -d "$DESK_DIR" ]]; then
+            DESK_SHORTCUT="${DESK_DIR}/notthenet.desktop"
+            cp -f "$DESKTOP_FILE" "$DESK_SHORTCUT"
+            chmod 0755 "$DESK_SHORTCUT"           # must be executable to launch
+            chown "$DESK_USER:$DESK_USER" "$DESK_SHORTCUT"
+            # XFCE/Thunar: mark as trusted so the launcher isn't greyed out
+            runuser -u "$DESK_USER" -- \
+                gio set "$DESK_SHORTCUT" metadata::trusted true 2>/dev/null || true
+            info "Desktop shortcut created: $DESK_SHORTCUT"
+        else
+            warn "No Desktop folder found for $DESK_USER; skipping desktop shortcut."
+        fi
+    fi
+
     # Install polkit action (gives pkexec a descriptive auth dialog)
     POLKIT_DIR="/usr/share/polkit-1/actions"
     if [[ -d "$POLKIT_DIR" ]]; then
@@ -213,6 +232,7 @@ echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║   NotTheNet installed successfully!                  ║${NC}"
 echo -e "${GREEN}║                                                      ║${NC}"
+echo -e "${GREEN}║   Desktop:   Double-click NotTheNet on your desktop  ║${NC}"
 echo -e "${GREEN}║   App menu:  Search 'NotTheNet' and click icon       ║${NC}"
 echo -e "${GREEN}║   GUI:       sudo notthenet                          ║${NC}"
 echo -e "${GREEN}║   Headless:  sudo notthenet --nogui                  ║${NC}"
