@@ -101,7 +101,7 @@ The install script will:
 6. Create log directories (`logs/`, `logs/emails/`, `logs/ftp_uploads/`)
 7. Install a launcher at `/usr/local/bin/notthenet`
 8. Install an uninstall command at `/usr/local/bin/notthenet-uninstall`
-9. Install a clickable desktop icon (app menu + polkit password prompt)
+9. Install icon and app-menu entry (`.desktop` file for GNOME/XFCE/KDE application launchers)
 
 After install:
 
@@ -125,6 +125,12 @@ Or simply search for **NotTheNet** in the Kali application menu (or any GNOME/XF
 | `/usr/share/applications/notthenet.desktop` | Desktop entry (app menu, dock) |
 | `/usr/local/bin/notthenet-gui` | Wrapper that calls `pkexec` for the password prompt |
 | `/usr/share/polkit-1/actions/com.retr0verride.notthenet.policy` | Named polkit action (descriptive auth dialog) |
+
+> **Note:** The installer adds NotTheNet to the application menu only. A `~/Desktop` shortcut is **not** created automatically. To add one manually:
+> ```bash
+> cp /usr/share/applications/notthenet.desktop ~/Desktop/
+> chmod +x ~/Desktop/notthenet.desktop
+> ```
 
 ### How privilege escalation works
 

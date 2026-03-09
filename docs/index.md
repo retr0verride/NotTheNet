@@ -74,3 +74,4 @@ That's it. Every DNS query from the analysis machine now resolves to `127.0.0.1`
 | TCP/IP OS fingerprint spoof | No | No | Yes (TTL, window size, DF, MSS) |
 | Structured JSON event log | No | No | Yes (JSONL per-request, pipeline-ready) |
 | Single file to read | No | No | Each concern in one module |
+| Services covered | DNS, HTTP, HTTPS, SMTP, POP3, IMAP, FTP | DNS, HTTP, HTTPS, SMTP, FTP | DNS · HTTP/S · SMTP/S · POP3/S · IMAP/S · FTP · NTP · IRC/IRCS · TFTP · Telnet · SOCKS5 · MySQL · MSSQL · RDP · SMB · VNC · Redis · LDAP · ICMP · Catch-All |

@@ -10,9 +10,26 @@ The GUI exposes every field — you can also edit the JSON directly.
 - [http](#http)
 - [https](#https)
 - [smtp](#smtp)
+- [smtps](#smtps)
 - [pop3](#pop3)
+- [pop3s](#pop3s)
 - [imap](#imap)
+- [imaps](#imaps)
 - [ftp](#ftp)
+- [ntp](#ntp)
+- [irc](#irc)
+- [ircs](#ircs)
+- [tftp](#tftp)
+- [telnet](#telnet)
+- [socks5](#socks5)
+- [icmp](#icmp)
+- [mysql](#mysql)
+- [mssql](#mssql)
+- [rdp](#rdp)
+- [smb](#smb)
+- [vnc](#vnc)
+- [redis](#redis)
+- [ldap](#ldap)
 - [catch\_all](#catch_all)
 - [Custom DNS Records](#custom-dns-records)
 - [Example Configurations](#example-configurations)
@@ -194,6 +211,209 @@ Fake FTP server. Accepts uploads (saved with UUID filenames), always reports suc
 
 ---
 
+## `ntp`
+
+NTP server — responds with current system time to defeat clock-skew sandbox detection.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Enable the NTP service. |
+| `port` | int | `123` | UDP port. |
+
+---
+
+## `irc`
+
+Fake IRC server for capturing IRC-based botnet C2.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Enable the IRC service. |
+| `port` | int | `6667` | TCP port. |
+| `hostname` | string | `"irc.example.com"` | IRC server hostname reported in welcome numerics. |
+| `network` | string | `"IRCnet"` | IRC network name reported in `005 NETWORK=`. |
+| `channel` | string | `"botnet"` | Default channel the server advertises in the welcome burst. |
+| `motd` | string | `"Welcome to IRC."` | Message of the Day text. |
+
+---
+
+## `ircs`
+
+TLS-wrapped IRC (implicit TLS on port 6697). Identical config keys to [`irc`](#irc).
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Enable the IRCS service. |
+| `port` | int | `6697` | TCP port. |
+| `hostname` | string | `"irc.example.com"` | IRC server hostname. |
+| `network` | string | `"IRCnet"` | IRC network name. |
+| `channel` | string | `"botnet"` | Default channel. |
+| `motd` | string | `"Welcome to IRC."` | Message of the Day. |
+
+---
+
+## `tftp`
+
+Fake TFTP server for capturing payload staging and exfiltration over UDP.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Enable the TFTP service. |
+| `port` | int | `69` | UDP port. |
+| `allow_uploads` | bool | `true` | If `true`, save WRQ (write) uploads to `upload_dir`. |
+| `upload_dir` | string | `"logs/tftp_uploads"` | Directory for uploaded files. UUID-prefixed names. Max 10 MB per file. |
+
+---
+
+## `telnet`
+
+Fake BusyBox telnet shell for capturing Mirai-family botnet credential sprays.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Enable the Telnet service. |
+| `port` | int | `23` | TCP port. |
+| `banner` | string | `"router login"` | Hostname shown in the login banner line. |
+| `prompt` | string | `"# "` | Shell prompt string shown after successful login. |
+
+---
+
+## `socks5`
+
+Fake SOCKS5 proxy that captures the true C2 destination inside CONNECT requests.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Enable the SOCKS5 service. |
+| `port` | int | `1080` | TCP port. |
+
+---
+
+## `icmp`
+
+ICMP echo-request logger (raw socket). Works with iptables DNAT in `gateway` mode to make every ping appear to succeed.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Enable the ICMP responder. No port — uses a raw socket. Requires root / `CAP_NET_RAW`. |
+
+---
+
+## `smtps`
+
+TLS-wrapped SMTP (implicit TLS, port 465). Identical config keys to [`smtp`](#smtp).
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Enable the SMTPS service. |
+| `port` | int | `465` | TCP port. |
+| `hostname` | string | `"mail.example.com"` | SMTP hostname in banner and EHLO response. |
+| `banner` | string | `"220 mail.example.com ESMTP Postfix"` | SMTP greeting banner. |
+| `save_emails` | bool | `true` | Save received email bodies to `logs/emails/`. |
+
+---
+
+## `pop3s`
+
+TLS-wrapped POP3 (implicit TLS, port 995). Identical config keys to [`pop3`](#pop3).
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Enable the POP3S service. |
+| `port` | int | `995` | TCP port. |
+| `hostname` | string | `"mail.example.com"` | POP3 server hostname. |
+
+---
+
+## `imaps`
+
+TLS-wrapped IMAP (implicit TLS, port 993). Identical config keys to [`imap`](#imap).
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Enable the IMAPS service. |
+| `port` | int | `993` | TCP port. |
+| `hostname` | string | `"mail.example.com"` | IMAP server hostname. |
+
+---
+
+## `mysql`
+
+Fake MySQL 5.7.x server for credential harvesting stealers (RedLine, Vidar, Raccoon).
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Enable the MySQL service. |
+| `port` | int | `3306` | TCP port. |
+
+---
+
+## `mssql`
+
+Fake Microsoft SQL Server for lateral movement and credential spray capture.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Enable the MSSQL service. |
+| `port` | int | `1433` | TCP port. |
+
+---
+
+## `rdp`
+
+Fake RDP server for capturing ransomware operators, brute-force bots, and worm probes.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Enable the RDP service. |
+| `port` | int | `3389` | TCP port. |
+
+---
+
+## `smb`
+
+Fake SMB server for logging dialect negotiation and detecting EternalBlue probes.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Enable the SMB service. |
+| `port` | int | `445` | TCP port. |
+
+---
+
+## `vnc`
+
+Fake VNC server for capturing RAT password challenges and brute-force responses.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Enable the VNC service. |
+| `port` | int | `5900` | TCP port. |
+
+---
+
+## `redis`
+
+Fake Redis server (RESP protocol) for capturing cryptominer C2 and webshell-planting attempts.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Enable the Redis service. |
+| `port` | int | `6379` | TCP port. |
+
+---
+
+## `ldap`
+
+Fake LDAP server for capturing Active Directory enumeration (BloodHound, Mimikatz) and SimpleBind credentials.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Enable the LDAP service. |
+| `port` | int | `389` | TCP port. |
+
+---
+
 ## `catch_all`
 
 The TCP catch-all service receives all traffic redirected by iptables from unknown ports.
@@ -204,7 +424,7 @@ The TCP catch-all service receives all traffic redirected by iptables from unkno
 | `tcp_port` | int | `9999` | Port the catch-all TCP server listens on. iptables redirects all other TCP traffic here. |
 | `redirect_udp` | bool | `false` | Enable a UDP catch-all (drain + respond `OK`). Disabled by default as it can break legitimate UDP (NTP, etc.). |
 | `udp_port` | int | `9998` | Port for the UDP catch-all service. |
-| `excluded_ports` | array | `[22, 53, 80, 443, 25, 110, 143, 21]` | TCP ports that **bypass** the catch-all redirect. Always include `22` (SSH) so you don't lock yourself out. |
+| `excluded_ports` | array | `[21, 22, 23, 25, 53, 69, 80, 110, 123, 143, 389, 443, 445, 465, 993, 995, 1080, 1433, 3306, 3389, 5900, 6379, 6667, 6697, 9998, 9999]` | TCP ports that **bypass** the catch-all redirect. Always include `22` (SSH) so you don't lock yourself out. The default list excludes every dedicated-service port. |
 
 ---
 
