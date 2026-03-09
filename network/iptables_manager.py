@@ -153,7 +153,9 @@ class IPTablesManager:
         self,
         service_ports: dict,
         catch_all_tcp_port: int = 9999,
+        catch_all_udp_port: int = 0,
         excluded_ports: list[int] | None = None,
+        icmp_enabled: bool = False,
     ) -> bool:
         """
         Apply iptables redirect rules.
@@ -232,6 +234,48 @@ class IPTablesManager:
                 "-m", "comment", "--comment", _RULE_COMMENT,
             ]
             if self._add_rule(rule):
+                ok_count += 1
+
+        # --- Catch-all: redirect all OTHER UDP traffic to catch_all_udp_port ---
+        _, cat_udp_port = validate_port(catch_all_udp_port)
+        if cat_udp_port:
+            for excl in excluded_ports:
+                _, ep = validate_port(excl)
+                if not ep:
+                    continue
+                rule = table_flag + [
+                    "-A", chain,
+                    "-p", "udp",
+                    "--dport", str(ep),
+                    "-j", "RETURN",
+                    "-m", "comment", "--comment", _RULE_COMMENT,
+                ]
+                self._add_rule(rule)
+
+            rule = table_flag + [
+                "-A", chain,
+                "-p", "udp",
+                "-j", "REDIRECT", "--to-ports", str(cat_udp_port),
+                "-m", "comment", "--comment", _RULE_COMMENT,
+            ]
+            if self._add_rule(rule):
+                ok_count += 1
+
+        # --- ICMP echo-request redirect (makes pings appear to succeed) ------
+        # DNAT redirects all forwarded pings to this host so the kernel can
+        # issue echo-replies naturally.  In loopback mode, redirect to
+        # localhost; in gateway mode, redirect to redirect_ip.
+        if icmp_enabled:
+            icmp_target = (
+                "127.0.0.1" if self.mode != "gateway" else self.redirect_ip
+            )
+            icmp_rule = table_flag + [
+                "-A", chain,
+                "-p", "icmp", "--icmp-type", "echo-request",
+                "-j", "DNAT", "--to-destination", icmp_target,
+                "-m", "comment", "--comment", _RULE_COMMENT,
+            ]
+            if self._add_rule(icmp_rule):
                 ok_count += 1
 
         logger.info(

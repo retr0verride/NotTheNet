@@ -193,6 +193,11 @@ class _IRCClientThread(threading.Thread):
 
         elif cmd == "NICK":
             new_nick = rest.strip().split()[0] if rest.strip() else "bot"
+            _NICK_SPECIAL = "-_[]{}\\|`^"
+            _stripped = new_nick.translate(str.maketrans("", "", _NICK_SPECIAL))
+            if len(new_nick) > 30 or not _stripped.isalnum():
+                self._send(f"432 * {sanitize_log_string(new_nick[:30])} :Erroneous Nickname")
+                return
             self.nick = sanitize_log_string(new_nick[:30]) or "bot"
             if self.user and not self.registered:
                 self.registered = True
@@ -330,7 +335,7 @@ class IRCService:
         self.hostname = config.get("hostname", "irc.example.com")
         self.network = config.get("network", "FakeNet")
         self.channel = config.get("channel", "botnet")
-        self.motd = config.get("motd", "Welcome to NotTheNet IRC.")
+        self.motd = config.get("motd", "Welcome to IRC.")
         self._sem = threading.BoundedSemaphore(int(config.get("max_connections", 150)))
         self._sock: Optional[socket.socket] = None
         self._thread: Optional[threading.Thread] = None
@@ -411,7 +416,7 @@ class IRCSTLSService:
         self.hostname  = config.get("hostname",  "irc.example.com")
         self.network   = config.get("network",   "FakeNet")
         self.channel   = config.get("channel",   "botnet")
-        self.motd      = config.get("motd",      "Welcome to NotTheNet IRC.")
+        self.motd      = config.get("motd",      "Welcome to IRC.")
         self.cert_path = str(config.get("cert_file", "certs/server.crt"))
         self.key_path  = str(config.get("key_file",  "certs/server.key"))
         self._sem      = threading.BoundedSemaphore(int(config.get("max_connections", 150)))

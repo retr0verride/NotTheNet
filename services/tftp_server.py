@@ -58,7 +58,8 @@ _RRQ_STUB = (
     b"NotTheNet: this file was served by a fake TFTP server.\r\n"
     b"No real content is available at this address.\r\n"
 )
-assert len(_RRQ_STUB) < _BLOCK_SIZE, "RRQ stub must fit in a single DATA block"
+if len(_RRQ_STUB) >= _BLOCK_SIZE:
+    raise RuntimeError("RRQ stub must fit in a single DATA block")
 
 
 # ─── Packet builders ──────────────────────────────────────────────────────────
@@ -72,7 +73,11 @@ def _parse_rrq_wrq(data: bytes) -> tuple[Optional[str], Optional[str]]:
     null_pos = rest.find(b"\x00")
     if null_pos < 0:
         return None, None
-    filename = rest[:null_pos].decode("utf-8", errors="replace")
+    raw_filename = rest[:null_pos]
+    # Reject filenames containing embedded null bytes (before the terminator)
+    if b"\x00" in raw_filename:
+        return None, None
+    filename = raw_filename.decode("utf-8", errors="replace")
     mode_raw = rest[null_pos + 1:]
     mode_null = mode_raw.find(b"\x00")
     mode = mode_raw[:mode_null].decode("utf-8", errors="replace") if mode_null >= 0 else ""
@@ -145,7 +150,7 @@ class _TFTPTransferThread(threading.Thread):
         logger.info(f"TFTP RRQ [{safe_addr}] file={safe_file}")
         jl = get_json_logger()
         if jl:
-            jl.log_event("tftp_rrq", self.client_addr[0], filename=safe_file)
+            jl.log("tftp_rrq", src=self.client_addr[0], filename=safe_file)
 
         pkt = _data(1, _RRQ_STUB)
         retries = 3
@@ -171,7 +176,7 @@ class _TFTPTransferThread(threading.Thread):
         logger.info(f"TFTP WRQ [{safe_addr}] file={safe_file}")
         jl = get_json_logger()
         if jl:
-            jl.log_event("tftp_wrq", self.client_addr[0], filename=safe_file)
+            jl.log("tftp_wrq", src=self.client_addr[0], filename=safe_file)
 
         if not self.allow_uploads:
             sock.sendto(_error(2, "Access violation"), self.client_addr)

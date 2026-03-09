@@ -209,8 +209,8 @@ sys.path.insert(0, os.getcwd())
 from utils.cert_utils import generate_self_signed_cert
 ok = generate_self_signed_cert(
     "certs/server.crt", "certs/server.key",
-    common_name="notthenet.local",
-    san_dns=["localhost", "notthenet.local", "*.notthenet.local"],
+    common_name="www.example.com",
+    san_dns=["www.example.com", "example.com"],
     san_ips=["127.0.0.1", "0.0.0.0"],
     key_bits=4096,
 )

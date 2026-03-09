@@ -24,7 +24,7 @@ from utils.logging_utils import sanitize_hostname, sanitize_ip
 logger = logging.getLogger(__name__)
 
 try:
-    from dnslib import CNAME, MX, NS, PTR, QTYPE, RR, SOA, TXT, A, DNSRecord
+    from dnslib import MX, NS, PTR, QTYPE, RR, SOA, TXT, A, DNSRecord
     from dnslib.server import DNSServer
     _DNSLIB_AVAILABLE = True
 except ImportError:
@@ -50,6 +50,11 @@ class _FakeResolver:
             qname = str(request.q.qname).lower().rstrip(".")
             qtype = QTYPE[request.q.qtype]
 
+            # RFC 1035 §2.3.4: max 253 characters for a full domain name
+            if len(qname) > 253:
+                reply.header.rcode = 1  # FORMERR
+                return reply
+
             safe_name = sanitize_hostname(qname)
             logger.info(f"DNS query  type={qtype} name={safe_name}")
 
@@ -70,11 +75,25 @@ class _FakeResolver:
             # --- PTR (reverse lookup) ---
             if request.q.qtype == QTYPE.PTR:
                 if self.handle_ptr:
+                    # Synthesize a plausible ISP-style hostname from the IP so
+                    # malware that checks reverse-DNS doesn't see "notthenet".
+                    # PTR qname is like "100.1.168.192.in-addr.arpa".
+                    ptr_label = qname
+                    for suffix in (".in-addr.arpa.", ".in-addr.arpa"):
+                        if ptr_label.endswith(suffix):
+                            ptr_label = ptr_label[: -len(suffix)]
+                            break
+                    octets = ptr_label.split(".")
+                    try:
+                        ip_hyphen = "-".join(reversed(octets))
+                        ptr_host = f"static-{ip_hyphen}.res.example.net."
+                    except Exception:
+                        ptr_host = "host.example.net."
                     reply.add_answer(
                         RR(qname, QTYPE.PTR, ttl=self.ttl,
-                           rdata=PTR("notthenet.local"))
+                           rdata=PTR(ptr_host))
                     )
-                    logger.debug(f"  -> PTR: {safe_name} -> notthenet.local")
+                    logger.debug(f"  -> PTR: {safe_name} -> {ptr_host}")
                 return reply
 
             # --- AAAA (IPv6) ---

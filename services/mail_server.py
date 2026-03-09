@@ -12,8 +12,8 @@ Security notes (OpenSSF):
 
 import logging
 import os
-import ssl
 import socketserver
+import ssl
 import threading
 import uuid
 from typing import Optional
@@ -125,6 +125,9 @@ class _SMTPClientThread(threading.Thread):
             self._auth_state = None
             self._send("235 2.7.0 Authentication successful")
             return
+        if self._auth_state is not None:
+            # Unexpected state — reset
+            self._auth_state = None
 
         cmd = line.strip().upper()[:10]
         logger.debug(f"SMTP  [{safe_addr}] cmd={sanitize_log_string(cmd)}")
@@ -178,6 +181,9 @@ class _SMTPClientThread(threading.Thread):
         elif cmd.startswith("NOOP"):
             self._send("250 Ok")
         elif cmd.startswith("STARTTLS"):
+            if self.data_mode:
+                self._send("503 Bad sequence of commands")
+                return
             # Complete the TLS handshake so stealers that require STARTTLS
             # (AgentTesla, FormBook on port 25) proceed to send credentials.
             if (
@@ -192,6 +198,8 @@ class _SMTPClientThread(threading.Thread):
                     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
                     ctx.load_cert_chain(certfile=self.cert_path, keyfile=self.key_path)
                     self.conn = ctx.wrap_socket(self.conn, server_side=True)
+                    # Reset state after TLS upgrade per RFC 3207
+                    self._auth_state = None
                     logger.debug(f"SMTP STARTTLS handshake complete: {safe_addr}")
                 except ssl.SSLError as e:
                     logger.debug(f"SMTP STARTTLS handshake failed {safe_addr}: {e}")
@@ -289,8 +297,8 @@ class SMTPService:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 25))
         self.bind_ip = bind_ip
-        self.hostname = config.get("hostname", "mail.notthenet.local")
-        self.banner = config.get("banner", "220 mail.notthenet.local ESMTP")
+        self.hostname = config.get("hostname", "mail.example.com")
+        self.banner = config.get("banner", "220 mail.example.com ESMTP")
         self.cert_file = config.get("cert_file", "certs/server.crt")
         self.key_file  = config.get("key_file",  "certs/server.key")
         save_emails = config.get("save_emails", True)
@@ -342,8 +350,8 @@ class SMTPSService:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 465))
         self.bind_ip = bind_ip
-        self.hostname = config.get("hostname", "mail.notthenet.local")
-        self.banner = config.get("banner", "220 mail.notthenet.local ESMTP")
+        self.hostname = config.get("hostname", "mail.example.com")
+        self.banner = config.get("banner", "220 mail.example.com ESMTP")
         self.cert_file = config.get("cert_file", "certs/server.crt")
         self.key_file = config.get("key_file", "certs/server.key")
         save_emails = config.get("save_emails", True)
@@ -397,7 +405,7 @@ class SMTPSService:
 # POP3
 # ---------------------------------------------------------------------------
 
-def _make_pop3_handler(hostname: str = "mail.notthenet.local",
+def _make_pop3_handler(hostname: str = "mail.example.com",
                        cert_path: str = "", key_path: str = ""):
     class POP3Handler(socketserver.BaseRequestHandler):
         _hostname = hostname
@@ -486,7 +494,7 @@ class POP3Service:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 110))
         self.bind_ip = bind_ip
-        self.hostname  = config.get("hostname",  "mail.notthenet.local")
+        self.hostname  = config.get("hostname",  "mail.example.com")
         self.cert_file = config.get("cert_file", "certs/server.crt")
         self.key_file  = config.get("key_file",  "certs/server.key")
         self._server = None
@@ -529,7 +537,7 @@ class POP3SService:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 995))
         self.bind_ip = bind_ip
-        self.hostname = config.get("hostname", "mail.notthenet.local")
+        self.hostname = config.get("hostname", "mail.example.com")
         self.cert_file = config.get("cert_file", "certs/server.crt")
         self.key_file = config.get("key_file", "certs/server.key")
         self._server = None
@@ -696,7 +704,7 @@ class IMAPService:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 143))
         self.bind_ip = bind_ip
-        self.hostname  = config.get("hostname",  "mail.notthenet.local")
+        self.hostname  = config.get("hostname",  "mail.example.com")
         self.cert_file = config.get("cert_file", "certs/server.crt")
         self.key_file  = config.get("key_file",  "certs/server.key")
         self._server = None
@@ -739,7 +747,7 @@ class IMAPSService:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 993))
         self.bind_ip = bind_ip
-        self.hostname = config.get("hostname", "mail.notthenet.local")
+        self.hostname = config.get("hostname", "mail.example.com")
         self.cert_file = config.get("cert_file", "certs/server.crt")
         self.key_file = config.get("key_file", "certs/server.key")
         self._server = None

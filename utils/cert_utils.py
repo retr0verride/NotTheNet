@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 def generate_self_signed_cert(
     cert_path: str,
     key_path: str,
-    common_name: str = "notthenet.local",
+    common_name: str = "www.example.com",
     days_valid: int = 825,
     key_bits: int = 4096,
     san_ips: list | None = None,
@@ -70,7 +70,7 @@ def generate_self_signed_cert(
         key_bits = 2048
 
     san_ips = san_ips or ["127.0.0.1"]
-    san_dns = san_dns or ["localhost", "notthenet.local"]
+    san_dns = san_dns or ["www.example.com", "example.com"]
 
     logger.info(
         f"Generating {key_bits}-bit RSA self-signed cert for CN={common_name}"
@@ -159,7 +159,7 @@ def ensure_certs(cert_path: str, key_path: str, **kwargs) -> bool:
 def generate_ca_cert(
     ca_cert_path: str,
     ca_key_path: str,
-    common_name: str = "NotTheNet Root CA",
+    common_name: str = "DigiCert Global Root CA",
     days_valid: int = 3650,
     key_bits: int = 4096,
 ) -> bool:
@@ -191,7 +191,7 @@ def generate_ca_cert(
 
         name = x509.Name([
             x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "NotTheNet Analysis Lab"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "DigiCert Inc"),
             x509.NameAttribute(NameOID.COMMON_NAME, common_name),
         ])
 
@@ -292,7 +292,6 @@ def forge_domain_cert(
 
     subject = x509.Name([
         x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "NotTheNet Forged Cert"),
         x509.NameAttribute(NameOID.COMMON_NAME, hostname),
     ])
 

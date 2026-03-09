@@ -1,0 +1,204 @@
+"""
+NotTheNet - Fake VNC Server (TCP port 5900)
+
+Why this matters:
+    VNC is a favourite for:
+      - Remote-access trojans  — UltraVNC, TinyVNC, Hidden-VNC (hVNC) payloads
+      - Botnets                — spread by scanning for open 5900 with weak passwords
+      - Ransomware pre-ops     — manual reconnaissance before detonation
+
+    Key intelligence:
+      - The RFB version string the client sends reveals the client software
+      - The 16-byte VNC-Auth challenge response can be saved for offline DES
+        cracking (the response = DES(challenge, first-8-bytes-of-password))
+
+    This server:
+      1. Sends RFB 003.008 version string
+      2. Reads the client version
+      3. Offers security type 2 (VNC Auth)
+      4. Sends a random 16-byte challenge
+      5. Reads the 16-byte DES response and logs it alongside the challenge
+         (sufficient for offline brute-force of short passwords)
+      6. Always accepts (sends SecurityResult = 0 OK)
+
+Security notes (OpenSSF):
+- Challenge is os.urandom(16) — never reused, never predictable
+- DES response bytes are only logged as hex; no crypto operation is performed
+- Each session runs in a daemon thread; cannot block process exit
+- Sessions are bounded to SESSION_TIMEOUT seconds
+"""
+
+import logging
+import os
+import socket
+import threading
+from typing import Optional
+
+from utils.json_logger import get_json_logger
+from utils.logging_utils import sanitize_ip, sanitize_log_string
+
+logger = logging.getLogger(__name__)
+
+SESSION_TIMEOUT = 15
+_MAX_CONNECTIONS = 50
+
+_VNC_VERSION    = b"RFB 003.008\n"
+_SEC_TYPE_NONE  = b"\x01\x01"   # 1 type offered: type 1 (None) — for weaker clients
+_SEC_TYPE_VNC   = b"\x01\x02"   # 1 type offered: type 2 (VNC Auth)
+_SECURITY_OK    = b"\x00\x00\x00\x00"
+
+
+class _VNCSession(threading.Thread):
+    """Handles one VNC client session."""
+
+    def __init__(self, conn: socket.socket, addr: tuple, sem: Optional[threading.BoundedSemaphore] = None):
+        super().__init__(daemon=True)
+        self.conn = conn
+        self.addr = addr
+        self._sem = sem
+
+    def run(self):
+        safe_addr = sanitize_ip(self.addr[0])
+        jl = get_json_logger()
+        try:
+            self.conn.settimeout(SESSION_TIMEOUT)
+
+            # ── 1. Server → client: RFB version ───────────────────────────
+            self.conn.sendall(_VNC_VERSION)
+
+            # ── 2. Client → server: client's version ──────────────────────
+            ver_bytes = self.conn.recv(12)
+            if len(ver_bytes) < 12:
+                return
+            client_ver = ver_bytes[:12].decode("ascii", errors="replace").strip()
+
+            # ── 3. Server offers VNC Auth (type 2) ────────────────────────
+            self.conn.sendall(_SEC_TYPE_VNC)
+
+            # ── 4. Client picks a security type ───────────────────────────
+            sec_choice = self.conn.recv(1)
+            if not sec_choice:
+                return
+
+            if sec_choice[0] == 1:
+                # Client chose "None" — log and accept
+                self.conn.sendall(_SECURITY_OK)
+                logger.info(
+                    "VNC connect from %s (version=%s, no-auth)",
+                    safe_addr,
+                    sanitize_log_string(client_ver),
+                )
+                if jl:
+                    jl.log("vnc_connect", src_ip=self.addr[0],
+                           client_version=client_ver, auth_type="none")
+                # Drain post-auth traffic
+                while True:
+                    if not self.conn.recv(4096):
+                        break
+                return
+
+            if sec_choice[0] != 2:
+                return  # unexpected type
+
+            # ── 5. Server → client: 16-byte VNC challenge ─────────────────
+            challenge = os.urandom(16)
+            self.conn.sendall(challenge)
+
+            # ── 6. Client → server: 16-byte DES response ──────────────────
+            response = self.conn.recv(16)
+
+            logger.info(
+                "VNC auth from %s (version=%s) challenge=%s response=%s",
+                safe_addr,
+                sanitize_log_string(client_ver),
+                challenge.hex(),
+                response.hex() if response else "(empty)",
+            )
+            if jl:
+                jl.log(
+                    "vnc_auth",
+                    src_ip=self.addr[0],
+                    client_version=client_ver,
+                    challenge_hex=challenge.hex(),
+                    response_hex=response.hex() if response else "",
+                )
+
+            # ── 7. Accept unconditionally ──────────────────────────────────
+            self.conn.sendall(_SECURITY_OK)
+
+            # Drain further traffic (ServerInit, key/pointer events, etc.)
+            while True:
+                if not self.conn.recv(4096):
+                    break
+
+        except OSError:
+            pass
+        finally:
+            try:
+                self.conn.close()
+            except OSError:
+                pass
+            if self._sem:
+                self._sem.release()
+
+
+class VNCService:
+    """Fake VNC server on TCP port 5900."""
+
+    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+        self.enabled = config.get("enabled", True)
+        self.port = int(config.get("port", 5900))
+        self.bind_ip = bind_ip
+        self._sem = threading.BoundedSemaphore(int(config.get("max_connections", _MAX_CONNECTIONS)))
+        self._sock: Optional[socket.socket] = None
+        self._thread: Optional[threading.Thread] = None
+        self._stop = threading.Event()
+
+    def start(self) -> bool:
+        if not self.enabled:
+            return False
+        try:
+            self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self._sock.bind((self.bind_ip, self.port))
+            self._sock.listen(50)
+            self._sock.settimeout(1.0)
+            self._stop.clear()
+            self._thread = threading.Thread(
+                target=self._serve, daemon=True, name="vnc-server"
+            )
+            self._thread.start()
+            logger.info("VNC service started on %s:%s", self.bind_ip, self.port)
+            return True
+        except OSError as e:
+            logger.error("VNC failed to bind on port %s: %s", self.port, e)
+            return False
+
+    def _serve(self):
+        while not self._stop.is_set():
+            try:
+                conn, addr = self._sock.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            if not self._sem.acquire(blocking=False):
+                logger.debug("VNC at capacity, dropping %s", sanitize_ip(addr[0]))
+                conn.close()
+                continue
+            _VNCSession(conn, addr, sem=self._sem).start()
+
+    def stop(self):
+        self._stop.set()
+        if self._sock:
+            try:
+                self._sock.close()
+            except OSError:
+                pass
+        if self._thread:
+            self._thread.join(timeout=3.0)
+        logger.info("VNC service stopped.")
+
+    @property
+    def running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()

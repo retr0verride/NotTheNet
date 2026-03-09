@@ -26,9 +26,9 @@ done
 [[ $EUID -ne 0 ]] && error "Run as root: sudo bash notthenet-uninstall.sh"
 
 # ── 1. Stop any running NotTheNet process ────────────────────────────────────
-if pgrep -f "notthenet" >/dev/null 2>&1; then
+if pgrep -f "notthenet\.py" >/dev/null 2>&1; then
     info "Stopping running NotTheNet process..."
-    pkill -f "notthenet" || true
+    pkill -f "notthenet\.py" || true
     sleep 1
 fi
 
@@ -63,6 +63,23 @@ for f in \
         info "Removed $f"
     fi
 done
+
+# Also remove user-local desktop/icon entries installed for the invoking user
+_desk_user="${SUDO_USER:-$(logname 2>/dev/null || true)}"
+if [[ -n "$_desk_user" ]]; then
+    _home=$(getent passwd "$_desk_user" | cut -d: -f6)
+    for f in \
+        "$_home/.local/share/applications/notthenet.desktop" \
+        "$_home/.local/share/icons/hicolor/scalable/apps/notthenet.svg" \
+        "$_home/.local/share/icons/hicolor/128x128/apps/notthenet.png"; do
+        if [[ -f "$f" ]]; then
+            rm -f "$f"
+            info "Removed $f"
+        fi
+    done
+    runuser -u "$_desk_user" -- update-desktop-database \
+        "$_home/.local/share/applications" 2>/dev/null || true
+fi
 
 # ── 5. Remove man page ────────────────────────────────────────────────────────
 for f in \

@@ -14,12 +14,27 @@ from services.catch_all import CatchAllTCPService, CatchAllUDPService
 from services.dns_server import DNSService
 from services.ftp_server import FTPService
 from services.http_server import HTTPService, HTTPSService
-from services.mail_server import IMAPService, IMAPSService, POP3Service, POP3SService, SMTPService, SMTPSService
+from services.icmp_responder import ICMPResponder
 from services.irc_server import IRCService, IRCSTLSService
-from services.telnet_server import TelnetService
-from services.socks5_server import Socks5Service
+from services.ldap_server import LDAPService
+from services.mail_server import (
+    IMAPService,
+    IMAPSService,
+    POP3Service,
+    POP3SService,
+    SMTPService,
+    SMTPSService,
+)
+from services.mssql_server import MSSQLService
+from services.mysql_server import MySQLService
 from services.ntp_server import NTPService
+from services.rdp_server import RDPService
+from services.redis_server import RedisService
+from services.smb_server import SMBService
+from services.socks5_server import Socks5Service
+from services.telnet_server import TelnetService
 from services.tftp_server import TFTPService
+from services.vnc_server import VNCService
 from utils.cert_utils import ensure_certs
 from utils.json_logger import close_json_logger, init_json_logger
 from utils.privilege import require_root_or_warn
@@ -46,6 +61,36 @@ class ServiceManager:
         errors = validate_config(self.config.as_dict())
         return errors
 
+    def _check_port_conflicts(self):
+        """Warn about duplicate port/proto assignments across enabled services."""
+        port_map: dict[tuple[str, int], str] = {}
+        svc_ports = [
+            ("http",  "tcp"), ("https", "tcp"), ("smtp",  "tcp"),
+            ("smtps", "tcp"), ("pop3",  "tcp"), ("pop3s", "tcp"),
+            ("imap",  "tcp"), ("imaps", "tcp"), ("ftp",   "tcp"),
+            ("irc",   "tcp"), ("ircs",  "tcp"), ("telnet","tcp"),
+            ("socks5","tcp"), ("mysql", "tcp"), ("mssql", "tcp"),
+            ("rdp",   "tcp"), ("smb",   "tcp"), ("vnc",   "tcp"),
+            ("redis", "tcp"), ("ldap",  "tcp"),
+            ("dns",   "tcp"), ("dns",   "udp"),
+            ("ntp",   "udp"), ("tftp",  "udp"),
+        ]
+        for svc, proto in svc_ports:
+            cfg = self.config.get_section(svc)
+            if cfg.get("enabled") is False:
+                continue
+            port = int(cfg.get("port", 0))
+            if port == 0:
+                continue
+            key = (proto, port)
+            if key in port_map:
+                logger.warning(
+                    "Port conflict: %s/%d used by both '%s' and '%s'",
+                    proto, port, port_map[key], svc,
+                )
+            else:
+                port_map[key] = svc
+
     def start(self) -> bool:
         """Start all enabled services. Returns True if at least one started."""
         errors = self.validate()
@@ -56,6 +101,9 @@ class ServiceManager:
 
         require_root_or_warn()
 
+        # --- Pre-flight: detect port conflicts ---
+        self._check_port_conflicts()
+
         bind_ip = self.config.get("general", "bind_ip") or "0.0.0.0"
         spoof_ip = str(self.config.get("general", "spoof_public_ip") or "")
 
@@ -63,8 +111,11 @@ class ServiceManager:
         json_logging = self.config.get("general", "json_logging")
         if json_logging:
             json_path = self.config.get("general", "json_log_file") or "logs/events.jsonl"
-            init_json_logger(json_path, enabled=True)
-            logger.info("Structured JSON logging enabled → %s", json_path)
+            jl = init_json_logger(json_path, enabled=True)
+            if jl:
+                logger.info("Structured JSON logging enabled → %s", json_path)
+            else:
+                logger.error("Failed to initialise JSON logger at %s", json_path)
 
         # --- Ensure TLS certs exist before binding ---
         https_cfg = self.config.get_section("https")
@@ -83,134 +134,90 @@ class ServiceManager:
 
         # ----- Start services -----
         started = []
+        failed = []
 
-        dns = DNSService({**self.config.get_section("dns"), "bind_ip": bind_ip})
-        if dns.start():
-            self._services["dns"] = dns
-            started.append("dns")
+        def _try_start(name: str, svc):
+            """Start a service and track success/failure."""
+            if svc.start():
+                self._services[name] = svc
+                started.append(name)
+            elif getattr(svc, 'enabled', True):
+                failed.append(name)
+
+        _try_start("dns", DNSService({**self.config.get_section("dns"), "bind_ip": bind_ip}))
 
         http_cfg = {
             **self.config.get_section("http"),
             "spoof_public_ip": spoof_ip,
             "doh_redirect_ip": redirect_ip,
         }
-        http = HTTPService(http_cfg, bind_ip=bind_ip)
-        if http.start():
-            self._services["http"] = http
-            started.append("http")
+        _try_start("http", HTTPService(http_cfg, bind_ip=bind_ip))
 
         https_merged = {
             **self.config.get_section("https"),
             "spoof_public_ip": spoof_ip,
             "doh_redirect_ip": redirect_ip,
         }
-        https = HTTPSService(https_merged, bind_ip=bind_ip)
-        if https.start():
-            self._services["https"] = https
-            started.append("https")
+        _try_start("https", HTTPSService(https_merged, bind_ip=bind_ip))
 
-        smtp = SMTPService(self.config.get_section("smtp"), bind_ip=bind_ip)
-        if smtp.start():
-            self._services["smtp"] = smtp
-            started.append("smtp")
+        _try_start("smtp", SMTPService(self.config.get_section("smtp"), bind_ip=bind_ip))
 
         smtps_cfg = {
             **self.config.get_section("smtps"),
             "cert_file": https_cfg.get("cert_file", "certs/server.crt"),
             "key_file":  https_cfg.get("key_file",  "certs/server.key"),
         }
-        smtps = SMTPSService(smtps_cfg, bind_ip=bind_ip)
-        if smtps.start():
-            self._services["smtps"] = smtps
-            started.append("smtps")
+        _try_start("smtps", SMTPSService(smtps_cfg, bind_ip=bind_ip))
 
-        pop3 = POP3Service(self.config.get_section("pop3"), bind_ip=bind_ip)
-        if pop3.start():
-            self._services["pop3"] = pop3
-            started.append("pop3")
+        _try_start("pop3", POP3Service(self.config.get_section("pop3"), bind_ip=bind_ip))
 
         pop3s_cfg = {
             **self.config.get_section("pop3s"),
             "cert_file": https_cfg.get("cert_file", "certs/server.crt"),
             "key_file":  https_cfg.get("key_file",  "certs/server.key"),
         }
-        pop3s = POP3SService(pop3s_cfg, bind_ip=bind_ip)
-        if pop3s.start():
-            self._services["pop3s"] = pop3s
-            started.append("pop3s")
+        _try_start("pop3s", POP3SService(pop3s_cfg, bind_ip=bind_ip))
 
-        imap = IMAPService(self.config.get_section("imap"), bind_ip=bind_ip)
-        if imap.start():
-            self._services["imap"] = imap
-            started.append("imap")
+        _try_start("imap", IMAPService(self.config.get_section("imap"), bind_ip=bind_ip))
 
         imaps_cfg = {
             **self.config.get_section("imaps"),
             "cert_file": https_cfg.get("cert_file", "certs/server.crt"),
             "key_file":  https_cfg.get("key_file",  "certs/server.key"),
         }
-        imaps = IMAPSService(imaps_cfg, bind_ip=bind_ip)
-        if imaps.start():
-            self._services["imaps"] = imaps
-            started.append("imaps")
+        _try_start("imaps", IMAPSService(imaps_cfg, bind_ip=bind_ip))
 
-        ftp = FTPService(self.config.get_section("ftp"), bind_ip=bind_ip)
-        if ftp.start():
-            self._services["ftp"] = ftp
-            started.append("ftp")
+        _try_start("ftp", FTPService(self.config.get_section("ftp"), bind_ip=bind_ip))
+        _try_start("catch_tcp", CatchAllTCPService(self.config.get_section("catch_all"), bind_ip=bind_ip))
+        _try_start("catch_udp", CatchAllUDPService(self.config.get_section("catch_all"), bind_ip=bind_ip))
+        _try_start("ntp", NTPService(self.config.get_section("ntp"), bind_ip=bind_ip))
+        _try_start("irc", IRCService(self.config.get_section("irc"), bind_ip=bind_ip))
+        _try_start("tftp", TFTPService(self.config.get_section("tftp"), bind_ip=bind_ip))
 
-        catch_tcp = CatchAllTCPService(self.config.get_section("catch_all"), bind_ip=bind_ip)
-        if catch_tcp.start():
-            self._services["catch_tcp"] = catch_tcp
-            started.append("catch_tcp")
-
-        catch_udp = CatchAllUDPService(self.config.get_section("catch_all"), bind_ip=bind_ip)
-        if catch_udp.start():
-            self._services["catch_udp"] = catch_udp
-            started.append("catch_udp")
-
-        ntp = NTPService(self.config.get_section("ntp"), bind_ip=bind_ip)
-        if ntp.start():
-            self._services["ntp"] = ntp
-            started.append("ntp")
-
-        irc = IRCService(self.config.get_section("irc"), bind_ip=bind_ip)
-        if irc.start():
-            self._services["irc"] = irc
-            started.append("irc")
-
-        tftp = TFTPService(self.config.get_section("tftp"), bind_ip=bind_ip)
-        if tftp.start():
-            self._services["tftp"] = tftp
-            started.append("tftp")
-
-        telnet_cfg = {
-            **self.config.get_section("telnet"),
-        }
-        telnet = TelnetService(telnet_cfg, bind_ip=bind_ip)
-        if telnet.start():
-            self._services["telnet"] = telnet
-            started.append("telnet")
+        _try_start("telnet", TelnetService({**self.config.get_section("telnet")}, bind_ip=bind_ip))
 
         socks5_cfg = {
             **self.config.get_section("socks5"),
             "cert_file": https_cfg.get("cert_file", "certs/server.crt"),
             "key_file":  https_cfg.get("key_file",  "certs/server.key"),
         }
-        socks5 = Socks5Service(socks5_cfg, bind_ip=bind_ip)
-        if socks5.start():
-            self._services["socks5"] = socks5
-            started.append("socks5")
+        _try_start("socks5", Socks5Service(socks5_cfg, bind_ip=bind_ip))
 
         ircs_cfg = {
             **self.config.get_section("ircs"),
             "cert_file": https_cfg.get("cert_file", "certs/server.crt"),
             "key_file":  https_cfg.get("key_file",  "certs/server.key"),
         }
-        ircs = IRCSTLSService(ircs_cfg, bind_ip=bind_ip)
-        if ircs.start():
-            self._services["ircs"] = ircs
-            started.append("ircs")
+        _try_start("ircs", IRCSTLSService(ircs_cfg, bind_ip=bind_ip))
+
+        _try_start("icmp", ICMPResponder(self.config.get_section("icmp")))
+        _try_start("mysql", MySQLService(self.config.get_section("mysql"), bind_ip=bind_ip))
+        _try_start("mssql", MSSQLService(self.config.get_section("mssql"), bind_ip=bind_ip))
+        _try_start("rdp", RDPService(self.config.get_section("rdp"), bind_ip=bind_ip))
+        _try_start("smb", SMBService(self.config.get_section("smb"), bind_ip=bind_ip))
+        _try_start("vnc", VNCService(self.config.get_section("vnc"), bind_ip=bind_ip))
+        _try_start("redis", RedisService(self.config.get_section("redis"), bind_ip=bind_ip))
+        _try_start("ldap", LDAPService(self.config.get_section("ldap"), bind_ip=bind_ip))
 
         # --- Apply iptables rules after all services are bound ---
         if self.config.get("general", "auto_iptables"):
@@ -227,9 +234,13 @@ class ServiceManager:
                         apply_os_fingerprint(sock, fp_os)
                     except Exception as e:
                         logger.debug("TCP fingerprint on %s: %s", name, e)
+                else:
+                    logger.debug("TCP fingerprint skipped for %s (no server socket)", name)
 
         self._running = len(started) > 0
         logger.info("NotTheNet started: %s", ', '.join(started) if started else 'none')
+        if failed:
+            logger.warning("Services FAILED to start: %s", ', '.join(failed))
         return self._running
 
     def _apply_iptables(self):
@@ -253,6 +264,13 @@ class ServiceManager:
             "telnet": ("tcp", self.config.get("telnet", "port") or 23),
             "socks5": ("tcp", self.config.get("socks5", "port") or 1080),
             "ircs":   ("tcp", self.config.get("ircs",   "port") or 6697),
+            "mysql":  ("tcp", self.config.get("mysql",  "port") or 3306),
+            "mssql":  ("tcp", self.config.get("mssql",  "port") or 1433),
+            "rdp":    ("tcp", self.config.get("rdp",    "port") or 3389),
+            "smb":    ("tcp", self.config.get("smb",    "port") or 445),
+            "vnc":    ("tcp", self.config.get("vnc",    "port") or 5900),
+            "redis":  ("tcp", self.config.get("redis",  "port") or 6379),
+            "ldap":   ("tcp", self.config.get("ldap",   "port") or 389),
         }
         # TFTP uses UDP port 69
         if "tftp" in self._services:
@@ -274,9 +292,13 @@ class ServiceManager:
 
         catch_cfg = self.config.get_section("catch_all")
         catch_tcp_port = int(catch_cfg.get("tcp_port", 9999))
+        catch_udp_port = int(catch_cfg.get("udp_port", 0))
         excluded = catch_cfg.get("excluded_ports", [22])
 
-        iptables.apply_rules(service_ports, catch_tcp_port, excluded)
+        iptables.apply_rules(
+            service_ports, catch_tcp_port, catch_udp_port, excluded,
+            icmp_enabled="icmp" in self._services,
+        )
         self._iptables = iptables
 
     def stop(self):

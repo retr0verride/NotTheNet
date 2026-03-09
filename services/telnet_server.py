@@ -59,13 +59,13 @@ _ECHO_OFF = IAC + WILL + ECHO
 _ECHO_ON  = IAC + WONT + ECHO
 
 # ─── Fake shell command responses ────────────────────────────────────────────
-_SHELL_RESPONSES: dict[str, bytes] = {
+_SHELL_RESPONSES: dict[str, Optional[bytes]] = {
     "id":       b"uid=0(root) gid=0(root)\r\n",
     "whoami":   b"root\r\n",
     "uname -a": b"Linux router 4.19.0-18-mips #1 SMP Mon Mar 16 06:00:00 UTC 2020 mips GNU/Linux\r\n",
     "uname":    b"Linux\r\n",
     "hostname": b"router\r\n",
-    "pwd":      b"/root\r\n",
+    "pwd":      b"/root\r\n",  # nosec B105 — shell command key, not a credential
     "ls":       b"bin  dev  etc  lib  proc  root  tmp  usr  var\r\n",
     "ls -la":   b"total 0\r\ndrwxr-xr-x 12 root root 0 Jan  1 00:00 .\r\n",
     "cat /proc/cpuinfo": b"processor\t: 0\r\ncpu model\t: MIPS 24Kc\r\n",
@@ -78,7 +78,7 @@ _SHELL_RESPONSES: dict[str, bytes] = {
 }
 
 
-def _shell_response(cmd: str) -> bytes:
+def _shell_response(cmd: str) -> Optional[bytes]:
     """Return a canned shell response, or a generic 'sh: not found' line."""
     stripped = cmd.strip()
     if stripped in _SHELL_RESPONSES:

@@ -95,6 +95,9 @@ _NCSI_RESPONSES: dict[str, bytes] = {
 }
 
 
+_MAX_BODY_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+
 def _load_response_body(config: dict) -> str:
     """
     Resolve the HTTP response body from config.
@@ -108,8 +111,16 @@ def _load_response_body(config: dict) -> str:
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         abs_path = os.path.join(project_root, file_path)
         try:
-            with open(abs_path, encoding="utf-8") as fh:
-                return fh.read()
+            size = os.path.getsize(abs_path)
+            if size > _MAX_BODY_FILE_SIZE:
+                logger.error(
+                    "response_body_file '%s' is %d bytes (max %d); "
+                    "falling back to response_body string.",
+                    abs_path, size, _MAX_BODY_FILE_SIZE,
+                )
+            else:
+                with open(abs_path, encoding="utf-8") as fh:
+                    return fh.read()
         except OSError as exc:
             logger.warning(f"response_body_file '{abs_path}' could not be read: {exc}; "
                            "falling back to response_body string.")
@@ -141,6 +152,33 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
         # this, every response carries two Server headers — an obvious
         # fingerprint that sandbox-detection tools check for.
         server_version = ""
+
+        def send_response(self, code, message=None):
+            """Override to suppress Python's auto-injected Server header.
+
+            Python's BaseHTTPRequestHandler.send_response() unconditionally
+            calls send_header('Server', self.version_string()), which emits
+            'Server:  Python/3.x.y' even when server_version is set to "".
+            This would create two Server headers in every response — the
+            Python one and the spoofed 'Apache/...' one we add explicitly.
+            We reproduce the same status-line + Date logic without the Server
+            header so only our explicit Server declaration is transmitted.
+            """
+            if message is None:
+                if code in self.responses:
+                    message = self.responses[code][0]
+                else:
+                    message = ""
+            if self.request_version != "HTTP/0.9":
+                if not hasattr(self, "_headers_buffer"):
+                    self._headers_buffer = []
+                self._headers_buffer.append(
+                    f"{self.protocol_version} {code} {message}\r\n"
+                    .encode("latin-1", "strict")
+                )
+            self.log_request(code)
+            # Add Date (required by HTTP/1.1) but NOT the Python Server header.
+            self.send_header("Date", self.date_time_string())
 
         # Suppress default BaseHTTPServer stderr logging (we do our own)
         def log_message(self, fmt, *args):

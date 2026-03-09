@@ -938,7 +938,7 @@ class _DNSPage(_ServicePage):
                 ("Enabled",          "enabled",    True,
                  "Enable or disable the fake DNS service."),
                 ("Handle PTR/rDNS",  "handle_ptr", True,
-                 "Respond to reverse DNS (PTR) lookups with 'notthenet.local'.\n"
+                 "Respond to reverse DNS (PTR) lookups with a synthesized hostname.\n"
                  "Prevents connection timeouts in malware that queries its own IP."),
             ],
         )
@@ -1395,6 +1395,38 @@ class NotTheNetApp(tk.Tk):
              "TLS-wrapped fake IRC server (TCP/6697) — modern botnets use SSL\n"
              "IRC to avoid plaintext interception. Same full sinkhole logic as\n"
              "the plain IRC service, with TLS handshake on top."),
+            ("icmp",    "◈  ICMP",
+             "ICMP echo responder — answers all pings so malware connectivity\n"
+             "checks succeed. iptables DNAT redirects forwarded pings here;\n"
+             "the kernel issues genuine echo-replies automatically."),
+            ("smb",     "◈  SMB",
+             "Fake SMB server (TCP/445) — captures SMBv1/v2 negotiate requests.\n"
+             "Flags EternalBlue (MS17-010) probes. Used by WannaCry, NotPetya,\n"
+             "Emotet, ransomware lateral movement."),
+            ("rdp",     "◈  RDP",
+             "Fake RDP server (TCP/3389) — extracts Windows username from the\n"
+             "TPKT mstshash cookie before any encryption. Used by NLBrute,\n"
+             "ransomware operators, RATs."),
+            ("vnc",     "◈  VNC",
+             "Fake VNC server (TCP/5900) — RFB 3.8 handshake + VNC Auth\n"
+             "challenge. Captures DES response for offline cracking. Used by\n"
+             "hVNC RATs and brute-force scanners."),
+            ("mysql",   "◈  MySQL",
+             "Fake MySQL server (TCP/3306) — Handshake V10 greeting; captures\n"
+             "plaintext username and logs COM_QUERY commands. Used by stealers\n"
+             "(RedLine, Raccoon) and web shells."),
+            ("mssql",   "◈  MSSQL",
+             "Fake MSSQL server (TCP/1433) — TDS pre-login with ENCRYPT_NOT_SUP\n"
+             "causes Login7 to arrive unencrypted; the password is only XOR-\n"
+             "obfuscated and is fully recovered. Used by QakBot, Emotet."),
+            ("redis",   "◈  Redis",
+             "Fake Redis server (TCP/6379) — RESP protocol; responds to PING,\n"
+             "INFO, CONFIG, SLAVEOF, SAVE. Flags write-webshell and SLAVEOF\n"
+             "exfil attempts. Used by cryptominers and persistence implants."),
+            ("ldap",    "◈  LDAP",
+             "Fake LDAP server (TCP/389) — parses BER BindRequest; captures\n"
+             "plaintext SimpleBind DN and password. Used by BloodHound,\n"
+             "Cobalt Strike LDAP query BOF, AD-targeting stealers."),
         ]:
             self._add_sidebar_btn(sb_inner, key, label, tip)
 
@@ -1474,8 +1506,8 @@ class NotTheNetApp(tk.Tk):
         self._service_btns[key] = (row, btn)
 
         # Click anywhere on the row navigates to the page
-        row.bind("<Button-1>", lambda _e=None: self._show_page(key))
-        btn.bind("<Button-1>", lambda _e=None: self._show_page(key))
+        row.bind("<Button-1>", lambda _e=None: self._show_page(key))  # type: ignore[misc]
+        btn.bind("<Button-1>", lambda _e=None: self._show_page(key))  # type: ignore[misc]
         _hover_bind(row, C_PANEL, C_HOVER)
         _hover_bind(btn, C_PANEL, C_HOVER)
 
@@ -1491,7 +1523,7 @@ class NotTheNetApp(tk.Tk):
                 font=_f(8), padx=6,
             )
             dot.pack(side="right")
-            dot.bind("<Button-1>", lambda _e=None: self._show_page(key))
+            dot.bind("<Button-1>", lambda _e=None: self._show_page(key))  # type: ignore[misc]
             self._svc_vars[key] = dot
 
         if hasattr(self, "_sb_scroll"):
@@ -1600,9 +1632,9 @@ class NotTheNetApp(tk.Tk):
             ("smtp", [
                 ("Port",     "port",     "25",
                  f"TCP port for the SMTP server. Default: 25. {_PORT_ROOT}"),
-                ("Hostname", "hostname", "mail.notthenet.local",
+                ("Hostname", "hostname", "mail.example.com",
                  "SMTP server hostname announced in the 220 banner and EHLO response."),
-                ("Banner",   "banner",   "220 mail.notthenet.local ESMTP",
+                ("Banner",   "banner",   "220 mail.example.com ESMTP",
                  "Full 220 greeting sent on connection.\n"
                  "Malware may parse this to fingerprint the mail server."),
             ], [
@@ -1614,9 +1646,9 @@ class NotTheNetApp(tk.Tk):
             ("smtps", [
                 ("Port",     "port",     "465",
                  f"TCP port for SMTPS (implicit TLS). Default: 465. {_PORT_ROOT}"),
-                ("Hostname", "hostname", "mail.notthenet.local",
+                ("Hostname", "hostname", "mail.example.com",
                  "Hostname announced in the SMTPS banner and EHLO response."),
-                ("Banner",   "banner",   "220 mail.notthenet.local ESMTP",
+                ("Banner",   "banner",   "220 mail.example.com ESMTP",
                  "220 greeting sent after TLS handshake completes."),
             ], [
                 ("Enabled",     "enabled",     True,  _ENABLED),
@@ -1626,7 +1658,7 @@ class NotTheNetApp(tk.Tk):
             ("pop3", [
                 ("Port",     "port",     "110",
                  f"TCP port for the POP3 server. Default: 110. {_PORT_ROOT}"),
-                ("Hostname", "hostname", "mail.notthenet.local",
+                ("Hostname", "hostname", "mail.example.com",
                  "Hostname announced in the POP3 +OK greeting banner."),
             ], [
                 ("Enabled", "enabled", True, _ENABLED),
@@ -1634,7 +1666,7 @@ class NotTheNetApp(tk.Tk):
             ("pop3s", [
                 ("Port",     "port",     "995",
                  f"TCP port for POP3S (implicit TLS). Default: 995. {_PORT_ROOT}"),
-                ("Hostname", "hostname", "mail.notthenet.local",
+                ("Hostname", "hostname", "mail.example.com",
                  "Hostname announced in the POP3S +OK greeting banner."),
             ], [
                 ("Enabled", "enabled", True, _ENABLED),
@@ -1642,7 +1674,7 @@ class NotTheNetApp(tk.Tk):
             ("imap", [
                 ("Port",     "port",     "143",
                  f"TCP port for the IMAP server. Default: 143. {_PORT_ROOT}"),
-                ("Hostname", "hostname", "mail.notthenet.local",
+                ("Hostname", "hostname", "mail.example.com",
                  "Hostname used in the IMAP greeting and capability responses."),
             ], [
                 ("Enabled", "enabled", True, _ENABLED),
@@ -1650,7 +1682,7 @@ class NotTheNetApp(tk.Tk):
             ("imaps", [
                 ("Port",     "port",     "993",
                  f"TCP port for IMAPS (implicit TLS). Default: 993. {_PORT_ROOT}"),
-                ("Hostname", "hostname", "mail.notthenet.local",
+                ("Hostname", "hostname", "mail.example.com",
                  "Hostname used in the IMAPS greeting and capability responses."),
             ], [
                 ("Enabled", "enabled", True, _ENABLED),
@@ -1708,7 +1740,7 @@ class NotTheNetApp(tk.Tk):
                 ("Channel",  "channel",  "botnet",
                  "Default channel name returned in /LIST. Bots typically JOIN\n"
                  "a hard-coded channel name rather than relying on /LIST."),
-                ("MOTD",     "motd",     "Welcome to NotTheNet IRC.",
+                ("MOTD",     "motd",     "Welcome to IRC.",
                  "Message of the Day text sent after successful registration."),
             ],
             [
@@ -1779,7 +1811,7 @@ class NotTheNetApp(tk.Tk):
                  "IRC network name sent in RPL_ISUPPORT (005)."),
                 ("Channel",  "channel",  "botnet",
                  "Default channel name. Bots typically JOIN a hard-coded name."),
-                ("MOTD",     "motd",     "Welcome to NotTheNet IRC.",
+                ("MOTD",     "motd",     "Welcome to IRC.",
                  "Message of the Day text sent after successful registration."),
             ],
             [("Enabled", "enabled", True, _ENABLED)],
@@ -1804,6 +1836,76 @@ class NotTheNetApp(tk.Tk):
         ]
         self._pages["catch_all"] = _ServicePage(
             self._page_container, self._cfg, "catch_all", catch_fields, catch_checks
+        )
+
+        # SMB page
+        self._pages["smb"] = _ServicePage(
+            self._page_container, self._cfg, "smb",
+            [("Port", "port", "445",
+              f"TCP port for the fake SMB server. Default: 445. {_PORT_ROOT}")],
+            [("Enabled", "enabled", True, _ENABLED)],
+        )
+
+        # RDP page
+        self._pages["rdp"] = _ServicePage(
+            self._page_container, self._cfg, "rdp",
+            [("Port", "port", "3389",
+              f"TCP port for the fake RDP server. Default: 3389. {_PORT_ROOT}")],
+            [("Enabled", "enabled", True, _ENABLED)],
+        )
+
+        # VNC page
+        self._pages["vnc"] = _ServicePage(
+            self._page_container, self._cfg, "vnc",
+            [("Port", "port", "5900",
+              f"TCP port for the fake VNC server. Default: 5900. {_PORT_ROOT}")],
+            [("Enabled", "enabled", True, _ENABLED)],
+        )
+
+        # MySQL page
+        self._pages["mysql"] = _ServicePage(
+            self._page_container, self._cfg, "mysql",
+            [("Port", "port", "3306",
+              f"TCP port for the fake MySQL server. Default: 3306. {_PORT_ROOT}")],
+            [("Enabled", "enabled", True, _ENABLED)],
+        )
+
+        # MSSQL page
+        self._pages["mssql"] = _ServicePage(
+            self._page_container, self._cfg, "mssql",
+            [("Port", "port", "1433",
+              f"TCP port for the fake MSSQL server. Default: 1433. {_PORT_ROOT}")],
+            [("Enabled", "enabled", True, _ENABLED)],
+        )
+
+        # Redis page
+        self._pages["redis"] = _ServicePage(
+            self._page_container, self._cfg, "redis",
+            [("Port", "port", "6379",
+              f"TCP port for the fake Redis server. Default: 6379. {_PORT_ROOT}")],
+            [("Enabled", "enabled", True, _ENABLED)],
+        )
+
+        # LDAP page
+        self._pages["ldap"] = _ServicePage(
+            self._page_container, self._cfg, "ldap",
+            [("Port", "port", "389",
+              f"TCP port for the fake LDAP server. Default: 389. {_PORT_ROOT}")],
+            [("Enabled", "enabled", True, _ENABLED)],
+        )
+
+        # ICMP page
+        self._pages["icmp"] = _ServicePage(
+            self._page_container, self._cfg, "icmp",
+            [],
+            [
+                ("Enabled", "enabled", True,
+                 "Enable the ICMP echo responder.\n"
+                 "When active, an iptables DNAT rule redirects all forwarded\n"
+                 "ICMP echo-requests (pings) to this host. The kernel then\n"
+                 "replies automatically, so malware connectivity checks succeed.\n"
+                 "Requires root / CAP_NET_RAW."),
+            ],
         )
 
     def _show_page(self, key: str):

@@ -68,12 +68,9 @@ def _detect_protocol(peek: bytes) -> str:
     return "unknown"
 
 
-def _try_tls_wrap(
-    sock: socket.socket, cert_path: str, key_path: str
-) -> "Optional[ssl.SSLSocket]":
+def _build_tls_context(cert_path: str, key_path: str) -> "Optional[ssl.SSLContext]":
     """
-    Wrap *sock* as a TLS server socket and complete the handshake.
-    Returns the ssl.SSLSocket on success, or None if certs are missing / handshake fails.
+    Build a reusable TLS server context.  Returns None if certs are missing.
     TLSv1.2 minimum is enforced; older versions are rejected.
     """
     if not cert_path or not key_path:
@@ -91,8 +88,18 @@ def _try_tls_wrap(
             | ssl.OP_CIPHER_SERVER_PREFERENCE
         )
         ctx.load_cert_chain(certfile=cert_path, keyfile=key_path)
-        wrapped = ctx.wrap_socket(sock, server_side=True)
-        return wrapped
+        return ctx
+    except Exception as e:
+        logger.error(f"Failed to build catch-all TLS context: {e}")
+        return None
+
+
+def _try_tls_wrap_ctx(
+    sock: socket.socket, ctx: ssl.SSLContext
+) -> "Optional[ssl.SSLSocket]":
+    """Wrap *sock* using a pre-built SSLContext.  Returns None on failure."""
+    try:
+        return ctx.wrap_socket(sock, server_side=True)
     except ssl.SSLError as e:
         logger.debug(f"Catch-all TLS handshake failed: {e}")
         return None
@@ -128,9 +135,10 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
 
 
 class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
-    # Class-level cert paths; set by CatchAllTCPService before server start
+    # Class-level cert paths and cached TLS context; set by CatchAllTCPService before server start
     cert_path: str = ""
     key_path:  str = ""
+    _tls_ctx: "Optional[ssl.SSLContext]" = None
 
     def handle(self):
         safe_addr = sanitize_ip(self.client_address[0])
@@ -149,8 +157,8 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
 
             # ── 2. Complete TLS handshake if the client is speaking TLS ────
             if protocol == "tls":
-                if os.path.exists(self.cert_path) and os.path.exists(self.key_path):
-                    tls_sock = _try_tls_wrap(sock, self.cert_path, self.key_path)
+                if self._tls_ctx is not None:
+                    tls_sock = _try_tls_wrap_ctx(sock, self._tls_ctx)
                     if tls_sock:
                         sock = tls_sock
                         logger.debug(
@@ -164,7 +172,7 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
                         return
                 else:
                     logger.debug(
-                        f"Catch-all no TLS certs for {safe_addr}:{src_port}; raw fallback"
+                        f"Catch-all no TLS context for {safe_addr}:{src_port}; raw fallback"
                     )
 
             logger.info(
@@ -248,9 +256,12 @@ class CatchAllTCPService:
         if not self.enabled:
             return False
         try:
-            # Inject cert paths into the handler class before accepting connections
+            # Build a reusable TLS context once instead of per-connection
+            tls_ctx = _build_tls_context(self.cert_path, self.key_path)
+            # Inject cert paths and cached context into the handler class
             _CatchAllTCPHandler.cert_path = self.cert_path
             _CatchAllTCPHandler.key_path  = self.key_path
+            _CatchAllTCPHandler._tls_ctx  = tls_ctx
             self._server = _ReuseServer((self.bind_ip, self.port), _CatchAllTCPHandler)
             self._server._sem = threading.BoundedSemaphore(MAX_CONNECTIONS)
             self._thread = threading.Thread(

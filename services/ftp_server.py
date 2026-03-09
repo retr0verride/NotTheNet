@@ -84,6 +84,7 @@ class _FTPSession(threading.Thread):
                 return f"227 Entering Passive Mode ({ip_parts},{p1},{p2})"
             except OSError:
                 continue
+        logger.warning("FTP PASV: no free ports in range %d–%d", PASV_PORT_LOW, PASV_PORT_HIGH)
         return None
 
     def _accept_data(self) -> Optional[socket.socket]:
