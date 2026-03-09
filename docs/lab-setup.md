@@ -134,9 +134,9 @@ ip addr show
 
 ### 2.4 IP forwarding
 
-ip forwarding is **not required** for this single-NIC setup. NotTheNet's iptables PREROUTING rules redirect traffic arriving from FlareVM directly to local service ports — packets never need to be forwarded between two interfaces.
+`net.ipv4.ip_forward` is **enabled automatically** by NotTheNet when gateway mode is active — the iptables PREROUTING DNAT rules require it even on a single-NIC setup, because traffic from FlareVM arriving at eth0 for a foreign IP (e.g. `8.8.8.8`) still goes through the kernel forwarding path before DNAT can rewrite it. The original value is restored when NotTheNet stops.
 
-> If you ever switch to a two-NIC Kali setup (internet + lab simultaneously), you would need `sudo sysctl -w net.ipv4.ip_forward=1`. Not needed here.
+> No manual configuration needed. If you check `/proc/sys/net/ipv4/ip_forward` while NotTheNet is running in gateway mode, you will see `1`.
 
 ### 2.5 Install NotTheNet
 

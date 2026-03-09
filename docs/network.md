@@ -97,15 +97,10 @@ Rules are applied to the `PREROUTING` chain — they affect traffic **arriving f
 
 **Required additional setup for gateway mode:**
 
+`net.ipv4.ip_forward` is **enabled automatically** by NotTheNet when gateway mode is active and restored to its previous value when services stop. No manual step needed.
+
 ```bash
-# Enable IP forwarding
-echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward
-
-# Make permanent
-echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf
-sudo sysctl -p
-
-# Masquerade (if the victim VM needs internet access through Kali normally)
+# Masquerade (only needed if the victim VM also needs real internet access through Kali)
 sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
 ```
 
