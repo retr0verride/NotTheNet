@@ -365,6 +365,7 @@ def _row(parent, label: str, widget_factory, row: int,
             restore_fn = (lambda: _v.set(_def)) if _v is not None and _def != "" else None
             info_panel.show(_t, _d, str(_def), restore_fn=restore_fn)
         w.bind("<FocusIn>", _show)
+        w.bind("<Button-1>", _show)
     else:
         if tip:
             tooltip(lbl, tip)
