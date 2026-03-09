@@ -255,10 +255,11 @@ sudo bash update.sh
 The script will:
 1. Stop NotTheNet if it is running
 2. Back up your local `config.json` if it has unsaved changes, pull, then restore it automatically
-3. Pull the latest code from GitHub
-4. Re-install the package (picks up dependency or entry-point changes)
-5. Re-sync system-installed assets — icon (SVG + 128 px PNG), `.desktop` file, and polkit action — so the app menu always reflects the latest version
-6. Print the new version number
+3. Reset any other locally-modified tracked files so the pull can complete cleanly
+4. Pull the latest code from GitHub
+5. Re-install the package (picks up dependency or entry-point changes)
+6. Re-sync system-installed assets — icon (SVG + 128 px PNG), `.desktop` file, and polkit action — so the app menu always reflects the latest version
+7. Print the new version number
 
 ### Manual steps
 
