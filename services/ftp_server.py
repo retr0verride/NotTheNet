@@ -52,12 +52,13 @@ def _get_disk_usage(directory: str) -> int:
 class _FTPSession(threading.Thread):
     """Handles one FTP control connection."""
 
-    def __init__(self, conn, addr, banner: str, upload_dir: Optional[str]):
+    def __init__(self, conn, addr, banner: str, upload_dir: Optional[str], bind_ip: str = "0.0.0.0"):
         super().__init__(daemon=True)
         self.conn = conn
         self.addr = addr
         self.banner = banner
         self.upload_dir = upload_dir
+        self.bind_ip = bind_ip
         self._data_conn = None
         self._pasv_server = None
 
@@ -73,7 +74,7 @@ class _FTPSession(threading.Thread):
             try:
                 srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                srv.bind(("0.0.0.0", port))
+                srv.bind((self.bind_ip, port))
                 srv.listen(1)
                 srv.settimeout(10)
                 self._pasv_server = srv
@@ -278,10 +279,11 @@ class FTPService:
 
         banner = self.banner
         upload_dir = self.upload_dir
+        bind_ip = self.bind_ip
 
         class _Handler(socketserver.BaseRequestHandler):
             def handle(self):
-                sess = _FTPSession(self.request, self.client_address, banner, upload_dir)
+                sess = _FTPSession(self.request, self.client_address, banner, upload_dir, bind_ip)
                 sess.run()
 
         try:

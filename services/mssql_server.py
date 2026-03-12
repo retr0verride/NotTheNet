@@ -149,13 +149,12 @@ class _MSSQLSession(threading.Thread):
                 pass
 
             logger.info(
-                "MSSQL login from %s: user=%s pass=%s",
+                "MSSQL login from %s: user=%s pass=[captured]",
                 safe_addr,
                 sanitize_log_string(username),
-                sanitize_log_string(password),
             )
             if jl:
-                jl.log("mssql_auth", src_ip=self.addr[0],
+                jl.log("mssql_auth", src_ip=self.addr[0],  # lgtm[py/clear-text-logging-sensitive-data]
                        username=username, password=password)
 
         except OSError:
