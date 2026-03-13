@@ -279,6 +279,11 @@ def forge_domain_cert(
     from cryptography.hazmat.primitives.asymmetric import rsa
     from cryptography.x509.oid import NameOID
 
+    # Validate hostname: DNS labels must not start or end with a hyphen (RFC 1123)
+    for label in hostname.split("."):
+        if label.startswith("-") or label.endswith("-"):
+            raise ValueError(f"Invalid DNS label in hostname: {label!r}")
+
     # Load CA
     with open(ca_cert_path, "rb") as f:
         ca_cert = x509.load_pem_x509_certificate(f.read())
