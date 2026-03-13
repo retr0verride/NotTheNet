@@ -5,6 +5,7 @@
 - [System Requirements](#system-requirements)
 - [.deb Package Install](#deb-package-install)
 - [Quick Install (Script)](#quick-install-script)
+- [Offline / USB Install](#offline--usb-install)
 - [Manual Install](#manual-install)
 - [Verifying the Install](#verifying-the-install)
 - [Upgrading](#upgrading)
@@ -111,6 +112,69 @@ sudo notthenet --nogui   # headless mode
 ```
 
 Or simply search for **NotTheNet** in the Kali application menu (or any GNOME/XFCE/KDE desktop) and click the icon — a graphical password prompt will appear via `pkexec`.
+
+---
+
+## Offline / USB Install
+
+Use this method when the Kali machine has no internet access (air-gapped lab, isolated analysis network, etc.).
+All Python dependencies are embedded in the installer — no `pip` or `apt` internet access required beyond base system packages.
+
+### What you need
+
+- A Windows machine with internet access (to build the bundle)
+- A USB drive or any way to transfer a ~6 MB file to Kali
+
+### Step 1 — Build the bundle on Windows
+
+From the `NotTheNet` project folder on your Windows machine:
+
+```powershell
+# Build notthenet-bundle.sh AND create NotTheNet-bundle.zip in one step
+.\make-bundle.ps1 -Zip
+```
+
+This downloads all required Python wheels, bakes them into a self-contained bash installer, and packages the whole project into `U:\NotTheNet-bundle.zip`.
+
+> **No `-Zip`?** Run `make-bundle.ps1` alone to generate only `notthenet-bundle.sh`, then zip/copy it manually.
+
+### Step 2 — Transfer to Kali
+
+Copy `NotTheNet-bundle.zip` (or just `notthenet-bundle.sh`) to the Kali machine via USB, shared folder, or SCP.
+
+### Step 3 — Install
+
+```bash
+# If you transferred the zip:
+unzip NotTheNet-bundle.zip
+cd NotTheNet
+
+# Run the offline installer (prompts for fresh install or update)
+sudo bash notthenet-bundle.sh
+```
+
+The installer will auto-detect whether a previous install exists and offer:
+- **Fresh install** — sets up everything in the current directory
+- **Update** — copies new source files into the existing install, preserves your `config.json`, `certs/`, and `logs/`
+
+You can also skip the prompt with a flag:
+
+```bash
+sudo bash notthenet-bundle.sh --install   # always fresh
+sudo bash notthenet-bundle.sh --update    # always update
+```
+
+### Step 4 — Install GhostFlare on FlareVM (optional)
+
+`ghost-flare.ps1` is included in the zip. Run it **on the FlareVM** (Windows) to scrub VM artifacts from the registry so malware cannot detect the sandbox:
+
+```powershell
+# On FlareVM — run once as Administrator
+Set-ExecutionPolicy Bypass -Scope Process -Force
+.\ghost-flare.ps1
+```
+
+GhostFlare registers itself as a scheduled task (`ONLOGON / SYSTEM`) so it re-applies automatically after every reboot.
 
 ---
 

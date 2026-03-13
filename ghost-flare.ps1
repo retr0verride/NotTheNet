@@ -61,9 +61,16 @@ try {
 Write-Step "Patching SystemBiosDate..."
 try {
     $biosDate = (Get-ItemProperty -Path $sysKey -Name "SystemBiosDate" -ErrorAction Stop).SystemBiosDate
-    if ($biosDate -match "^0[0-9]/") {
+    # Match any date that looks like a hypervisor placeholder:
+    # QEMU/BOCHS: "01/01/2011", "01/01/2006"
+    # VirtualBox: "12/01/2006"
+    # VMware: "01/01/2021" etc.
+    # Rule: year before 2022 OR year starting with 1970-2020 is suspicious.
+    # Simpler: just check for known-bad years / QEMU sentinel dates.
+    $biosYear = ($biosDate -split "/")[-1]
+    if ($biosDate -match "QEMU|VBOX|VMWARE" -or ($biosYear -match "^\d{4}$" -and [int]$biosYear -lt 2022)) {
         Set-ItemProperty -Path $sysKey -Name "SystemBiosDate" -Value "11/15/2023"
-        Write-OK "SystemBiosDate patched"
+        Write-OK "SystemBiosDate patched (was $biosDate)"
     } else {
         Write-Skip "SystemBiosDate clean: $biosDate"
     }
@@ -73,18 +80,30 @@ try {
 
 Write-Step "Removing VM guest artifact keys..."
 $artifactKeys = @(
+    # VirtualBox
     "HKLM:\SOFTWARE\Oracle\VirtualBox Guest Additions",
-    "HKLM:\SOFTWARE\VMware, Inc.\VMware Tools",
     "HKLM:\SOFTWARE\WOW6432Node\Oracle\VirtualBox Guest Additions",
     "HKLM:\SYSTEM\CurrentControlSet\Services\VBoxGuest",
     "HKLM:\SYSTEM\CurrentControlSet\Services\VBoxMouse",
     "HKLM:\SYSTEM\CurrentControlSet\Services\VBoxService",
     "HKLM:\SYSTEM\CurrentControlSet\Services\VBoxSF",
     "HKLM:\SYSTEM\CurrentControlSet\Services\VBoxVideo",
+    # VMware
+    "HKLM:\SOFTWARE\VMware, Inc.\VMware Tools",
     "HKLM:\SYSTEM\CurrentControlSet\Services\vmhgfs",
     "HKLM:\SYSTEM\CurrentControlSet\Services\vmmouse",
     "HKLM:\SYSTEM\CurrentControlSet\Services\vmrawdsk",
-    "HKLM:\SYSTEM\CurrentControlSet\Services\vmusbmouse"
+    "HKLM:\SYSTEM\CurrentControlSet\Services\vmusbmouse",
+    # Hyper-V / VMBUS (Proxmox can expose these when Hyper-V enlightenments are enabled)
+    "HKLM:\SOFTWARE\Microsoft\Virtual Machine\Guest\Parameters",
+    "HKLM:\SYSTEM\CurrentControlSet\Services\vmicheartbeat",
+    "HKLM:\SYSTEM\CurrentControlSet\Services\vmickvpexchange",
+    "HKLM:\SYSTEM\CurrentControlSet\Services\vmicrdv",
+    "HKLM:\SYSTEM\CurrentControlSet\Services\vmicshutdown",
+    "HKLM:\SYSTEM\CurrentControlSet\Services\vmictimesync",
+    "HKLM:\SYSTEM\CurrentControlSet\Services\vmicvss",
+    "HKLM:\SYSTEM\CurrentControlSet\Services\vmicguestinterface",
+    "HKLM:\SYSTEM\CurrentControlSet\Services\vid"
 )
 foreach ($k in $artifactKeys) {
     if (Test-Path $k) {
@@ -128,6 +147,35 @@ if ($installDT -gt (Get-Date).AddDays(-180)) {
     $installDate2 = (Get-ItemProperty $cvKey -Name "InstallDate").InstallDate
     $installDT2 = (Get-Date "1970-01-01").AddSeconds($installDate2)
     Write-Skip "InstallDate already old: $installDT2"
+}
+
+Write-Step "Spoofing NIC MAC address OUI..."
+# QEMU's default NIC OUI is 52:54:00 (Realtek paravirtual).
+# Many sandbox detectors enumerate adapters and flag this prefix.
+# We patch the NetworkAddress registry value which Windows uses to override
+# the hardware MAC on the next interface init (takes effect after reboot).
+$nicBase = "HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002BE10318}"
+if (Test-Path $nicBase) {
+    $nics = Get-ChildItem -Path $nicBase -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match '^\d{4}$' }
+    foreach ($nic in $nics) {
+        $desc = (Get-ItemProperty -Path $nic.PSPath -Name "DriverDesc" -ErrorAction SilentlyContinue).DriverDesc
+        $existingMac = (Get-ItemProperty -Path $nic.PSPath -Name "NetworkAddress" -ErrorAction SilentlyContinue).NetworkAddress
+        # Only patch QEMU/VirtIO/vmxnet NICs that haven't already been spoofed
+        if ($desc -match "QEMU|VirtIO|vmxnet|Red Hat" -and -not $existingMac) {
+            # Dell/Intel OUI: D4:BE:D9 (Intel I219-LM, common on OptiPlex)
+            # Last 3 octets randomised so each NIC gets a unique address
+            $rand = "{0:X2}{1:X2}{2:X2}" -f (Get-Random -Max 256),(Get-Random -Max 256),(Get-Random -Max 256)
+            $spoofedMac = "D4BED9$rand"
+            Set-ItemProperty -Path $nic.PSPath -Name "NetworkAddress" -Value $spoofedMac -Type String -Force
+            Write-OK "NIC '$desc' MAC → $($spoofedMac -replace '(.{2})(?=.)','`$1:')"
+        } elseif ($existingMac) {
+            Write-Skip "NIC '$desc' already has NetworkAddress override"
+        } else {
+            Write-Skip "NIC '$desc' OUI not flagged"
+        }
+    }
+} else {
+    Write-Skip "NIC class key not found"
 }
 
 Write-Step "Disabling VBS/DeviceGuard..."

@@ -87,7 +87,7 @@ Fake DNS server — resolves every query to `resolve_to`.
 | `port` | int | `53` | UDP + TCP port to listen on. |
 | `resolve_to` | string | `"127.0.0.1"` | IP address returned for all A/AAAA queries. |
 | `ttl` | int | `300` | DNS TTL in seconds for synthesised records. |
-| `handle_ptr` | bool | `true` | When `true`, PTR (reverse DNS) queries return `notthenet.local`. When `false`, PTR queries get no answer. |
+| `handle_ptr` | bool | `true` | When `true`, PTR (reverse DNS) queries return a synthetic ISP-style hostname derived from the queried IP (e.g. `static-192-168-1-100.res.example.net`). When `false`, PTR queries get no answer. |
 | `custom_records` | object | `{}` | Per-hostname overrides. Keys are lowercase hostnames; values are IP addresses. See [Custom DNS Records](#custom-dns-records). |
 
 ### Example

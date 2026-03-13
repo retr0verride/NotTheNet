@@ -47,7 +47,7 @@ Every DNS query — regardless of type, domain, or record class — receives a s
 |------------|----------|
 | `A` | `resolve_to` IP |
 | `AAAA` | Returns A record with `resolve_to` (keeps malware happy without requiring IPv6) |
-| `PTR` (reverse DNS) | Returns `notthenet.local` (when `handle_ptr: true`) |
+| `PTR` (reverse DNS) | Returns a synthetic ISP-style hostname (e.g. `static-8-8-8-8.res.example.net`) derived from the queried IP (when `handle_ptr: true`) |
 | `MX`, `NS`, `TXT`, `CNAME`, `SOA` | Returns `resolve_to` as an A record |
 | Custom record override | Returns the configured IP for that specific hostname |
 
@@ -67,7 +67,7 @@ dig @127.0.0.1 c2.evil.com A +short
 
 # PTR
 dig @127.0.0.1 -x 8.8.8.8 +short
-# → notthenet.local.
+# → static-8-8-8-8.res.example.net.
 
 # AAAA (returned as A)
 dig @127.0.0.1 evil.com AAAA +short

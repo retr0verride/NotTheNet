@@ -80,6 +80,26 @@ cd NotTheNet
 sudo bash notthenet-install.sh
 ```
 
+### Offline / Air-gapped install
+
+For isolated labs with no internet access, build a self-contained installer on a Windows machine and transfer it via USB:
+
+```powershell
+# On Windows — builds notthenet-bundle.sh + NotTheNet-bundle.zip
+.\make-bundle.ps1 -Zip
+```
+
+Then on Kali:
+
+```bash
+unzip NotTheNet-bundle.zip && cd NotTheNet
+sudo bash notthenet-bundle.sh            # prompts: fresh install or update
+sudo bash notthenet-bundle.sh --install  # skip prompt — always fresh
+sudo bash notthenet-bundle.sh --update   # skip prompt — always update
+```
+
+See [docs/installation.md](docs/installation.md#offline--usb-install) for full details.
+
 ---
 
 ## Updating

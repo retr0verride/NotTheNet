@@ -22,7 +22,8 @@
 
 [CmdletBinding()]
 param(
-    [string]$Output = ".\notthenet-bundle.sh"
+    [string]$Output = ".\notthenet-bundle.sh",
+    [switch]$Zip
 )
 
 $ErrorActionPreference = "Stop"
@@ -126,6 +127,61 @@ if ! ln -s /dev/null "$SCRIPT_DIR/.symlink_test" 2>/dev/null; then
 fi
 rm -f "$SCRIPT_DIR/.symlink_test"
 
+# ── Find an existing NotTheNet install ────────────────────────────────────────
+# Greps the /usr/local/bin/notthenet launcher for the install path, then falls
+# back to searching common locations.
+find_existing_install() {
+    local launcher="/usr/local/bin/notthenet"
+    if [[ -f "$launcher" ]]; then
+        local install_dir
+        install_dir=$(grep -oP '(?<=exec ").*(?=/venv/bin/python)' "$launcher" 2>/dev/null || true)
+        if [[ -n "$install_dir" ]] && [[ -f "${install_dir}/notthenet.py" ]]; then
+            echo "$install_dir"; return
+        fi
+    fi
+    for candidate in ~/NotTheNet /opt/NotTheNet /root/NotTheNet; do
+        if [[ -f "${candidate}/notthenet.py" ]]; then
+            echo "$candidate"; return
+        fi
+    done
+}
+
+# ── Mode selection ────────────────────────────────────────────────────────────
+MODE=""
+for arg in "$@"; do
+    case "$arg" in
+        --install) MODE="install" ;;
+        --update)  MODE="update"  ;;
+        --help|-h)
+            echo "Usage: sudo bash notthenet-bundle.sh [--install|--update]"
+            echo "  --install  Fresh install to this directory (default)"
+            echo "  --update   Update an existing NotTheNet installation"
+            exit 0 ;;
+    esac
+done
+
+if [[ -z "$MODE" ]]; then
+    DETECTED=$(find_existing_install)
+    if [[ -n "$DETECTED" ]]; then
+        echo ""
+        echo -e "${YELLOW}Existing NotTheNet install found at: ${DETECTED}${NC}"
+        echo ""
+        echo "  1) Update existing install  (preserves config.json, certs, logs)"
+        echo "  2) Fresh install to: $SCRIPT_DIR"
+        echo "  q) Quit"
+        echo ""
+        read -rp "Choice [1]: " _choice
+        _choice="${_choice:-1}"
+        case "$_choice" in
+            1) MODE="update" ;;
+            2) MODE="install" ;;
+            *) echo "Aborted."; exit 0 ;;
+        esac
+    else
+        MODE="install"
+    fi
+fi
+
 # ── Extract embedded wheels to a temp dir ────────────────────────────────────
 TMPWHEELS=$(mktemp -d)
 trap 'rm -rf "$TMPWHEELS"' EXIT
@@ -154,6 +210,70 @@ info "Extracting bundled packages..."
     # Rest of the install logic (uses $TMPWHEELS as the wheelhouse)
     $out.Add(@'
 info "Packages extracted."
+
+# ── Update mode: rsync source into existing install, merge config ─────────────
+if [[ "$MODE" == "update" ]]; then
+    INSTALL_DIR=$(find_existing_install)
+    if [[ -z "$INSTALL_DIR" ]]; then
+        warn "No existing install found — switching to fresh install."
+        MODE="install"
+    else
+        info "Updating existing install at: $INSTALL_DIR"
+
+        # Stop any running instance
+        if pgrep -f "notthenet.py" >/dev/null 2>&1; then
+            info "Stopping running NotTheNet..."
+            pkill -f "notthenet.py" || true
+            sleep 1
+        fi
+
+        # Copy new source files; preserve user data in place
+        info "Copying updated source files..."
+        rsync -a \
+            --exclude='config.json' \
+            --exclude='certs/' \
+            --exclude='logs/' \
+            --exclude='venv/' \
+            --exclude='.venv/' \
+            --exclude='__pycache__/' \
+            --exclude='*.pyc' \
+            --exclude='notthenet-bundle.sh' \
+            "${SCRIPT_DIR}/" "${INSTALL_DIR}/"
+
+        # Merge any new default config keys into the user's existing config.json
+        if [[ -f "${INSTALL_DIR}/config.json" ]] && [[ -f "${SCRIPT_DIR}/config.json" ]]; then
+            python3 - "${INSTALL_DIR}/config.json" "${SCRIPT_DIR}/config.json" <<'MERGEPY'
+import json, sys
+with open(sys.argv[2]) as f:
+    defaults = json.load(f)
+with open(sys.argv[1]) as f:
+    user = json.load(f)
+changed = False
+for section, keys in defaults.items():
+    if section not in user or not isinstance(keys, dict):
+        continue
+    if not isinstance(user[section], dict):
+        continue
+    for key, val in keys.items():
+        if key not in user[section]:
+            user[section][key] = val
+            changed = True
+if changed:
+    with open(sys.argv[1], "w") as f:
+        json.dump(user, f, indent=2)
+        f.write("\n")
+    print("[*] Config migrated — new keys added")
+else:
+    print("[*] Config already up to date")
+MERGEPY
+        fi
+
+        # Redirect remaining steps (venv refresh, certs, launchers) to existing dir
+        SCRIPT_DIR="$INSTALL_DIR"
+        VENV_DIR="${INSTALL_DIR}/venv"
+        info "Source files updated — refreshing venv and system integration..."
+    fi
+fi
 
 # ── Python version check ──────────────────────────────────────────────────────
 PYTHON=$(command -v python3 2>/dev/null || true)
@@ -304,6 +424,14 @@ fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 echo ""
+if [[ "$MODE" == "update" ]]; then
+echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║   NotTheNet updated successfully!                    ║${NC}"
+echo -e "${GREEN}║                                                      ║${NC}"
+echo -e "${GREEN}║   GUI:       sudo notthenet                          ║${NC}"
+echo -e "${GREEN}║   Headless:  sudo notthenet --nogui                  ║${NC}"
+echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
+else
 echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║   NotTheNet installed successfully (offline)!        ║${NC}"
 echo -e "${GREEN}║                                                      ║${NC}"
@@ -311,6 +439,7 @@ echo -e "${GREEN}║   GUI:       sudo notthenet                          ║${N
 echo -e "${GREEN}║   Headless:  sudo notthenet --nogui                  ║${NC}"
 echo -e "${GREEN}║   Uninstall: sudo notthenet-uninstall                ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
+fi
 '@)
 
     # ── Write output file with LF line endings (critical for bash on Linux) ──
@@ -327,6 +456,34 @@ echo -e "${GREEN}╚════════════════════
     Write-Host "${GREEN}Next steps:${NC}"
     Write-Host "  1. Copy the NotTheNet folder to your USB drive."
     Write-Host "  2. On Kali:  sudo bash /media/usb/NotTheNet/notthenet-bundle.sh"
+    Write-Host ""
+    Write-Host "  Or use -Zip to create a ready-to-copy zip in one step:"
+    Write-Host "    .\make-bundle.ps1 -Zip"
+
+    # ── Optional zip ─────────────────────────────────────────────────────────
+    if ($Zip) {
+        $projectRoot = (Resolve-Path ".").Path
+        $zipPath     = (Resolve-Path "..").Path.TrimEnd('\') + "\NotTheNet-bundle.zip"
+        $excludeDirs = @('.venv','.mypy_cache','.pytest_cache','.ruff_cache',
+                         '__pycache__','build','dist','notthenet.egg-info','.git')
+
+        info "Creating zip: $zipPath"
+        if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+
+        $files = Get-ChildItem -Path $projectRoot -Recurse -File | Where-Object {
+            $rel = $_.FullName.Substring($projectRoot.Length)
+            $skip = $false
+            foreach ($ex in $excludeDirs) {
+                if ($rel -match "[/\\]$([regex]::Escape($ex))([/\\]|$)") { $skip = $true; break }
+            }
+            -not $skip
+        }
+        $files | Compress-Archive -DestinationPath $zipPath -CompressionLevel Optimal
+        $zipMB = [math]::Round((Get-Item $zipPath).Length / 1MB, 1)
+        info "Zip created: $zipPath  ($zipMB MB)"
+        Write-Host ""
+        Write-Host "${GREEN}Copy $zipPath to your USB drive.${NC}"
+    }
 
 } finally {
     Remove-Item -Recurse -Force $tmpDir -ErrorAction SilentlyContinue
