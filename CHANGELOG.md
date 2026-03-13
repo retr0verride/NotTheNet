@@ -9,6 +9,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ---
 
+## [2026.03.13-1] — 2026-03-13
+
+### Fixed
+- **iptables rules not removed on Stop** — `remove_rules()` had an early-exit guard that silently skipped all cleanup when `_rules_applied` was empty (e.g. after a crash, double-start, or session mismatch), leaving NOTTHENET NAT redirect rules active so the victim machine retained simulated internet access after NotTheNet was stopped. Replaced the tracked-rule-deletion approach with a snapshot/flush/restore strategy: the full nat table is saved via `iptables-save -t nat` immediately before any rules are applied, and on Stop the nat table is flushed and the snapshot is restored via `iptables-restore`. If no snapshot is available (e.g. `iptables-save` was not found), the entire nat table is flushed as a safe fallback. This guarantees a clean state regardless of how the session ended.
+
+---
+
 ## [2026.03.12-1] — 2026-03-12
 
 ### Fixed

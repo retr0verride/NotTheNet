@@ -58,32 +58,34 @@ def _iptables_available() -> bool:
     return code == 0
 
 
-def _save_rules() -> bool:
-    """Save current iptables rules for restoration on cleanup."""
+def _save_nat_snapshot() -> bool:
+    """Snapshot the current nat table so it can be fully restored on stop."""
     if not shutil.which("iptables-save"):
         return False
-    code, out, err = _run(["iptables-save"])
+    code, out, _ = _run(["iptables-save", "-t", "nat"])
     if code == 0:
         try:
             with open(_IPTABLES_SAVE_FILE, "w") as f:
                 f.write(out)
             os.chmod(_IPTABLES_SAVE_FILE, 0o600)
-            logger.debug(f"iptables rules saved to {_IPTABLES_SAVE_FILE}")
+            logger.debug(f"nat table snapshot saved to {_IPTABLES_SAVE_FILE}")
             return True
         except Exception as e:
-            logger.error(f"Failed to save iptables rules: {e}")
+            logger.error(f"Failed to save nat snapshot: {e}")
     return False
 
 
-def _restore_rules() -> bool:
-    """Restore iptables rules from saved snapshot."""
+def _restore_nat_snapshot() -> bool:
+    """Flush the nat table and restore the pre-start snapshot."""
     if not os.path.exists(_IPTABLES_SAVE_FILE):
         return False
     if not shutil.which("iptables-restore"):
         return False
+    # Flush first so no stale rules survive a partial restore
+    _run(["iptables", "-t", "nat", "-F"], check=False)
     code, _, err = _run(["iptables-restore", _IPTABLES_SAVE_FILE])
     if code == 0:
-        logger.info("iptables rules restored from snapshot.")
+        logger.info("nat table restored from pre-start snapshot.")
         try:
             os.unlink(_IPTABLES_SAVE_FILE)
         except Exception:
@@ -187,7 +189,7 @@ class IPTablesManager:
             )
             return False
 
-        self._saved = _save_rules()
+        self._saved = _save_nat_snapshot()
 
         chain = "PREROUTING" if self.mode == "gateway" else "OUTPUT"
         table_flag = ["-t", "nat"]
@@ -285,23 +287,25 @@ class IPTablesManager:
         return ok_count > 0
 
     def remove_rules(self):
-        """Remove all rules applied by this session."""
-        if not self._rules_applied:
-            return
+        """Stop: restore the nat table to its pre-start state."""
         if os.geteuid() != 0:
             logger.warning("Cannot remove iptables rules: not root.")
             return
 
-        # Prefer full restore if we saved rules
-        if self._saved and _restore_rules():
+        if self._saved and _restore_nat_snapshot():
+            # Snapshot restore also flushed the table — we're clean.
             self._rules_applied.clear()
-        else:
-            # Otherwise delete each rule individually
-            for rule in reversed(self._rules_applied):
-                self._del_rule(rule)
-            count = len(self._rules_applied)
-            self._rules_applied.clear()
-            logger.info(f"Removed {count} iptables rules.")
+            return
+
+        # No snapshot available (e.g. iptables-save was missing) — flush the
+        # entire nat table.  In a lab this is safe; there are no rules we need
+        # to preserve that aren't NotTheNet's own.
+        logger.warning(
+            "No nat snapshot available; flushing entire nat table as fallback."
+        )
+        _run(["iptables", "-t", "nat", "-F"], check=False)
+        self._rules_applied.clear()
+        logger.info("nat table flushed.")
 
 
 
@@ -315,3 +319,6 @@ class IPTablesManager:
             line for line in out.splitlines()
             if _RULE_COMMENT in line
         ]
+
+
+
