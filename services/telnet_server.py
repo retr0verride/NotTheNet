@@ -182,12 +182,11 @@ class _TelnetSession(threading.Thread):
             self._send(b"\r\n")
 
             safe_user = sanitize_log_string(username)
-            safe_pass = sanitize_log_string(password)
             logger.info(
-                f"Telnet credentials [{safe_addr}] user={safe_user} pass={safe_pass}"
+                f"Telnet credentials [{safe_addr}] user={safe_user} pass=[captured]"
             )
             if jl:
-                jl.log(
+                jl.log(  # lgtm[py/clear-text-logging-sensitive-data]
                     "telnet_auth",
                     src_ip=self.addr[0],
                     username=username,

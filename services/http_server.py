@@ -201,20 +201,58 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
                     f'"postal":"43215","timezone":"America/New_York"}}\n'
                 ).encode()
                 content_type = "application/json"
-            # ip-api.com — its /json endpoint returns an expanded object.
+            # ip-api.com — handle /line/, /csv/, and /json/ endpoints.
+            # AgentTesla and other stealers use GET /line/?fields=hosting to
+            # detect sandbox/datacenter IPs via a plain-text response.
+            # The /line/ endpoint returns one value per requested field,
+            # newline-separated, as text/plain — NOT a JSON object.
+            # Must return "false" for hosting; "true" would cause the malware
+            # to abort C2 activation thinking it's in a datacenter/sandbox.
             elif host == "ip-api.com":
-                body = (
-                    f'{{"status":"success","country":"United States",'
-                    f'"countryCode":"US","region":"OH","regionName":"Ohio",'
-                    f'"city":"Columbus","zip":"43215",'
-                    f'"lat":39.9612,"lon":-82.9988,'
-                    f'"timezone":"America/New_York",'
-                    f'"isp":"Comcast Cable Communications",'
-                    f'"org":"Comcast Cable Communications",'
-                    f'"as":"AS7922 Comcast Cable Communications, LLC",'
-                    f'"query":"{ip}"}}\n'
-                ).encode()
-                content_type = "application/json"
+                if "/line/" in path:
+                    # Parse requested fields from query string
+                    # e.g. ?fields=hosting  or  ?fields=hosting,isp,country
+                    from urllib.parse import urlparse, parse_qs  # noqa: PLC0415
+                    _qs = parse_qs(urlparse(path).query)
+                    _fields = [f.strip() for f in _qs.get("fields", ["query"])[0].split(",")]
+                    _field_map = {
+                        "status": "success",
+                        "country": "United States",
+                        "countryCode": "US",
+                        "region": "OH",
+                        "regionName": "Ohio",
+                        "city": "Columbus",
+                        "zip": "43215",
+                        "lat": "39.9612",
+                        "lon": "-82.9988",
+                        "timezone": "America/New_York",
+                        "isp": "Comcast Cable Communications",
+                        "org": "Comcast Cable Communications",
+                        "as": "AS7922 Comcast Cable Communications, LLC",
+                        "hosting": "false",
+                        "proxy": "false",
+                        "mobile": "false",
+                        "query": ip,
+                    }
+                    body = "\n".join(_field_map.get(f, "") for f in _fields).encode() + b"\n"
+                    content_type = "text/plain"
+                elif "/csv/" in path or "fields=csv" in path:
+                    body = f"success,United States,US,OH,Ohio,Columbus,43215,39.9612,-82.9988,America/New_York,Comcast Cable Communications,Comcast Cable Communications,AS7922 Comcast Cable Communications LLC,false,false,false,{ip}\n".encode()
+                    content_type = "text/csv"
+                else:
+                    body = (
+                        f'{{"status":"success","country":"United States",'
+                        f'"countryCode":"US","region":"OH","regionName":"Ohio",'
+                        f'"city":"Columbus","zip":"43215",'
+                        f'"lat":39.9612,"lon":-82.9988,'
+                        f'"timezone":"America/New_York",'
+                        f'"isp":"Comcast Cable Communications",'
+                        f'"org":"Comcast Cable Communications",'
+                        f'"as":"AS7922 Comcast Cable Communications, LLC",'
+                        f'"hosting":false,"proxy":false,"mobile":false,'
+                        f'"query":"{ip}"}}\n'
+                    ).encode()
+                    content_type = "application/json"
             # httpbin.org/ip uses {"origin": "..."}
             elif host == "httpbin.org":
                 body = f'{{"origin":"{ip}"}}\n'.encode()

@@ -113,6 +113,7 @@ class _TFTPTransferThread(threading.Thread):
         filename: str,
         allow_uploads: bool,
         upload_dir: str,
+        bind_ip: str = "0.0.0.0",
     ):
         super().__init__(daemon=True, name=f"tftp-{client_addr[0]}")
         self.opcode = opcode
@@ -120,6 +121,7 @@ class _TFTPTransferThread(threading.Thread):
         self.filename = filename
         self.allow_uploads = allow_uploads
         self.upload_dir = upload_dir
+        self.bind_ip = bind_ip
 
     def run(self):
         safe_addr = sanitize_ip(self.client_addr[0])
@@ -127,7 +129,7 @@ class _TFTPTransferThread(threading.Thread):
         # Bind an ephemeral TID socket for this transfer
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.bind(("0.0.0.0", 0))
+            sock.bind((self.bind_ip, 0))
             sock.settimeout(_TRANSFER_TIMEOUT)
         except OSError as e:
             logger.error(f"TFTP: failed to bind TID socket: {e}")
@@ -285,6 +287,7 @@ class TFTPService:
             _TFTPTransferThread(
                 opcode, addr, filename,
                 self.allow_uploads, self.upload_dir,
+                self.bind_ip,
             ).start()
 
     def stop(self):

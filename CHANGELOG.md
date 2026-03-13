@@ -9,6 +9,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ---
 
+## [2026.03.12-1] — 2026-03-12
+
+### Fixed
+- **`ip_forward` left enabled after stop** — in gateway mode, `ip_forward` was enabled on start but only restored via the individual-rule-removal code path; when `iptables-restore` succeeded the early `return` skipped the restore, leaving `/proc/sys/net/ipv4/ip_forward` at `1` so the victim machine could still reach the real internet after NotTheNet stopped
+- **`ip_forward` not required for REDIRECT rules** — `iptables` `REDIRECT` and `DNAT-to-localhost` rules redirect packets to local ports via `INPUT`, not `FORWARD`; `ip_forward` is only needed to route packets between two interfaces and was being set unnecessarily; all `ip_forward` read/write logic removed from `iptables_manager.py`, eliminating any risk of it lingering after a crash or `SIGKILL`
+- **Invalid DNS label accepted in dynamic cert forger** — `forge_domain_cert()` now validates each hostname label against RFC 1123 (labels must not start or end with a hyphen) before loading the CA and issuing a certificate; raises `ValueError` on malformed input
+- **`ip-api.com` `/line/` endpoint not handled** — the previous handler only returned the `/json/` body for all paths; malware families (AgentTesla, FormBook) that use `GET /line/?fields=hosting` received a JSON object as `text/plain`, which they parse as `"true"` and abort C2 activation; handler now branches on `/line/`, `/csv/`, and JSON paths, returning the correct format and `hosting=false` / `"hosting":false` for each
+
+---
+
 ## [2026.03.09-1] — 2026-03-09
 
 ### Fixed
