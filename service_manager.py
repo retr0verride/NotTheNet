@@ -295,9 +295,14 @@ class ServiceManager:
         catch_udp_port = int(catch_cfg.get("udp_port", 0))
         excluded = catch_cfg.get("excluded_ports", [22])
 
+        # Drive the ICMP DNAT rule from config, not from whether the raw-socket
+        # logging service started.  The kernel handles echo-replies without the
+        # raw socket; the responder only exists for logging.
+        icmp_enabled = bool(self.config.get_section("icmp").get("enabled", False))
+
         iptables.apply_rules(
             service_ports, catch_tcp_port, catch_udp_port, excluded,
-            icmp_enabled="icmp" in self._services,
+            icmp_enabled=icmp_enabled,
         )
         self._iptables = iptables
 
