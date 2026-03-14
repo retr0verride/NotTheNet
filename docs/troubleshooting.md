@@ -7,6 +7,8 @@
 - [HTTP/HTTPS not responding](#httphttps-not-responding)
 - [iptables rules not applied](#iptables-rules-not-applied)
 - [Malware still reaching real internet](#malware-still-reaching-real-internet)
+- [Hypervisor firewall blocking traffic (Proxmox / ESXi)](#hypervisor-firewall-blocking-traffic-proxmox--esxi)
+- [Windows shows "No Internet" (NCSI failure)](#windows-shows-no-internet-ncsi-failure)
 - [GUI won't start / Tkinter errors](#gui-wont-start--tkinter-errors)
 - [TLS / certificate errors](#tls--certificate-errors)
 - [High CPU or memory usage](#high-cpu-or-memory-usage)
@@ -195,6 +197,80 @@ Add a blanket drop rule for traffic escaping to the real internet:
 ```bash
 # Block everything except traffic to/from the analysis network
 sudo iptables -A FORWARD -i virbr0 -o eth0 -j DROP
+```
+
+---
+
+## Hypervisor firewall blocking traffic (Proxmox / ESXi)
+
+**Symptom:** NotTheNet is running, iptables rules are applied, `ip_forward=1`, but the analysis VM cannot ping or connect to any external IP. Traffic never arrives at Kali.
+
+### Cause
+
+Hypervisor-level firewalls (Proxmox VE firewall, VMware NSX, ESXi port groups) inspect packets **before** they reach the guest OS. When the analysis VM sends a packet to `8.8.8.8`, the hypervisor sees the real destination IP — not the DNAT'd address — and drops it if no matching ACCEPT rule exists.
+
+This is true even if the VMs are on an isolated bridge with no physical uplink.
+
+### Fix
+
+**Recommended: Disable the hypervisor firewall on both lab VMs.** If the bridge has no physical uplink, network topology already provides containment — the firewall adds no value and breaks DNAT-based traffic interception.
+
+**Proxmox:**
+1. Select the Kali VM → **Firewall** → **Options** → set **Firewall: No**
+2. Select the analysis VM → **Firewall** → **Options** → set **Firewall: No**
+
+Security groups and firewall rules are only evaluated when the VM-level firewall is enabled. Disabling it per-VM does not affect other VMs or the datacenter-level firewall.
+
+**VMware / ESXi:**
+- Ensure the port group security policy allows promiscuous mode, MAC address changes, and forged transmits if using a vSwitch.
+
+### Verification
+
+```bash
+# On Kali — confirm traffic is now arriving
+sudo tcpdump -i any -c 5 icmp
+# Then ping 8.8.8.8 from the analysis VM — you should see packets
+```
+
+---
+
+## Windows shows "No Internet" (NCSI failure)
+
+**Symptom:** Windows taskbar shows "No Internet access" on the network icon, even though DNS resolves and HTTP works.
+
+### How Windows checks connectivity (NCSI)
+
+Windows runs the Network Connectivity Status Indicator (NCSI) probe on every network change:
+
+1. **HTTP probe:** `GET http://www.msftconnecttest.com/connecttest.txt` — expects body `Microsoft Connect Test`
+2. **DNS probe:** resolves `dns.msftncsi.com` — expects `131.107.255.255`
+
+Both must succeed for Windows to show "Internet access".
+
+### NotTheNet handles this automatically
+
+As of v2026.03.13-2, NotTheNet has built-in NCSI support:
+- HTTP server responds with the correct body for `www.msftconnecttest.com` and `msftconnecttest.com`
+- DNS server returns `131.107.255.255` for `dns.msftncsi.com`
+
+If NCSI is still failing, verify:
+```bash
+# From the analysis VM — test the HTTP probe
+curl -s http://www.msftconnecttest.com/connecttest.txt
+# Should return: Microsoft Connect Test
+
+# Test the DNS probe
+nslookup dns.msftncsi.com
+# Should return: 131.107.255.255
+```
+
+If `curl` works but Windows still shows "No Internet", try:
+```powershell
+# On the analysis VM (PowerShell as Administrator)
+# Force NCSI re-check
+ipconfig /flushdns
+# Disable and re-enable the network adapter
+Get-NetAdapter | Restart-NetAdapter
 ```
 
 ---
