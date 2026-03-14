@@ -634,3 +634,133 @@ sudo rm -f /etc/sysctl.d/99-notthenet.conf
 
 After restarting NotTheNet normally (**▶ Start**), it will re-apply only its own rules cleanly.
 
+---
+
+## Part 8 — Anti-Detection Hardening
+
+Modern malware frequently checks for sandbox and VM indicators before executing its payload. This section covers hardening the lab so the environment is indistinguishable from a real physical workstation.
+
+### 8.1 Proxmox VM hardware config (FlareVM)
+
+Edit `/etc/pve/qemu-server/<VMID>.conf` on the Proxmox host. The following settings defeat the most common VM detection techniques:
+
+```ini
+# Pass through the real host CPU model — no "QEMU Virtual CPU" string
+cpu: host,hidden=1,flags=+pcid
+
+# Anti-detection QEMU flags
+args: -cpu host,kvm=off,hv-vendor-id=GenuineIntel,-hypervisor,+pcid,+invtsc,tsc-frequency=3600000000 -overcommit cpu-pm=on
+
+# Realistic SMBIOS — reported to WMI/Win32_ComputerSystem
+smbios1: manufacturer=Dell Inc.,product=OptiPlex 7090,version=1,serial=7GH2JK3,uuid=a1b2c3d4-e5f6-7890-abcd-ef1234567890,family=Desktop
+
+# Modern chipset (i440fx is a sandbox flag)
+machine: q35
+
+# Adequate resources — low RAM/CPU/disk is a sandbox indicator
+memory: 16384
+cores: 2
+sata0: local-lvm:vm-200-disk-1,size=256G
+
+# TPM 2.0 — Windows 11 requires it; presence indicates a real modern PC
+tpmstate0: local-lvm:vm-200-disk-2,size=4M,version=v2.0
+
+# UEFI firmware
+bios: ovmf
+```
+
+**What each flag does:**
+
+| Flag | Defeats |
+|------|---------|
+| `kvm=off` | Hides KVM from CPUID |
+| `hv-vendor-id=GenuineIntel` | Replaces `KVMKVMKVM` hypervisor vendor string |
+| `-hypervisor` | Clears the hypervisor CPUID bit entirely |
+| `+invtsc` | Invariant TSC — prevents timing-based VM detection |
+| `tsc-frequency=3600000000` | Fixed TSC frequency matches a real 3.6 GHz CPU |
+| `-overcommit cpu-pm=on` | Enables CPU power management states (C-states) |
+| `cpu: host,hidden=1` | Passes real CPU model; `hidden=1` = KVM stealth mode |
+| `smbios1` | Controls `Win32_ComputerSystem.Manufacturer` / `.Model` (WMI) |
+| `machine: q35` | Modern Intel chipset — `i440fx` is an immediate sandbox flag |
+
+> **Verify after boot** (PowerShell on FlareVM):
+> ```powershell
+> (Get-WmiObject Win32_Processor).Name          # Should show your real CPU
+> (Get-WmiObject Win32_ComputerSystem).Manufacturer  # Should show "Dell Inc."
+> ```
+
+### 8.2 Proxmox firewall — disable for lab VMs
+
+The Proxmox VM-level firewall evaluates packets **before** they reach the guest OS. It sees the original destination IP (e.g. `8.8.8.8`) — not the DNAT'd address — and drops packets that don't match an ACCEPT rule. This breaks NotTheNet's traffic interception even when iptables rules are correctly configured inside Kali.
+
+**Fix: disable the firewall on both lab VMs.**
+
+The isolated bridge (`vmbr1` with no physical uplink) already provides full containment — no packet can physically leave the Proxmox host. The firewall adds no value.
+
+1. Proxmox UI → **Kali VM → Firewall → Options → Firewall: No**
+2. Proxmox UI → **FlareVM → Firewall → Options → Firewall: No**
+
+> Disabling per-VM does not affect other VMs or the datacenter-level firewall.
+
+### 8.3 GhostFlare — registry-level VM artifact removal
+
+GhostFlare is a PowerShell script that patches Windows registry entries that reveal the VM environment:
+
+| What it patches | Detail |
+|-----------------|--------|
+| SCSI disk identifier / serial | QEMU/VBOX/VMWARE → Samsung SSD |
+| BIOS version and date | BOCHS/QEMU → realistic Dell timestamp |
+| SMBIOS manufacturer/product | QEMU/innotek → Dell OptiPlex 7090 |
+| VM guest tools registry keys | Removes VirtualBox, VMware, Hyper-V service entries |
+| NIC MAC address OUI | QEMU `52:54:00` → Intel `D4:BE:D9` (Dell NIC OUI) |
+| Windows install date | Backdated to look like a well-used machine |
+| VBS / DeviceGuard | Disabled |
+
+**Copy to FlareVM and run once as Administrator:**
+
+```powershell
+Set-ExecutionPolicy Bypass -Scope Process -Force
+.\ghost-flare.ps1
+```
+
+GhostFlare registers itself as a SYSTEM ONLOGON scheduled task so patches persist across reboots.
+
+> `ghost-flare.ps1` is included in the NotTheNet bundle. After install it is at:
+> `~/NotTheNet/ghost-flare.ps1` on Kali.
+
+### 8.4 Display resolution
+
+A VM defaulting to 800×600 or 1280×800 is a well-known sandbox indicator. Set 1920×1080:
+
+1. Boot FlareVM and press **F2** during POST to enter the OVMF UEFI setup
+2. Navigate to **Device Manager → OVMF Platform Configuration → Change Preferred Resolution**
+3. Select **1920x1080**
+4. Press **F10** to save, then **Y** to confirm, then **Escape** back to the main menu and **Reset**
+
+> This is a persistent UEFI NVRAM setting — it survives reboots and snapshot rollbacks.
+
+### 8.5 Additional hardening checklist
+
+| Check | Target value | How to set |
+|-------|-------------|------------|
+| **RAM** | 8 GB+ (16 GB recommended) | Proxmox VM Hardware |
+| **CPU cores** | 2+ | Proxmox VM Hardware |
+| **Disk size** | 100 GB+ | Proxmox VM Hardware |
+| **Screen resolution** | 1920×1080 | Section 8.4 above |
+| **No guest agent** | Do not install `qemu-guest-agent` on FlareVM | (omit from install) |
+| **No VM tools** | Do not install VirtIO or VMware drivers on FlareVM | (omit from install) |
+| **Display adapter** | Use `vga: std` — not VirtIO/QXL (detectable PCI IDs) | `200.conf` |
+| **User artifacts** | Desktop files, browser bookmarks, recent docs | Stage manually |
+| **Uptime** | Boot and idle 10+ min before detonating | Wait before running samples |
+
+### 8.6 Snapshot strategy
+
+After completing all hardening steps (sections 8.1–8.5) and verifying the lab is working:
+
+1. Run GhostFlare, reboot, verify resolution and NIC MAC
+2. Take a **Stealth** snapshot — clean OS with all hardening applied, no analysis tools
+3. Install FlareVM tools on top
+4. Take a **Pre-detonate** snapshot — tools installed, ready for samples
+5. Before each sample: branch a **New-Samples** snapshot from **Pre-detonate**
+6. After analysis: rollback to **Pre-detonate** (keeps tools installed, reverts sample artifacts)
+
