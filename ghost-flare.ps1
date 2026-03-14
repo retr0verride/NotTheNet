@@ -9,12 +9,48 @@ function Write-OK   { param([string]$msg) Write-Host "[+] $msg" -ForegroundColor
 function Write-Skip { param([string]$msg) Write-Host "[-] $msg" -ForegroundColor Yellow }
 function Write-Fail { param([string]$msg) Write-Host "[!] $msg" -ForegroundColor Red }
 
+function Remove-ProtectedRegistryKey {
+    param([string]$KeyPath)
+    # Strip the HKLM: drive prefix to get the raw subkey path
+    $subKeyPath = $KeyPath -replace '^HKLM:\\', ''
+    $hive = [Microsoft.Win32.Registry]::LocalMachine
+    $admins = New-Object System.Security.Principal.NTAccount('BUILTIN\Administrators')
+
+    # Step 1: take ownership
+    $key = $hive.OpenSubKey($subKeyPath,
+        [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,
+        [System.Security.AccessControl.RegistryRights]::TakeOwnership)
+    $acl = $key.GetAccessControl([System.Security.AccessControl.AccessControlSections]::None)
+    $acl.SetOwner($admins)
+    $key.SetAccessControl($acl)
+    $key.Close()
+
+    # Step 2: grant Administrators full control
+    $key = $hive.OpenSubKey($subKeyPath,
+        [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,
+        [System.Security.AccessControl.RegistryRights]::ChangePermissions)
+    $acl = $key.GetAccessControl()
+    $rule = New-Object System.Security.AccessControl.RegistryAccessRule(
+        $admins,
+        [System.Security.AccessControl.RegistryRights]::FullControl,
+        ([System.Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'),
+        [System.Security.AccessControl.PropagationFlags]::None,
+        [System.Security.AccessControl.AccessControlType]::Allow)
+    $acl.SetAccessRule($rule)
+    $key.SetAccessControl($acl)
+    $key.Close()
+
+    # Step 3: now delete
+    Remove-Item -Path $KeyPath -Recurse -Force
+}
+
 Write-Step "Patching SCSI disk Identifier..."
 $scsiBase = "HKLM:\HARDWARE\DEVICEMAP\Scsi"
 if (Test-Path $scsiBase) {
     $units = Get-ChildItem -Path $scsiBase -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -eq "Logical Unit Id 0" }
     foreach ($u in $units) {
-        $val = (Get-ItemProperty -Path $u.PSPath -Name "Identifier" -ErrorAction SilentlyContinue).Identifier
+        $idProps = Get-ItemProperty -Path $u.PSPath -Name "Identifier" -ErrorAction SilentlyContinue
+        $val = if ($idProps) { $idProps.Identifier } else { $null }
         if ($val -match "QEMU|VBOX|VMWARE|VIRTUAL") {
             Set-ItemProperty -Path $u.PSPath -Name "Identifier" -Value "SAMSUNG MZNLN256HAJQ-000H1"
             Write-OK "Patched: $($u.PSPath)"
@@ -111,7 +147,20 @@ foreach ($k in $artifactKeys) {
             Remove-Item -Path $k -Recurse -Force
             Write-OK "Removed: $k"
         } catch {
-            Write-Fail "Could not remove $k"
+            # First attempt failed — key is likely owned by TrustedInstaller.
+            # Re-try after taking ownership and granting Administrators full control.
+            try {
+                Remove-ProtectedRegistryKey -KeyPath $k
+                Write-OK "Removed (privileged): $k"
+            } catch {
+                # Key is in use (driver loaded) — disable it so it can be removed after reboot
+                try {
+                    Set-ItemProperty -Path $k -Name "Start" -Value 4 -Type DWord -Force
+                    Write-Skip "Could not remove $k (in use) — disabled, will be removable after reboot"
+                } catch {
+                    Write-Fail "Could not remove or disable $k"
+                }
+            }
         }
     }
 }
@@ -119,7 +168,8 @@ foreach ($k in $artifactKeys) {
 Write-Step "Patching SMBIOS manufacturer in registry..."
 $compKey = "HKLM:\HARDWARE\DESCRIPTION\System\BIOS"
 if (Test-Path $compKey) {
-    $mfr = (Get-ItemProperty $compKey -Name "SystemManufacturer" -ErrorAction SilentlyContinue).SystemManufacturer
+    $mfrProps = Get-ItemProperty $compKey -Name "SystemManufacturer" -ErrorAction SilentlyContinue
+    $mfr = if ($mfrProps) { $mfrProps.SystemManufacturer } else { $null }
     if ($mfr -match "QEMU|innotek|VMware") {
         Set-ItemProperty $compKey -Name "SystemManufacturer" -Value "Dell Inc."
         Set-ItemProperty $compKey -Name "SystemProductName" -Value "OptiPlex 7090"
@@ -158,8 +208,10 @@ $nicBase = "HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC
 if (Test-Path $nicBase) {
     $nics = Get-ChildItem -Path $nicBase -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match '^\d{4}$' }
     foreach ($nic in $nics) {
-        $desc = (Get-ItemProperty -Path $nic.PSPath -Name "DriverDesc" -ErrorAction SilentlyContinue).DriverDesc
-        $existingMac = (Get-ItemProperty -Path $nic.PSPath -Name "NetworkAddress" -ErrorAction SilentlyContinue).NetworkAddress
+        $descProps = Get-ItemProperty -Path $nic.PSPath -Name "DriverDesc" -ErrorAction SilentlyContinue
+        $desc = if ($descProps) { $descProps.DriverDesc } else { $null }
+        $nicProps = Get-ItemProperty -Path $nic.PSPath -Name "NetworkAddress" -ErrorAction SilentlyContinue
+        $existingMac = if ($nicProps) { $nicProps.NetworkAddress } else { $null }
         # Only patch QEMU/VirtIO/vmxnet NICs that haven't already been spoofed
         if ($desc -match "QEMU|VirtIO|vmxnet|Red Hat" -and -not $existingMac) {
             # Dell/Intel OUI: D4:BE:D9 (Intel I219-LM, common on OptiPlex)

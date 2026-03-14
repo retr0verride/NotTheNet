@@ -154,8 +154,14 @@ sudo bash notthenet-bundle.sh
 ```
 
 The installer will auto-detect whether a previous install exists and offer:
-- **Fresh install** — sets up everything in the current directory
-- **Update** — copies new source files into the existing install, preserves your `config.json`, `certs/`, and `logs/`
+- **Fresh install** — sets up everything in the current directory. The unzipped folder becomes the install.
+- **Update** — copies new source files into the existing install, preserves your `config.json`, `certs/`, and `logs/`, then **deletes the staging directory** (the unzipped folder) when done.
+
+> **After an update**, the installer prints the path to `ghost-flare.ps1` so you can find it:
+> ```
+> [*] ghost-flare.ps1 is at: /root/NotTheNet/ghost-flare.ps1
+> ```
+> Transfer that file to FlareVM when you need it.
 
 You can also skip the prompt with a flag:
 
@@ -166,7 +172,9 @@ sudo bash notthenet-bundle.sh --update    # always update
 
 ### Step 4 — Install GhostFlare on FlareVM (optional)
 
-`ghost-flare.ps1` is included in the zip. Run it **on the FlareVM** (Windows) to scrub VM artifacts from the registry so malware cannot detect the sandbox:
+`ghost-flare.ps1` is included in the zip. After a **fresh install** it lives in the NotTheNet folder you just extracted. After an **update** the staging folder is deleted but `ghost-flare.ps1` is kept in the existing install directory (the installer prints the exact path).
+
+Run it **on the FlareVM** (Windows) to scrub VM artifacts from the registry so malware cannot detect the sandbox:
 
 ```powershell
 # On FlareVM — run once as Administrator

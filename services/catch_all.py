@@ -53,7 +53,9 @@ _HTTP_200 = (
     b"\r\n"
 )
 
-_GENERIC_BANNER = b"200 OK\r\n"
+# For unknown protocols, echo nothing protocol-specific — just close.
+# Sending "200 OK" to a non-HTTP protocol is a detectable anomaly.
+_GENERIC_BANNER = b""
 
 
 def _detect_protocol(peek: bytes) -> str:
@@ -332,7 +334,8 @@ class CatchAllUDPService:
                 if jl:
                     jl.log("catch_all_udp", src_ip=addr[0], src_port=addr[1],
                            data_len=len(data))
-                self._sock.sendto(b"OK\r\n", addr)
+                # Don't respond to unknown UDP — no real service echoes "OK".
+                # Silently logging is more realistic than replying.
             except Exception as e:
                 if not self._stop_event.is_set():
                     logger.debug(f"Catch-all UDP error: {e}")

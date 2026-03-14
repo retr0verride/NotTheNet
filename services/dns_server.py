@@ -24,7 +24,7 @@ from utils.logging_utils import sanitize_hostname, sanitize_ip
 logger = logging.getLogger(__name__)
 
 try:
-    from dnslib import MX, NS, PTR, QTYPE, RR, SOA, TXT, A, DNSRecord
+    from dnslib import MX, NS, PTR, QTYPE, RR, SOA, TXT, A, CAA, SRV, DNSRecord
     from dnslib.server import DNSServer
     _DNSLIB_AVAILABLE = True
 except ImportError:
@@ -70,6 +70,15 @@ class _FakeResolver:
                 override_ip = self.custom_records[qname]
                 reply.add_answer(RR(qname, QTYPE.A, ttl=self.ttl, rdata=A(override_ip)))
                 logger.debug(f"  -> custom override: {safe_name} -> {sanitize_ip(override_ip)}")
+                return reply
+
+            # --- Windows NCSI DNS probe ---
+            # Windows resolves dns.msftncsi.com and expects 131.107.255.255.
+            # Returning redirect_ip here would fail the probe and prevent the
+            # "Internet access" indicator from showing.
+            if qname in ("dns.msftncsi.com.", "dns.msftncsi.com") and request.q.qtype == QTYPE.A:
+                reply.add_answer(RR(qname, QTYPE.A, ttl=self.ttl, rdata=A("131.107.255.255")))
+                logger.debug(f"  -> NCSI DNS probe: {safe_name} -> 131.107.255.255")
                 return reply
 
             # --- PTR (reverse lookup) ---
@@ -167,11 +176,39 @@ class _FakeResolver:
                 logger.debug(f"  -> CNAME(as A): {safe_name} -> {sanitize_ip(self.redirect_ip)}")
                 return reply
 
-            # --- A (and everything else) ---
-            reply.add_answer(
-                RR(qname, QTYPE.A, ttl=self.ttl, rdata=A(self.redirect_ip))
-            )
-            logger.debug(f"  -> A: {safe_name} -> {sanitize_ip(self.redirect_ip)}")
+            # --- SRV (service location) ---
+            if request.q.qtype == QTYPE.SRV:
+                srv_host = f"srv.{qname}"
+                reply.add_answer(
+                    RR(qname, QTYPE.SRV, ttl=self.ttl,
+                       rdata=SRV(0, 0, 443, srv_host))
+                )
+                reply.add_ar(
+                    RR(srv_host, QTYPE.A, ttl=self.ttl, rdata=A(self.redirect_ip))
+                )
+                logger.debug(f"  -> SRV: {safe_name} -> {srv_host}")
+                return reply
+
+            # --- CAA (certificate authority authorization) ---
+            if request.q.qtype == QTYPE.CAA:
+                reply.add_answer(
+                    RR(qname, QTYPE.CAA, ttl=self.ttl,
+                       rdata=CAA(0, "issue", "letsencrypt.org"))
+                )
+                logger.debug(f"  -> CAA: {safe_name}")
+                return reply
+
+            # --- A ---
+            if request.q.qtype == QTYPE.A:
+                reply.add_answer(
+                    RR(qname, QTYPE.A, ttl=self.ttl, rdata=A(self.redirect_ip))
+                )
+                logger.debug(f"  -> A: {safe_name} -> {sanitize_ip(self.redirect_ip)}")
+                return reply
+
+            # --- Unknown / unsupported query types ---
+            # Return NOERROR with empty answer (no records of this type).
+            logger.debug(f"  -> empty NOERROR for qtype={request.q.qtype}: {safe_name}")
 
         except Exception as e:
             logger.warning(f"DNS resolve error: {e}")

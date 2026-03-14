@@ -268,6 +268,9 @@ else:
 MERGEPY
         fi
 
+        # Remember staging dir so we can clean it up after install
+        STAGING_DIR="$SCRIPT_DIR"
+
         # Redirect remaining steps (venv refresh, certs, launchers) to existing dir
         SCRIPT_DIR="$INSTALL_DIR"
         VENV_DIR="${INSTALL_DIR}/venv"
@@ -423,22 +426,39 @@ else
 fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────
+_VER=$(grep -oP '(?<=APP_VERSION = ")[^"]+' "${INSTALL_DIR:-$SCRIPT_DIR}/notthenet.py" 2>/dev/null || echo "unknown")
 echo ""
 if [[ "$MODE" == "update" ]]; then
-echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║   NotTheNet updated successfully!                    ║${NC}"
-echo -e "${GREEN}║                                                      ║${NC}"
-echo -e "${GREEN}║   GUI:       sudo notthenet                          ║${NC}"
-echo -e "${GREEN}║   Headless:  sudo notthenet --nogui                  ║${NC}"
-echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
+echo -e "${GREEN}+------------------------------------------------------+${NC}"
+echo -e "${GREEN}|   NotTheNet updated successfully!                    |${NC}"
+echo -e "${GREEN}|   Version: ${_VER}$(printf '%*s' $((38 - ${#_VER})) '')|${NC}"
+echo -e "${GREEN}|                                                      |${NC}"
+echo -e "${GREEN}|   GUI:       sudo notthenet                          |${NC}"
+echo -e "${GREEN}|   Headless:  sudo notthenet --nogui                  |${NC}"
+echo -e "${GREEN}+------------------------------------------------------+${NC}"
+# Clean up the staging directory from the USB/zip, preserving ghost-flare.ps1
+if [[ -n "${STAGING_DIR:-}" ]] && [[ "$STAGING_DIR" != "$INSTALL_DIR" ]] && [[ -d "$STAGING_DIR" ]]; then
+    if [[ -f "${STAGING_DIR}/ghost-flare.ps1" ]]; then
+        cp "${STAGING_DIR}/ghost-flare.ps1" "${INSTALL_DIR}/ghost-flare.ps1" 2>/dev/null || true
+    fi
+    cd / 2>/dev/null
+    rm -rf "$STAGING_DIR"
+fi
+echo ""
+echo -e "${YELLOW}  GhostFlare (copy to FlareVM and run as Administrator):${NC}"
+echo -e "  ${INSTALL_DIR}/ghost-flare.ps1"
 else
-echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║   NotTheNet installed successfully (offline)!        ║${NC}"
-echo -e "${GREEN}║                                                      ║${NC}"
-echo -e "${GREEN}║   GUI:       sudo notthenet                          ║${NC}"
-echo -e "${GREEN}║   Headless:  sudo notthenet --nogui                  ║${NC}"
-echo -e "${GREEN}║   Uninstall: sudo notthenet-uninstall                ║${NC}"
-echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
+echo -e "${GREEN}+------------------------------------------------------+${NC}"
+echo -e "${GREEN}|   NotTheNet installed successfully (offline)!        |${NC}"
+echo -e "${GREEN}|   Version: ${_VER}$(printf '%*s' $((38 - ${#_VER})) '')|${NC}"
+echo -e "${GREEN}|                                                      |${NC}"
+echo -e "${GREEN}|   GUI:       sudo notthenet                          |${NC}"
+echo -e "${GREEN}|   Headless:  sudo notthenet --nogui                  |${NC}"
+echo -e "${GREEN}|   Uninstall: sudo notthenet-uninstall                |${NC}"
+echo -e "${GREEN}+------------------------------------------------------+${NC}"
+echo ""
+echo -e "${YELLOW}  GhostFlare (copy to FlareVM and run as Administrator):${NC}"
+echo -e "  ${SCRIPT_DIR}/ghost-flare.ps1"
 fi
 '@)
 

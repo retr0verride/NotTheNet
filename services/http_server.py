@@ -18,6 +18,7 @@ import logging
 import os
 import select
 import socketserver
+from datetime import datetime, timedelta, timezone
 import ssl
 import threading
 import time
@@ -84,15 +85,80 @@ _IP_CHECK_HOSTS = frozenset({
 # connectivity before detonating.  The responses MUST be exact byte-for-byte
 # matches of what a real Microsoft server returns.
 _NCSI_HOSTS = frozenset({
+    "www.msftconnecttest.com",
     "msftconnecttest.com",
     "ipv6.msftconnecttest.com",
     "www.msftncsi.com",
 })
 _NCSI_RESPONSES: dict[str, bytes] = {
+    "www.msftconnecttest.com":  b"Microsoft Connect Test",
     "msftconnecttest.com":      b"Microsoft Connect Test",
     "ipv6.msftconnecttest.com": b"Microsoft Connect Test",
     "www.msftncsi.com":         b"Microsoft NCSI",
 }
+
+# Windows PKI infrastructure hosts — CRL, OCSP, and Certificate Trust List
+# (CTL) download endpoints.  Windows CryptoAPI hits these during every HTTPS
+# connection to validate the server cert chain.  If the response is HTML (our
+# default page) instead of binary, cert validation fails — a giveaway.
+_PKI_HOSTS = frozenset({
+    "crl.microsoft.com",
+    "crl3.digicert.com", "crl4.digicert.com",
+    "ocsp.digicert.com", "ocsp.msocsp.com", "oneocsp.microsoft.com",
+    "ocsp.verisign.com", "ocsp.thawte.com", "ocsp.sectigo.com",
+    "ocsp.comodoca.com", "ocsp.usertrust.com",
+    "ctldl.windowsupdate.com",
+    "cacerts.digicert.com",
+    "www.download.windowsupdate.com",
+    "download.windowsupdate.com",
+})
+
+# Minimal CRL stub — an empty DER-encoded X.509 Certificate Revocation List.
+# We generate it lazily on first use.
+_STUB_CRL_CACHE: bytes | None = None
+
+
+def _get_stub_crl() -> bytes:
+    """Return a minimal valid DER-encoded CRL (empty revocation list)."""
+    global _STUB_CRL_CACHE  # noqa: PLW0603
+    if _STUB_CRL_CACHE is not None:
+        return _STUB_CRL_CACHE
+    try:
+        from cryptography import x509 as cx509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.x509.oid import NameOID
+
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        issuer = cx509.Name([
+            cx509.NameAttribute(NameOID.COMMON_NAME, "DigiCert Global Root CA"),
+        ])
+        now = datetime.now(timezone.utc)
+        crl = (
+            cx509.CertificateRevocationListBuilder()
+            .issuer_name(issuer)
+            .last_update(now)
+            .next_update(now + timedelta(days=30))
+            .sign(key, hashes.SHA256())
+        )
+        _STUB_CRL_CACHE = crl.public_bytes(serialization.Encoding.DER)
+    except Exception:
+        # Fallback: return a minimal plausible binary blob
+        _STUB_CRL_CACHE = b"\x30\x00"
+    return _STUB_CRL_CACHE
+
+
+# Minimal OCSP "good" response stub (DER).  Real OCSP responses are complex;
+# we return a small valid-looking binary payload with the correct content-type.
+# Most CryptoAPI implementations accept a timeout/error gracefully and don't
+# hard-fail on soft-fail OCSP — but returning HTML would be worse.
+_STUB_OCSP_RESPONSE = (
+    b"\x30\x03"    # SEQUENCE { OCSPResponse
+    b"\x0a\x01"    # ENUMERATED (1 byte)
+    b"\x00"        # successful (0)
+    # responseBytes omitted — this is a "successful but no details" stub.
+    # CryptoAPI treats this as soft-pass (same as timeout).
+)
 
 
 _MAX_BODY_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
@@ -310,6 +376,60 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
             except (BrokenPipeError, ConnectionResetError):
                 pass
 
+        def _send_pki_response(self, host: str):
+            """Return stub CRL/OCSP/CTL binary responses for Windows PKI hosts.
+
+            Windows CryptoAPI fetches CRLs, OCSP responses, and CTLs over HTTP
+            during every HTTPS cert validation.  Returning HTML (our default
+            response) breaks validation.  We return the correct content-type
+            with a minimal valid binary stub.
+            """
+            path = (self.path or "/").lower()
+            if self._log_requests:
+                safe_addr = sanitize_ip(self.client_address[0])
+                logger.info(
+                    f"HTTP  PKI {sanitize_log_string(host)}{sanitize_log_string(path, 128)} "
+                    f"from {safe_addr}"
+                )
+            # Determine response type from path/host
+            if "ocsp" in host or "/ocsp" in path:
+                body = _STUB_OCSP_RESPONSE
+                content_type = "application/ocsp-response"
+            elif path.endswith(".crl") or "crl" in host:
+                body = _get_stub_crl()
+                content_type = "application/pkix-crl"
+            elif path.endswith(".crt") or path.endswith(".cer") or "cacerts" in host:
+                # CA cert download — return an empty 404 rather than HTML.
+                # Windows treats a missing issuer cert as soft-fail.
+                try:
+                    self.send_response(404)
+                    self.send_header("Content-Length", "0")
+                    self.send_header("Server", self._server_header)
+                    self.send_header("Connection", "close")
+                    self.end_headers()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                return
+            elif "ctldl" in host or path.endswith(".stl") or path.endswith(".cab"):
+                # Certificate Trust List — return empty cab-like response
+                body = b""
+                content_type = "application/octet-stream"
+            else:
+                # Generic PKI host — return empty binary
+                body = b""
+                content_type = "application/octet-stream"
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Server", self._server_header)
+                self.send_header("Connection", "close")
+                self.end_headers()
+                if self.command != "HEAD":
+                    self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
         def _handle_doh_request(self):
             """Handle a DNS-over-HTTPS (DoH) request and return a DNS response."""
             safe_addr = sanitize_ip(self.client_address[0])
@@ -414,6 +534,11 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
                 self._send_ncsi_response(host)
                 return
 
+            # Windows PKI: CRL, OCSP, CTL downloads — return binary stubs
+            if host in _PKI_HOSTS:
+                self._send_pki_response(host)
+                return
+
             # Public IP spoof: intercept well-known IP-check hostnames
             if self._spoof_ip and host in _IP_CHECK_HOSTS:
                 self._send_ip_check_response(host)
@@ -456,6 +581,9 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
                 self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(len(body)))
                 self.send_header("Server", self._server_header)
+                self.send_header("Accept-Ranges", "bytes")
+                self.send_header("Vary", "Accept-Encoding")
+                self.send_header("ETag", '"3a4b1c-264-5f8a7d63c0bc0"')
                 self.send_header("Connection", "close")
                 self.end_headers()
                 # HEAD requests MUST NOT include a message body (RFC 7231 §4.3.2).

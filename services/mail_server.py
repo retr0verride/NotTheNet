@@ -135,12 +135,23 @@ class _SMTPClientThread(threading.Thread):
         if cmd.startswith("EHLO") or cmd.startswith("HELO"):
             # Advertise a realistic set of extensions so malware stealers
             # that check for AUTH before authenticating will find it.
+            # Advertise STARTTLS when TLS certs are available — real Postfix
+            # always does.  Stealers like AgentTesla/FormBook check for it.
+            starttls_line = ""
+            if (
+                self.cert_path
+                and self.key_path
+                and os.path.exists(self.cert_path)
+                and os.path.exists(self.key_path)
+            ):
+                starttls_line = f"250-STARTTLS\r\n"
             self._send(
                 f"250-{self.hostname}\r\n"
                 f"250-PIPELINING\r\n"
                 f"250-SIZE 10240000\r\n"
                 f"250-VRFY\r\n"
                 f"250-ETRN\r\n"
+                f"{starttls_line}"
                 f"250-AUTH PLAIN LOGIN\r\n"
                 f"250-AUTH=PLAIN LOGIN\r\n"
                 f"250-ENHANCEDSTATUSCODES\r\n"

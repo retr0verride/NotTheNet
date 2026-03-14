@@ -55,8 +55,8 @@ _MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB per upload
 # Small benign stub served in response to any RRQ so the malware's transfer
 # completes without error and execution continues.
 _RRQ_STUB = (
-    b"NotTheNet: this file was served by a fake TFTP server.\r\n"
-    b"No real content is available at this address.\r\n"
+    b"# Configuration file\r\n"
+    b"# Auto-generated\r\n"
 )
 if len(_RRQ_STUB) >= _BLOCK_SIZE:
     raise RuntimeError("RRQ stub must fit in a single DATA block")

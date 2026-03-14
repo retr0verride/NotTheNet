@@ -84,9 +84,12 @@ def generate_self_signed_cert(
         )
 
         # Build Subject / Issuer
-        subject = issuer = x509.Name(
-            [x509.NameAttribute(NameOID.COMMON_NAME, common_name)]
-        )
+        subject = issuer = x509.Name([
+            x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
+            x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "California"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Internet Widgits Pty Ltd"),
+            x509.NameAttribute(NameOID.COMMON_NAME, common_name),
+        ])
 
         # Build SAN extension
         san_list: list = []
@@ -113,6 +116,36 @@ def generate_self_signed_cert(
             .add_extension(
                 x509.BasicConstraints(ca=False, path_length=None),
                 critical=True,
+            )
+            .add_extension(
+                x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.SERVER_AUTH]),
+                critical=False,
+            )
+            .add_extension(
+                x509.CRLDistributionPoints([
+                    x509.DistributionPoint(
+                        full_name=[x509.UniformResourceIdentifier(
+                            "http://crl3.digicert.com/DigiCertGlobalRootCA.crl"
+                        )],
+                        relative_name=None, reasons=None, crl_issuer=None,
+                    )
+                ]),
+                critical=False,
+            )
+            .add_extension(
+                x509.AuthorityInformationAccess([
+                    x509.AccessDescription(
+                        x509.oid.AuthorityInformationAccessOID.OCSP,
+                        x509.UniformResourceIdentifier("http://ocsp.digicert.com"),
+                    ),
+                    x509.AccessDescription(
+                        x509.oid.AuthorityInformationAccessOID.CA_ISSUERS,
+                        x509.UniformResourceIdentifier(
+                            "http://cacerts.digicert.com/DigiCertGlobalRootCA.crt"
+                        ),
+                    ),
+                ]),
+                critical=False,
             )
             .sign(key, hashes.SHA256())
         )
@@ -297,6 +330,8 @@ def forge_domain_cert(
 
     subject = x509.Name([
         x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
+        x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "California"),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Internet Widgits Pty Ltd"),
         x509.NameAttribute(NameOID.COMMON_NAME, hostname),
     ])
 
@@ -326,6 +361,36 @@ def forge_domain_cert(
         )
         .add_extension(
             x509.BasicConstraints(ca=False, path_length=None), critical=True
+        )
+        .add_extension(
+            x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.SERVER_AUTH]),
+            critical=False,
+        )
+        .add_extension(
+            x509.CRLDistributionPoints([
+                x509.DistributionPoint(
+                    full_name=[x509.UniformResourceIdentifier(
+                        "http://crl3.digicert.com/DigiCertGlobalRootCA.crl"
+                    )],
+                    relative_name=None, reasons=None, crl_issuer=None,
+                )
+            ]),
+            critical=False,
+        )
+        .add_extension(
+            x509.AuthorityInformationAccess([
+                x509.AccessDescription(
+                    x509.oid.AuthorityInformationAccessOID.OCSP,
+                    x509.UniformResourceIdentifier("http://ocsp.digicert.com"),
+                ),
+                x509.AccessDescription(
+                    x509.oid.AuthorityInformationAccessOID.CA_ISSUERS,
+                    x509.UniformResourceIdentifier(
+                        "http://cacerts.digicert.com/DigiCertGlobalRootCA.crt"
+                    ),
+                ),
+            ]),
+            critical=False,
         )
         .add_extension(
             x509.AuthorityKeyIdentifier.from_issuer_public_key(
