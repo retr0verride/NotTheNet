@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import re
 import struct
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -265,119 +266,123 @@ def _doc_stub() -> bytes:
 # ─── Extension → (MIME type, stub generator) ─────────────────────────────────
 
 _EXTENSION_MAP: dict[str, tuple[str, bytes]] = {}
+_EXT_MAP_LOCK = threading.Lock()
 
 
 def _build_extension_map() -> dict[str, tuple[str, bytes]]:
     """Build the extension→(mime, body) mapping. Cached on first call."""
     if _EXTENSION_MAP:
         return _EXTENSION_MAP
+    with _EXT_MAP_LOCK:
+        if _EXTENSION_MAP:  # re-check after acquiring the lock
+            return _EXTENSION_MAP
 
-    pe = _pe_stub()
-    elf_ = _elf_stub()
-    png = _png_stub()
-    jpg = _jpeg_stub()
-    gif = _gif_stub()
-    bmp = _bmp_stub()
-    ico = _ico_stub()
-    pdf = _pdf_stub()
-    zip_ = _zip_stub()
-    xml = _xml_stub()
-    json_ = _json_stub()
-    js = _js_stub()
-    css = _css_stub()
-    txt = _txt_stub()
-    swf = _swf_stub()
-    cls = _class_stub()
-    doc = _doc_stub()
+        pe = _pe_stub()
+        elf_ = _elf_stub()
+        png = _png_stub()
+        jpg = _jpeg_stub()
+        gif = _gif_stub()
+        bmp = _bmp_stub()
+        ico = _ico_stub()
+        pdf = _pdf_stub()
+        zip_ = _zip_stub()
+        xml = _xml_stub()
+        json_ = _json_stub()
+        js = _js_stub()
+        css = _css_stub()
+        txt = _txt_stub()
+        swf = _swf_stub()
+        cls = _class_stub()
+        doc = _doc_stub()
 
-    entries = {
-        # Windows executables / DLLs
-        ".exe":  ("application/x-dosexec", pe),
-        ".dll":  ("application/x-dosexec", pe),
-        ".sys":  ("application/x-dosexec", pe),
-        ".scr":  ("application/x-dosexec", pe),
-        ".cpl":  ("application/x-dosexec", pe),
-        ".ocx":  ("application/x-dosexec", pe),
-        ".drv":  ("application/x-dosexec", pe),
-        ".com":  ("application/x-dosexec", pe),
-        # Linux executables
-        ".so":   ("application/x-sharedlib", elf_),
-        ".elf":  ("application/x-executable", elf_),
-        # Images
-        ".png":  ("image/png", png),
-        ".jpg":  ("image/jpeg", jpg),
-        ".jpeg": ("image/jpeg", jpg),
-        ".gif":  ("image/gif", gif),
-        ".bmp":  ("image/bmp", bmp),
-        ".ico":  ("image/x-icon", ico),
-        ".svg":  ("image/svg+xml", b'<svg xmlns="http://www.w3.org/2000/svg"/>\n'),
-        ".webp": ("image/webp", b"RIFF\x00\x00\x00\x00WEBPVP8 \x00\x00\x00\x00"),
-        # Documents
-        ".pdf":  ("application/pdf", pdf),
-        ".doc":  ("application/msword", doc),
-        ".xls":  ("application/vnd.ms-excel", doc),
-        ".ppt":  ("application/vnd.ms-powerpoint", doc),
-        ".docx": ("application/vnd.openxmlformats-officedocument.wordprocessingml.document", zip_),
-        ".xlsx": ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", zip_),
-        ".pptx": ("application/vnd.openxmlformats-officedocument.presentationml.presentation", zip_),
-        # Archives
-        ".zip":  ("application/zip", zip_),
-        ".jar":  ("application/java-archive", zip_),
-        ".apk":  ("application/vnd.android.package-archive", zip_),
-        ".7z":   ("application/x-7z-compressed", b"7z\xbc\xaf\x27\x1c"),
-        ".rar":  ("application/x-rar-compressed", b"Rar!\x1a\x07\x00"),
-        ".gz":   ("application/gzip",
-                  b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03" + b"\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00"),
-        ".tar":  ("application/x-tar", b"\x00" * 512),
-        ".cab":  ("application/vnd.ms-cab-compressed", b"MSCF\x00\x00\x00\x00"),
-        # Web
-        ".html": ("text/html; charset=utf-8", b"<html><body><h1>OK</h1></body></html>\n"),
-        ".htm":  ("text/html; charset=utf-8", b"<html><body><h1>OK</h1></body></html>\n"),
-        ".xml":  ("application/xml", xml),
-        ".json": ("application/json", json_),
-        ".js":   ("application/javascript", js),
-        ".mjs":  ("application/javascript", js),
-        ".css":  ("text/css", css),
-        ".txt":  ("text/plain", txt),
-        ".csv":  ("text/csv", b"a,b,c\n"),
-        ".wasm": ("application/wasm", b"\x00asm\x01\x00\x00\x00"),
-        # Scripting / config
-        ".ps1":  ("text/plain", b"# \n"),
-        ".bat":  ("text/plain", b"@echo off\r\n"),
-        ".cmd":  ("text/plain", b"@echo off\r\n"),
-        ".sh":   ("text/plain", b"#!/bin/sh\n"),
-        ".py":   ("text/x-python", b"# \n"),
-        ".rb":   ("text/plain", b"# \n"),
-        ".pl":   ("text/plain", b"#!/usr/bin/perl\n"),
-        ".vbs":  ("text/plain", b"' \n"),
-        ".ini":  ("text/plain", b"[default]\n"),
-        ".cfg":  ("text/plain", b"[default]\n"),
-        ".conf": ("text/plain", b"# \n"),
-        ".yaml": ("text/yaml", b"---\n"),
-        ".yml":  ("text/yaml", b"---\n"),
-        ".toml": ("text/plain", b"# \n"),
-        # Flash / Java
-        ".swf":  ("application/x-shockwave-flash", swf),
-        ".class": ("application/java-vm", cls),
-        # Binary / data
-        ".bin":  ("application/octet-stream", pe),
-        ".dat":  ("application/octet-stream", b"\x00" * 256),
-        ".raw":  ("application/octet-stream", b"\x00" * 256),
-        ".iso":  ("application/x-iso9660-image", b"\x00" * 32768 + b"\x01CD001"),
-        ".img":  ("application/octet-stream", b"\x00" * 512),
-        # Fonts
-        ".woff":  ("font/woff", b"wOFF"),
-        ".woff2": ("font/woff2", b"wOF2"),
-        ".ttf":   ("font/ttf", b"\x00\x01\x00\x00"),
-        ".otf":   ("font/otf", b"OTTO"),
-        # Media
-        ".mp3":  ("audio/mpeg", b"\xff\xfb\x90\x00" + b"\x00" * 252),
-        ".mp4":  ("video/mp4", b"\x00\x00\x00\x1cftypisom\x00\x00\x02\x00"),
-        ".avi":  ("video/x-msvideo", b"RIFF\x00\x00\x00\x00AVI "),
-        ".wav":  ("audio/wav", b"RIFF\x00\x00\x00\x00WAVEfmt "),
-        ".flv":  ("video/x-flv", b"FLV\x01\x05\x00\x00\x00\x09"),
-    }
-    _EXTENSION_MAP.update(entries)
+        entries = {
+            # Windows executables / DLLs
+            ".exe":  ("application/x-dosexec", pe),
+            ".dll":  ("application/x-dosexec", pe),
+            ".sys":  ("application/x-dosexec", pe),
+            ".scr":  ("application/x-dosexec", pe),
+            ".cpl":  ("application/x-dosexec", pe),
+            ".ocx":  ("application/x-dosexec", pe),
+            ".drv":  ("application/x-dosexec", pe),
+            ".com":  ("application/x-dosexec", pe),
+            # Linux executables
+            ".so":   ("application/x-sharedlib", elf_),
+            ".elf":  ("application/x-executable", elf_),
+            # Images
+            ".png":  ("image/png", png),
+            ".jpg":  ("image/jpeg", jpg),
+            ".jpeg": ("image/jpeg", jpg),
+            ".gif":  ("image/gif", gif),
+            ".bmp":  ("image/bmp", bmp),
+            ".ico":  ("image/x-icon", ico),
+            ".svg":  ("image/svg+xml", b'<svg xmlns="http://www.w3.org/2000/svg"/>\n'),
+            ".webp": ("image/webp", b"RIFF\x00\x00\x00\x00WEBPVP8 \x00\x00\x00\x00"),
+            # Documents
+            ".pdf":  ("application/pdf", pdf),
+            ".doc":  ("application/msword", doc),
+            ".xls":  ("application/vnd.ms-excel", doc),
+            ".ppt":  ("application/vnd.ms-powerpoint", doc),
+            ".docx": ("application/vnd.openxmlformats-officedocument.wordprocessingml.document", zip_),
+            ".xlsx": ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", zip_),
+            ".pptx": ("application/vnd.openxmlformats-officedocument.presentationml.presentation", zip_),
+            # Archives
+            ".zip":  ("application/zip", zip_),
+            ".jar":  ("application/java-archive", zip_),
+            ".apk":  ("application/vnd.android.package-archive", zip_),
+            ".7z":   ("application/x-7z-compressed", b"7z\xbc\xaf\x27\x1c"),
+            ".rar":  ("application/x-rar-compressed", b"Rar!\x1a\x07\x00"),
+            ".gz":   ("application/gzip",
+                      b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03" + b"\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00"),
+            ".tar":  ("application/x-tar", b"\x00" * 512),
+            ".cab":  ("application/vnd.ms-cab-compressed", b"MSCF\x00\x00\x00\x00"),
+            # Web
+            ".html": ("text/html; charset=utf-8", b"<html><body><h1>OK</h1></body></html>\n"),
+            ".htm":  ("text/html; charset=utf-8", b"<html><body><h1>OK</h1></body></html>\n"),
+            ".xml":  ("application/xml", xml),
+            ".json": ("application/json", json_),
+            ".js":   ("application/javascript", js),
+            ".mjs":  ("application/javascript", js),
+            ".css":  ("text/css", css),
+            ".txt":  ("text/plain", txt),
+            ".csv":  ("text/csv", b"a,b,c\n"),
+            ".wasm": ("application/wasm", b"\x00asm\x01\x00\x00\x00"),
+            # Scripting / config
+            ".ps1":  ("text/plain", b"# \n"),
+            ".bat":  ("text/plain", b"@echo off\r\n"),
+            ".cmd":  ("text/plain", b"@echo off\r\n"),
+            ".sh":   ("text/plain", b"#!/bin/sh\n"),
+            ".py":   ("text/x-python", b"# \n"),
+            ".rb":   ("text/plain", b"# \n"),
+            ".pl":   ("text/plain", b"#!/usr/bin/perl\n"),
+            ".vbs":  ("text/plain", b"' \n"),
+            ".ini":  ("text/plain", b"[default]\n"),
+            ".cfg":  ("text/plain", b"[default]\n"),
+            ".conf": ("text/plain", b"# \n"),
+            ".yaml": ("text/yaml", b"---\n"),
+            ".yml":  ("text/yaml", b"---\n"),
+            ".toml": ("text/plain", b"# \n"),
+            # Flash / Java
+            ".swf":  ("application/x-shockwave-flash", swf),
+            ".class": ("application/java-vm", cls),
+            # Binary / data
+            ".bin":  ("application/octet-stream", pe),
+            ".dat":  ("application/octet-stream", b"\x00" * 256),
+            ".raw":  ("application/octet-stream", b"\x00" * 256),
+            ".iso":  ("application/x-iso9660-image", b"\x00" * 32768 + b"\x01CD001"),
+            ".img":  ("application/octet-stream", b"\x00" * 512),
+            # Fonts
+            ".woff":  ("font/woff", b"wOFF"),
+            ".woff2": ("font/woff2", b"wOF2"),
+            ".ttf":   ("font/ttf", b"\x00\x01\x00\x00"),
+            ".otf":   ("font/otf", b"OTTO"),
+            # Media
+            ".mp3":  ("audio/mpeg", b"\xff\xfb\x90\x00" + b"\x00" * 252),
+            ".mp4":  ("video/mp4", b"\x00\x00\x00\x1cftypisom\x00\x00\x02\x00"),
+            ".avi":  ("video/x-msvideo", b"RIFF\x00\x00\x00\x00AVI "),
+            ".wav":  ("audio/wav", b"RIFF\x00\x00\x00\x00WAVEfmt "),
+            ".flv":  ("video/x-flv", b"FLV\x01\x05\x00\x00\x00\x09"),
+        }
+        _EXTENSION_MAP.update(entries)
     return _EXTENSION_MAP
 
 

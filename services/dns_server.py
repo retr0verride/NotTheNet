@@ -17,6 +17,7 @@ Security notes (OpenSSF):
 
 import logging
 import math
+import re
 from collections import Counter
 from typing import Optional
 
@@ -228,6 +229,21 @@ class _FakeResolver:
 
             # --- A ---
             if request.q.qtype == QTYPE.A:
+                # FCrDNS: if the query is for a synthesized PTR hostname
+                # (static-A-B-C-D.res.example.net), return the IP embedded in
+                # the hostname so forward-confirmed reverse DNS checks pass.
+                _fcrdns_m = re.match(
+                    r'^static-(\d+)-(\d+)-(\d+)-(\d+)\.res\.example\.net$',
+                    qname,
+                )
+                if _fcrdns_m:
+                    response_ip = ".".join(_fcrdns_m.groups())
+                    reply.add_answer(
+                        RR(qname, QTYPE.A, ttl=self.ttl, rdata=A(response_ip))
+                    )
+                    logger.debug(f"  -> FCrDNS A: {safe_name} -> {sanitize_ip(response_ip)}")
+                    return reply
+
                 # DGA detection: return NXDOMAIN for high-entropy labels that
                 # look like machine-generated canary domains.  Malware queries
                 # a random-looking domain before detonating; if it resolves,
@@ -235,13 +251,14 @@ class _FakeResolver:
                 if self.nxdomain_entropy_threshold > 0.0:
                     parts = qname.split(".")
                     sld = parts[-2] if len(parts) >= 2 else qname
+                    entropy = _shannon_entropy(sld)  # compute once
                     if (
                         len(sld) >= self.nxdomain_label_min_length
-                        and _shannon_entropy(sld) >= self.nxdomain_entropy_threshold
+                        and entropy >= self.nxdomain_entropy_threshold
                     ):
                         reply.header.rcode = 3  # NXDOMAIN
                         logger.debug(
-                            f"  -> NXDOMAIN (DGA entropy={_shannon_entropy(sld):.2f}): {safe_name}"
+                            f"  -> NXDOMAIN (DGA entropy={entropy:.2f}): {safe_name}"
                         )
                         return reply
                 # Choose a response IP.  When a public IP pool is configured,

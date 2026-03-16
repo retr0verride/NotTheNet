@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 _RULE_COMMENT = "NOTTHENET"
 _IPTABLES_SAVE_FILE = os.path.join(tempfile.gettempdir(), "notthenet_iptables_save.rules")
+_MANGLE_SAVE_FILE = os.path.join(tempfile.gettempdir(), "notthenet_mangle_save.rules")
 
 
 def _run(args: list[str], check: bool = True) -> tuple[int, str, str]:
@@ -66,9 +67,19 @@ def _save_nat_snapshot() -> bool:
     code, out, _ = _run(["iptables-save", "-t", "nat"])
     if code == 0:
         try:
-            with open(_IPTABLES_SAVE_FILE, "w") as f:
-                f.write(out)
-            os.chmod(_IPTABLES_SAVE_FILE, 0o600)
+            # Use os.open with O_CREAT|O_WRONLY|O_TRUNC and mode 0o600 in a
+            # single atomic call to avoid the TOCTOU race between open() and
+            # a subsequent chmod().  This prevents another process from opening
+            # the file in the window between creation and permission tightening.
+            fd = os.open(
+                _IPTABLES_SAVE_FILE,
+                os.O_CREAT | os.O_WRONLY | os.O_TRUNC,
+                0o600,
+            )
+            try:
+                os.write(fd, out.encode())
+            finally:
+                os.close(fd)
             logger.debug(f"nat table snapshot saved to {_IPTABLES_SAVE_FILE}")
             return True
         except Exception as e:
@@ -93,6 +104,48 @@ def _restore_nat_snapshot() -> bool:
             pass
         return True
     logger.error(f"iptables-restore failed: {err}")
+    return False
+
+
+def _save_mangle_snapshot() -> bool:
+    """Snapshot the current mangle table before applying TTL rules."""
+    if not shutil.which("iptables-save"):
+        return False
+    code, out, _ = _run(["iptables-save", "-t", "mangle"])
+    if code == 0:
+        try:
+            fd = os.open(
+                _MANGLE_SAVE_FILE,
+                os.O_CREAT | os.O_WRONLY | os.O_TRUNC,
+                0o600,
+            )
+            try:
+                os.write(fd, out.encode())
+            finally:
+                os.close(fd)
+            logger.debug(f"mangle table snapshot saved to {_MANGLE_SAVE_FILE}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save mangle snapshot: {e}")
+    return False
+
+
+def _restore_mangle_snapshot() -> bool:
+    """Restore the mangle table from its pre-start snapshot."""
+    if not os.path.exists(_MANGLE_SAVE_FILE):
+        return False
+    if not shutil.which("iptables-restore"):
+        return False
+    _run(["iptables", "-t", "mangle", "-F"], check=False)
+    code, _, err = _run(["iptables-restore", _MANGLE_SAVE_FILE])
+    if code == 0:
+        logger.info("mangle table restored from pre-start snapshot.")
+        try:
+            os.unlink(_MANGLE_SAVE_FILE)
+        except Exception:
+            pass
+        return True
+    logger.error(f"mangle restore failed: {err}")
     return False
 
 
@@ -137,10 +190,18 @@ class IPTablesManager:
         # When > 0, add a mangle POSTROUTING TTL rule so outgoing packets
         # appear to have traversed internet routing hops rather than being
         # served from a directly-connected host.
-        self.spoof_ttl = int(config.get("spoof_ttl", 0) or 0)
+        raw_ttl = int(config.get("spoof_ttl", 0) or 0)
+        if raw_ttl != 0 and not (1 <= raw_ttl <= 255):
+            logger.warning(
+                "spoof_ttl=%d is out of range [1-255]; TTL spoofing disabled.",
+                raw_ttl,
+            )
+            raw_ttl = 0
+        self.spoof_ttl = raw_ttl
         self._rules_applied: list[list[str]] = []
         self._saved = False
         self._ttl_rule_applied = False
+        self._mangle_saved = False
         self._prev_ip_forward: Optional[str] = None  # restored on stop
 
     def _validate_interface(self, iface: str) -> bool:
@@ -337,6 +398,7 @@ class IPTablesManager:
         # Value 54 = 64 - 10 hops (typical Linux server with internet routing).
         # Requires xt_TTL kernel module; silently skipped if unavailable.
         if self.spoof_ttl > 0:
+            self._mangle_saved = _save_mangle_snapshot()
             ttl_rule = [
                 "-t", "mangle", "-A", "POSTROUTING",
                 "-o", self.interface,
@@ -372,6 +434,20 @@ class IPTablesManager:
                 if _write_ip_forward(self._prev_ip_forward):
                     logger.info("ip_forward restored to %s.", self._prev_ip_forward)
                 self._prev_ip_forward = None
+            # Restore mangle table even when nat snapshot succeeded
+            if self._mangle_saved:
+                _restore_mangle_snapshot()
+                self._mangle_saved = False
+            elif self._ttl_rule_applied:
+                ttl_del = [
+                    "-t", "mangle", "-D", "POSTROUTING",
+                    "-o", self.interface,
+                    "-j", "TTL", "--ttl-set", str(self.spoof_ttl),
+                    "-m", "comment", "--comment", _RULE_COMMENT,
+                ]
+                _run(["iptables"] + ttl_del, check=False)
+                self._ttl_rule_applied = False
+                logger.info("TTL mangle rule removed.")
             return
 
         # No snapshot available (e.g. iptables-save was missing) — flush the
@@ -391,7 +467,10 @@ class IPTablesManager:
             self._prev_ip_forward = None
 
         # Remove TTL mangle rule if we applied one
-        if self._ttl_rule_applied:
+        if self._mangle_saved:
+            _restore_mangle_snapshot()
+            self._mangle_saved = False
+        elif self._ttl_rule_applied:
             ttl_del = [
                 "-t", "mangle", "-D", "POSTROUTING",
                 "-o", self.interface,

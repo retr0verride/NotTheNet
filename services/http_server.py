@@ -14,11 +14,13 @@ Security notes (OpenSSF):
 from __future__ import annotations
 
 import http.server
+import ipaddress
 import logging
 import os
 import select
 import socketserver
 from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qs, urlparse
 import ssl
 import threading
 import time
@@ -133,6 +135,7 @@ _PKI_HOSTS = frozenset({
 # Minimal CRL stub — an empty DER-encoded X.509 Certificate Revocation List.
 # We generate it lazily on first use.
 _STUB_CRL_CACHE: bytes | None = None
+_STUB_CRL_LOCK = threading.Lock()
 
 
 def _get_stub_crl() -> bytes:
@@ -140,28 +143,31 @@ def _get_stub_crl() -> bytes:
     global _STUB_CRL_CACHE  # noqa: PLW0603
     if _STUB_CRL_CACHE is not None:
         return _STUB_CRL_CACHE
-    try:
-        from cryptography import x509 as cx509
-        from cryptography.hazmat.primitives import hashes, serialization
-        from cryptography.hazmat.primitives.asymmetric import rsa
-        from cryptography.x509.oid import NameOID
+    with _STUB_CRL_LOCK:
+        if _STUB_CRL_CACHE is not None:  # re-check after acquiring the lock
+            return _STUB_CRL_CACHE
+        try:
+            from cryptography import x509 as cx509
+            from cryptography.hazmat.primitives import hashes, serialization
+            from cryptography.hazmat.primitives.asymmetric import rsa
+            from cryptography.x509.oid import NameOID
 
-        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        issuer = cx509.Name([
-            cx509.NameAttribute(NameOID.COMMON_NAME, "DigiCert Global Root CA"),
-        ])
-        now = datetime.now(timezone.utc)
-        crl = (
-            cx509.CertificateRevocationListBuilder()
-            .issuer_name(issuer)
-            .last_update(now)
-            .next_update(now + timedelta(days=30))
-            .sign(key, hashes.SHA256())
-        )
-        _STUB_CRL_CACHE = crl.public_bytes(serialization.Encoding.DER)
-    except Exception:
-        # Fallback: return a minimal plausible binary blob
-        _STUB_CRL_CACHE = b"\x30\x00"
+            key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+            issuer = cx509.Name([
+                cx509.NameAttribute(NameOID.COMMON_NAME, "DigiCert Global Root CA"),
+            ])
+            now = datetime.now(timezone.utc)
+            crl = (
+                cx509.CertificateRevocationListBuilder()
+                .issuer_name(issuer)
+                .last_update(now)
+                .next_update(now + timedelta(days=30))
+                .sign(key, hashes.SHA256())
+            )
+            _STUB_CRL_CACHE = crl.public_bytes(serialization.Encoding.DER)
+        except Exception:
+            # Fallback: return a minimal plausible binary blob
+            _STUB_CRL_CACHE = b"\x30\x00"
     return _STUB_CRL_CACHE
 
 
@@ -179,6 +185,41 @@ _STUB_OCSP_RESPONSE = (
 
 
 _MAX_BODY_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+# RFC 1918 private address ranges — returning one of these as a "public" IP
+# would let sandbox-aware malware detect the private network.
+_RFC1918_NETWORKS = (
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+)
+
+
+def _validate_spoof_ip(raw: str, context: str = "") -> str:
+    """Validate spoof_public_ip from config.
+
+    Returns the IP string if valid and globally routable.
+    Logs a warning on RFC1918 addresses (still allowed but suspicious).
+    Returns '' and logs an error on parse failures.
+    """
+    if not raw:
+        return ""
+    try:
+        addr = ipaddress.ip_address(raw)
+    except ValueError:
+        logger.error(
+            "Invalid spoof_public_ip '%s' in %s config — must be a valid IPv4/IPv6 address; "
+            "IP spoofing disabled.", raw, context or "http"
+        )
+        return ""
+    if any(addr in net for net in _RFC1918_NETWORKS):
+        logger.warning(
+            "spoof_public_ip '%s' (%s) is a private/loopback address — "
+            "sandbox detection tools may still flag this as non-internet traffic.",
+            raw, context or "http"
+        )
+    return raw
 
 
 def _load_response_body(config: dict) -> str:
@@ -309,7 +350,6 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
                 if _path_base == "/line" or _path_base.startswith("/line/"):
                     # Parse requested fields from query string
                     # e.g. ?fields=hosting  or  ?fields=hosting,isp,country
-                    from urllib.parse import urlparse, parse_qs  # noqa: PLC0415
                     _qs = parse_qs(urlparse(path).query)
                     _fields = [f.strip() for f in _qs.get("fields", ["query"])[0].split(",")]
                     _field_map = {
@@ -606,9 +646,16 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
                 pass
 
         def _send_fake_response(self):
+            # Compute host early so we can skip delay for probe requests.
+            # NCSI / PKI / captive-portal probes have strict timing expectations
+            # and must never be held up by artificial latency.
+            host = self.headers.get("Host", "").split(":")[0].strip().lower()
+
             # Optional artificial delay with jitter (simulates realistic
-            # network latency, defeats timing-based sandbox detection)
-            if self._delay_ms > 0:
+            # network latency, defeats timing-based sandbox detection).
+            # Skipped for OS connectivity probes that expect near-instant replies.
+            _probe_host = host in _NCSI_HOSTS or host in _PKI_HOSTS or host in _CAPTIVE_PORTAL_HOSTS
+            if self._delay_ms > 0 and not _probe_host:
                 jitter = self._delay_jitter_ms
                 actual = (
                     self._delay_ms + random.randint(-jitter, jitter)
@@ -631,10 +678,8 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
                     self._handle_websocket_upgrade()
                     return
 
-            host = self.headers.get("Host", "").split(":")[0].strip().lower()
-
             # Windows NCSI: must respond correctly regardless of spoof_ip setting
-            if host in _NCSI_HOSTS:
+            if host in _NCSI_HOSTS:  # host already computed above
                 self._send_ncsi_response(host)
                 return
 
@@ -776,7 +821,8 @@ class HTTPService:
         self.response_body = _load_response_body(config)
         self.server_header = config.get("server_header", "Apache/2.4.51")
         self.log_requests = config.get("log_requests", True)
-        self.spoof_ip = str(config.get("spoof_public_ip", "") or "").strip()
+        raw_spoof = str(config.get("spoof_public_ip", "") or "").strip()
+        self.spoof_ip = _validate_spoof_ip(raw_spoof, "http")
         self.delay_ms = int(config.get("response_delay_ms", 0) or 0)
         self.delay_jitter_ms = int(config.get("response_delay_jitter_ms", 0) or 0)
         self.dynamic_responses = config.get("dynamic_responses", False)
@@ -838,7 +884,8 @@ class HTTPSService:
         self.response_body = _load_response_body(config)
         self.server_header = config.get("server_header", "Apache/2.4.51")
         self.log_requests = config.get("log_requests", True)
-        self.spoof_ip = str(config.get("spoof_public_ip", "") or "").strip()
+        raw_spoof = str(config.get("spoof_public_ip", "") or "").strip()
+        self.spoof_ip = _validate_spoof_ip(raw_spoof, "https")
         self.delay_ms = int(config.get("response_delay_ms", 0) or 0)
         self.delay_jitter_ms = int(config.get("response_delay_jitter_ms", 0) or 0)
         self.dynamic_responses = config.get("dynamic_responses", False)

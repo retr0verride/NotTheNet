@@ -131,6 +131,11 @@ class ServiceManager:
 
         # ----- Build merged config dicts with general settings -----
         redirect_ip = self.config.get("general", "redirect_ip") or "127.0.0.1"
+        if not self.config.get("general", "redirect_ip"):
+            logger.warning(
+                "general.redirect_ip is not set; defaulting to 127.0.0.1. "
+                "Services may not be reachable from gateway mode."
+            )
 
         # ----- Start services -----
         started = []

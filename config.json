@@ -22,8 +22,8 @@
     "ttl": 300,
     "handle_ptr": true,
     "custom_records": {},
-    "nxdomain_entropy_threshold": 3.8,
-    "nxdomain_label_min_length": 12,
+    "nxdomain_entropy_threshold": 3.2,
+    "nxdomain_label_min_length": 8,
     "public_response_ips": [
       "142.250.80.1",
       "142.250.80.2",
