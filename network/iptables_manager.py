@@ -134,8 +134,13 @@ class IPTablesManager:
         self.interface = config.get("interface", "eth0")
         self.redirect_ip = config.get("redirect_ip", "127.0.0.1")
         self.mode = config.get("iptables_mode", "loopback")
+        # When > 0, add a mangle POSTROUTING TTL rule so outgoing packets
+        # appear to have traversed internet routing hops rather than being
+        # served from a directly-connected host.
+        self.spoof_ttl = int(config.get("spoof_ttl", 0) or 0)
         self._rules_applied: list[list[str]] = []
         self._saved = False
+        self._ttl_rule_applied = False
         self._prev_ip_forward: Optional[str] = None  # restored on stop
 
     def _validate_interface(self, iface: str) -> bool:
@@ -325,6 +330,33 @@ class IPTablesManager:
             f"Applied {ok_count} iptables NAT rules "
             f"(chain={chain}, mode={self.mode})"
         )
+
+        # --- TTL spoofing (mangle table) ---
+        # Setting TTL on outgoing packets makes them look like they’ve
+        # traversed internet routing hops rather than being sourced locally.
+        # Value 54 = 64 - 10 hops (typical Linux server with internet routing).
+        # Requires xt_TTL kernel module; silently skipped if unavailable.
+        if self.spoof_ttl > 0:
+            ttl_rule = [
+                "-t", "mangle", "-A", "POSTROUTING",
+                "-o", self.interface,
+                "-j", "TTL", "--ttl-set", str(self.spoof_ttl),
+                "-m", "comment", "--comment", _RULE_COMMENT,
+            ]
+            code, _, err = _run(["iptables"] + ttl_rule)
+            if code == 0:
+                self._ttl_rule_applied = True
+                logger.info(
+                    "TTL mangle rule applied: outgoing TTL=%d "
+                    "(simulates %d routing hops).",
+                    self.spoof_ttl, 64 - self.spoof_ttl,
+                )
+            else:
+                logger.warning(
+                    "TTL mangle rule failed — xt_TTL module may not be loaded "
+                    "('modprobe xt_TTL' to enable): %s", err.strip()
+                )
+
         return ok_count > 0
 
     def remove_rules(self):
@@ -357,6 +389,18 @@ class IPTablesManager:
             if _write_ip_forward(self._prev_ip_forward):
                 logger.info("ip_forward restored to %s.", self._prev_ip_forward)
             self._prev_ip_forward = None
+
+        # Remove TTL mangle rule if we applied one
+        if self._ttl_rule_applied:
+            ttl_del = [
+                "-t", "mangle", "-D", "POSTROUTING",
+                "-o", self.interface,
+                "-j", "TTL", "--ttl-set", str(self.spoof_ttl),
+                "-m", "comment", "--comment", _RULE_COMMENT,
+            ]
+            _run(["iptables"] + ttl_del, check=False)
+            self._ttl_rule_applied = False
+            logger.info("TTL mangle rule removed.")
 
 
 

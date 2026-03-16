@@ -16,12 +16,24 @@ Security notes (OpenSSF):
 """
 
 import logging
+import math
+from collections import Counter
 from typing import Optional
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_hostname, sanitize_ip
 
 logger = logging.getLogger(__name__)
+
+
+def _shannon_entropy(label: str) -> float:
+    """Shannon entropy (bits/char) of a string — used for DGA detection."""
+    if not label:
+        return 0.0
+    counts = Counter(label.lower())
+    total = len(label)
+    return -sum((c / total) * math.log2(c / total) for c in counts.values())
+
 
 try:
     from dnslib import MX, NS, PTR, QTYPE, RR, SOA, TXT, A, CAA, SRV, DNSRecord
@@ -38,11 +50,27 @@ class _FakeResolver:
     Custom records can override specific names.
     """
 
-    def __init__(self, redirect_ip: str, custom_records: dict, ttl: int, handle_ptr: bool):
+    def __init__(
+        self,
+        redirect_ip: str,
+        custom_records: dict,
+        ttl: int,
+        handle_ptr: bool,
+        nxdomain_entropy_threshold: float = 0.0,
+        nxdomain_label_min_length: int = 12,
+        public_response_ips: list | None = None,
+    ):
         self.redirect_ip = redirect_ip
         self.custom_records = {k.lower().rstrip("."): v for k, v in custom_records.items()}
         self.ttl = ttl
         self.handle_ptr = handle_ptr
+        self.nxdomain_entropy_threshold = nxdomain_entropy_threshold
+        self.nxdomain_label_min_length = nxdomain_label_min_length
+        # Pool of public-looking IPs to return in A responses.  iptables
+        # REDIRECT rules catch them regardless of destination IP, so returning
+        # a plausible public IP here is transparent to routing but prevents
+        # malware from flagging the "all domains → 10.x.x.x" pattern.
+        self._public_ips: list[str] = list(public_response_ips or [])
 
     def resolve(self, request: "DNSRecord", handler) -> "DNSRecord":
         reply = request.reply()
@@ -200,10 +228,34 @@ class _FakeResolver:
 
             # --- A ---
             if request.q.qtype == QTYPE.A:
+                # DGA detection: return NXDOMAIN for high-entropy labels that
+                # look like machine-generated canary domains.  Malware queries
+                # a random-looking domain before detonating; if it resolves,
+                # the malware knows DNS is being sinkholed and bails out.
+                if self.nxdomain_entropy_threshold > 0.0:
+                    parts = qname.split(".")
+                    sld = parts[-2] if len(parts) >= 2 else qname
+                    if (
+                        len(sld) >= self.nxdomain_label_min_length
+                        and _shannon_entropy(sld) >= self.nxdomain_entropy_threshold
+                    ):
+                        reply.header.rcode = 3  # NXDOMAIN
+                        logger.debug(
+                            f"  -> NXDOMAIN (DGA entropy={_shannon_entropy(sld):.2f}): {safe_name}"
+                        )
+                        return reply
+                # Choose a response IP.  When a public IP pool is configured,
+                # return a deterministic public-looking IP per domain so
+                # subsequent queries are consistent (DNS caching).  iptables
+                # REDIRECT rules will intercept the traffic regardless.
+                if self._public_ips:
+                    response_ip = self._public_ips[hash(qname) % len(self._public_ips)]
+                else:
+                    response_ip = self.redirect_ip
                 reply.add_answer(
-                    RR(qname, QTYPE.A, ttl=self.ttl, rdata=A(self.redirect_ip))
+                    RR(qname, QTYPE.A, ttl=self.ttl, rdata=A(response_ip))
                 )
-                logger.debug(f"  -> A: {safe_name} -> {sanitize_ip(self.redirect_ip)}")
+                logger.debug(f"  -> A: {safe_name} -> {sanitize_ip(response_ip)}")
                 return reply
 
             # --- Unknown / unsupported query types ---
@@ -227,6 +279,15 @@ class DNSService:
         self.handle_ptr = config.get("handle_ptr", True)
         self.custom_records = config.get("custom_records", {})
         self.bind_ip = config.get("bind_ip", "0.0.0.0")
+        self.nxdomain_entropy_threshold = float(
+            config.get("nxdomain_entropy_threshold", 0.0) or 0.0
+        )
+        self.nxdomain_label_min_length = int(
+            config.get("nxdomain_label_min_length", 12) or 12
+        )
+        self.public_response_ips: list[str] = list(
+            config.get("public_response_ips", []) or []
+        )
         self._server_udp: Optional[DNSServer] = None
         self._server_tcp: Optional[DNSServer] = None
 
@@ -240,7 +301,13 @@ class DNSService:
             return False
 
         resolver = _FakeResolver(
-            self.redirect_ip, self.custom_records, self.ttl, self.handle_ptr
+            self.redirect_ip,
+            self.custom_records,
+            self.ttl,
+            self.handle_ptr,
+            nxdomain_entropy_threshold=self.nxdomain_entropy_threshold,
+            nxdomain_label_min_length=self.nxdomain_label_min_length,
+            public_response_ips=self.public_response_ips or None,
         )
         try:
             self._server_udp = DNSServer(

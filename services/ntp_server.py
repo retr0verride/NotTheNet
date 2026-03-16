@@ -70,7 +70,11 @@ def _build_response(request: bytes) -> Optional[bytes]:
     #   1B  Precision = -20 (log2 clock precision ≈ 1 µs, signed)
     #   4B  Root delay     (fixed-point 16.16, zero for local)
     #   4B  Root dispersion (fixed-point 16.16, zero for local)
-    #   4B  Reference ID   "LOCL"
+    #   4B  Reference ID   upstream Stratum-1 IP (time.google.com = 216.239.35.0)
+    #       RFC 5905 §7.3: for Stratum 2+, Reference ID must be the IPv4 address
+    #       of the upstream reference clock, NOT an ASCII keyword like "LOCL".
+    #       Sending "LOCL" at Stratum 2 is a detectable fingerprint — real
+    #       stratum-2 servers always encode an upstream IP here.
     #   8B  Reference timestamp  (secs + frac)
     #   8B  Originate timestamp  (echoed from client)
     #   8B  Receive timestamp
@@ -83,7 +87,7 @@ def _build_response(request: bytes) -> Optional[bytes]:
         -20,            # Precision exponent
         0,              # Root delay
         0,              # Root dispersion
-        b"LOCL",        # Reference ID
+        b"\xd8\xef\x23\x00",  # Reference ID: 216.239.35.0 (time.google.com Stratum 1)
         ref_secs, ref_frac,
         orig_secs, orig_frac,
         rcv_secs, rcv_frac,

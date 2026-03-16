@@ -22,6 +22,7 @@ from datetime import datetime, timedelta, timezone
 import ssl
 import threading
 import time
+import random
 from concurrent.futures import ThreadPoolExecutor
 
 from services.doh_websocket import (
@@ -96,6 +97,22 @@ _NCSI_RESPONSES: dict[str, bytes] = {
     "ipv6.msftconnecttest.com": b"Microsoft Connect Test",
     "www.msftncsi.com":         b"Microsoft NCSI",
 }
+
+# Google / Android / ChromeOS connectivity checks and Apple captive portal
+# detection hosts.  These are queried by the OS (not just the browser) and
+# must return EXACT expected responses — wrong body or status code causes the
+# OS to show "No internet" and some malware will stall waiting for connectivity.
+_CAPTIVE_PORTAL_HOSTS = frozenset({
+    # Google generate_204: Chrome OS, Android, Windows/macOS Chrome
+    "connectivitycheck.gstatic.com",
+    "connectivitycheck.android.com",
+    "clients1.google.com",
+    "clients3.google.com",
+    "ipv4.google.com",
+    # Apple captive portal / hotspot detection: macOS + iOS
+    "captive.apple.com",
+    "www.apple.com",
+})
 
 # Windows PKI infrastructure hosts — CRL, OCSP, and Certificate Trust List
 # (CTL) download endpoints.  Windows CryptoAPI hits these during every HTTPS
@@ -195,6 +212,7 @@ def _load_response_body(config: dict) -> str:
 
 def _make_handler(response_code: int, response_body: str, server_header: str,
                   log_requests: bool, spoof_ip: str = "", delay_ms: int = 0,
+                  delay_jitter_ms: int = 0,
                   dynamic_responses: bool = False, custom_rules: list | None = None,
                   doh_enabled: bool = False, doh_redirect_ip: str = "127.0.0.1",
                   websocket_sinkhole: bool = False):
@@ -207,11 +225,19 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
         _log_requests = log_requests
         _spoof_ip = spoof_ip
         _delay_ms = delay_ms
+        _delay_jitter_ms = delay_jitter_ms
         _dynamic_responses = dynamic_responses
         _custom_rules = compile_custom_rules(custom_rules or [])
         _doh_enabled = doh_enabled
         _doh_redirect_ip = doh_redirect_ip
         _websocket_sinkhole = websocket_sinkhole
+
+        # Use HTTP/1.1 to match real-world server behaviour.  Python's
+        # BaseHTTPRequestHandler defaults to HTTP/1.0, which is a detectable
+        # fingerprint — real Apache/nginx never respond with HTTP/1.0 for
+        # normal requests.  Setting this here overrides the default for all
+        # responses emitted by this handler.
+        protocol_version = "HTTP/1.1"
 
         # Prevent send_response() from prepending its own
         # "Server: BaseHTTP/0.6 Python/3.x" header before ours.  Without
@@ -275,7 +301,12 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
             # Must return "false" for hosting; "true" would cause the malware
             # to abort C2 activation thinking it's in a datacenter/sandbox.
             elif host == "ip-api.com":
-                if "/line/" in path:
+                # Normalise the path component so we match both /line/ and
+                # /line?...  (no trailing slash) — some malware omits the
+                # slash and the check must not fall through to the JSON branch,
+                # which would return a JSON body that gets parsed as "true".
+                _path_base = path.split("?")[0].rstrip("/")
+                if _path_base == "/line" or _path_base.startswith("/line/"):
                     # Parse requested fields from query string
                     # e.g. ?fields=hosting  or  ?fields=hosting,isp,country
                     from urllib.parse import urlparse, parse_qs  # noqa: PLC0415
@@ -301,8 +332,8 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
                         "query": ip,
                     }
                     body = "\n".join(_field_map.get(f, "") for f in _fields).encode() + b"\n"
-                    content_type = "text/plain"
-                elif "/csv/" in path or "fields=csv" in path:
+                    content_type = "text/plain; charset=utf-8"
+                elif (_path_base == "/csv" or _path_base.startswith("/csv/") or "fields=csv" in path):
                     body = f"success,United States,US,OH,Ohio,Columbus,43215,39.9612,-82.9988,America/New_York,Comcast Cable Communications,Comcast Cable Communications,AS7922 Comcast Cable Communications LLC,false,false,false,{ip}\n".encode()
                     content_type = "text/csv"
                 else:
@@ -341,13 +372,80 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
                 self.send_response(200)
                 self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(len(body)))
-                self.send_header("Server", self._server_header)
-                self.send_header("Connection", "close")
+                # ip-api.com runs nginx; sending Apache here is a detectable
+                # fingerprint. Override for ip-api.com and add the standard
+                # CORS + rate-limit headers the real API always includes.
+                if host == "ip-api.com":
+                    self.send_header("Server", "nginx")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("X-Ttl", "60")
+                    self.send_header("X-Rl", "44")
+                else:
+                    self.send_header("Server", self._server_header)
+                self.send_header("Connection", "keep-alive")
                 self.end_headers()
                 if self.command != "HEAD":
                     self.wfile.write(body)
             except (BrokenPipeError, ConnectionResetError):
                 pass
+
+        def _send_captive_portal_response(self, host: str) -> bool:
+            """Handle OS-level captive portal and connectivity checks.
+
+            Google / Android / ChromeOS: GET /generate_204 → 204 No Content
+            Apple macOS / iOS: specific paths → 200 with exact success payload
+
+            Returns True if the request was handled, False to fall through to
+            the normal response handler (unrecognised paths on these hosts).
+            """
+            path = (self.path or "/").split("?")[0]
+
+            # Google / Android / ChromeOS connectivity probe
+            if path == "/generate_204":
+                if self._log_requests:
+                    safe_addr = sanitize_ip(self.client_address[0])
+                    logger.info(
+                        f"HTTP  CAPTIVE generate_204 from {safe_addr}"
+                    )
+                try:
+                    self.send_response(204)
+                    self.send_header("Content-Length", "0")
+                    # Real Google response uses GFE server header
+                    self.send_header("Server", "GFE/2.0")
+                    self.send_header("Connection", "keep-alive")
+                    self.end_headers()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                return True
+
+            # Apple captive portal / hotspot detection
+            if host in ("captive.apple.com", "www.apple.com"):
+                if "/hotspot-detect.html" in path or "/library/test/success.html" in path:
+                    # Exact byte-for-byte match of what Apple’s captive portal
+                    # servers return — iOS/macOS will not show “Connected”
+                    # without this precise body.
+                    body = b"<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>"
+                    if self._log_requests:
+                        safe_addr = sanitize_ip(self.client_address[0])
+                        logger.info(
+                            f"HTTP  CAPTIVE apple {sanitize_log_string(path, 64)}"
+                            f" from {safe_addr}"
+                        )
+                    try:
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/html")
+                        self.send_header("Content-Length", str(len(body)))
+                        # Apple’s hotspot pages are served via Akamai CDN
+                        self.send_header("Server", "AkamaiGHost")
+                        self.send_header("Connection", "keep-alive")
+                        self.end_headers()
+                        if self.command != "HEAD":
+                            self.wfile.write(body)
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
+                    return True
+
+            return False  # fall through to normal handler
 
         def _send_ncsi_response(self, host: str):
             """Return the exact response Windows NCSI expects.
@@ -369,7 +467,7 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
                 self.send_header("Content-Type", "text/plain")
                 self.send_header("Content-Length", str(len(body)))
                 self.send_header("Server", self._server_header)
-                self.send_header("Connection", "close")
+                self.send_header("Connection", "keep-alive")
                 self.end_headers()
                 if self.command != "HEAD":
                     self.wfile.write(body)
@@ -405,7 +503,7 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
                     self.send_response(404)
                     self.send_header("Content-Length", "0")
                     self.send_header("Server", self._server_header)
-                    self.send_header("Connection", "close")
+                    self.send_header("Connection", "keep-alive")
                     self.end_headers()
                 except (BrokenPipeError, ConnectionResetError):
                     pass
@@ -423,7 +521,7 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
                 self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(len(body)))
                 self.send_header("Server", self._server_header)
-                self.send_header("Connection", "close")
+                self.send_header("Connection", "keep-alive")
                 self.end_headers()
                 if self.command != "HEAD":
                     self.wfile.write(body)
@@ -508,10 +606,16 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
                 pass
 
         def _send_fake_response(self):
-            # Optional artificial delay (simulates realistic network latency,
-            # defeats timing-based sandbox detection)
+            # Optional artificial delay with jitter (simulates realistic
+            # network latency, defeats timing-based sandbox detection)
             if self._delay_ms > 0:
-                time.sleep(self._delay_ms / 1000.0)
+                jitter = self._delay_jitter_ms
+                actual = (
+                    self._delay_ms + random.randint(-jitter, jitter)
+                    if jitter > 0
+                    else self._delay_ms
+                )
+                time.sleep(max(0, actual) / 1000.0)
 
             # --- DNS over HTTPS (DoH) interception ---
             if self._doh_enabled:
@@ -533,6 +637,11 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
             if host in _NCSI_HOSTS:
                 self._send_ncsi_response(host)
                 return
+
+            # Google / Android / Apple captive portal connectivity checks
+            if host in _CAPTIVE_PORTAL_HOSTS:
+                if self._send_captive_portal_response(host):
+                    return
 
             # Windows PKI: CRL, OCSP, CTL downloads — return binary stubs
             if host in _PKI_HOSTS:
@@ -584,7 +693,7 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
                 self.send_header("Accept-Ranges", "bytes")
                 self.send_header("Vary", "Accept-Encoding")
                 self.send_header("ETag", '"3a4b1c-264-5f8a7d63c0bc0"')
-                self.send_header("Connection", "close")
+                self.send_header("Connection", "keep-alive")
                 self.end_headers()
                 # HEAD requests MUST NOT include a message body (RFC 7231 §4.3.2).
                 # send_response() / send_header() still ran, so headers are correct.
@@ -669,6 +778,7 @@ class HTTPService:
         self.log_requests = config.get("log_requests", True)
         self.spoof_ip = str(config.get("spoof_public_ip", "") or "").strip()
         self.delay_ms = int(config.get("response_delay_ms", 0) or 0)
+        self.delay_jitter_ms = int(config.get("response_delay_jitter_ms", 0) or 0)
         self.dynamic_responses = config.get("dynamic_responses", False)
         self.custom_rules = config.get("dynamic_response_rules", [])
         self.doh_enabled = config.get("doh_sinkhole", False)
@@ -684,6 +794,7 @@ class HTTPService:
             self.response_code, self.response_body,
             self.server_header, self.log_requests,
             spoof_ip=self.spoof_ip, delay_ms=self.delay_ms,
+            delay_jitter_ms=self.delay_jitter_ms,
             dynamic_responses=self.dynamic_responses,
             custom_rules=self.custom_rules,
             doh_enabled=self.doh_enabled,
@@ -729,6 +840,7 @@ class HTTPSService:
         self.log_requests = config.get("log_requests", True)
         self.spoof_ip = str(config.get("spoof_public_ip", "") or "").strip()
         self.delay_ms = int(config.get("response_delay_ms", 0) or 0)
+        self.delay_jitter_ms = int(config.get("response_delay_jitter_ms", 0) or 0)
         self.dynamic_responses = config.get("dynamic_responses", False)
         self.custom_rules = config.get("dynamic_response_rules", [])
         self.dynamic_certs = config.get("dynamic_certs", False)
@@ -777,6 +889,7 @@ class HTTPSService:
             self.response_code, self.response_body,
             self.server_header, self.log_requests,
             spoof_ip=self.spoof_ip, delay_ms=self.delay_ms,
+            delay_jitter_ms=self.delay_jitter_ms,
             dynamic_responses=self.dynamic_responses,
             custom_rules=self.custom_rules,
             doh_enabled=self.doh_enabled,

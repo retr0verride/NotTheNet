@@ -9,6 +9,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ---
 
+## [2026.03.15-1] — 2026-03-15
+
+### Added
+- **DNS: DGA / canary-domain NXDOMAIN** — new `dns.nxdomain_entropy_threshold` (default `3.8`) and `dns.nxdomain_label_min_length` (default `12`) config keys; when set, A queries whose second-level domain exceeds the Shannon entropy threshold and minimum length receive NXDOMAIN instead of a resolved address; defeats malware that issues a random-looking domain query (canary check) before detonating to confirm DNS is being sinkholed
+- **DNS: Public IP pool for A responses** — new `dns.public_response_ips` list; when populated, A query responses rotate through plausible public IPs (e.g. `142.250.x.x`, `104.x.x.x`) instead of the private `redirect_ip`; iptables REDIRECT rules intercept all traffic by destination port regardless of IP, so routing is unaffected; defeats the trivial heuristic where every domain resolves to a single RFC 1918 address
+- **HTTP/HTTPS: Google / Android / Apple captive portal handlers** — `connectivitycheck.gstatic.com`, `connectivitycheck.android.com`, `clients1.google.com`, `clients3.google.com`, `ipv4.google.com` respond to `GET /generate_204` with HTTP 204 (empty body, `Server: GFE/2.0`); `captive.apple.com` and `www.apple.com` respond to `/hotspot-detect.html` and `/library/test/success.html` with HTTP 200 and the exact Apple success payload (`Server: AkamaiGHost`); OS-level connectivity indicators on Android, ChromeOS, macOS, and iOS now show "Connected" — malware waiting for full connectivity before detonating is unblocked
+- **HTTP/HTTPS: Response delay jitter** — new `response_delay_jitter_ms` config key (default `30`); the per-response delay is now `delay_ms ± random(0..jitter)` ms; randomised latency defeats timing-based sandbox fingerprinting where a laboratory simulator responds with suspiciously consistent sub-millisecond precision
+- **Network: Packet TTL mangle rule** — new `general.spoof_ttl` config key (default `54`); when nonzero, adds `iptables -t mangle -A POSTROUTING -o <interface> -j TTL --ttl-set <value>` so outgoing packets carry a TTL consistent with ~10 internet routing hops rather than the `64` of a directly-connected host; requires `xt_TTL` kernel module (`modprobe xt_TTL`); gracefully skipped with a warning if unavailable; rule is cleanly removed on stop
+
+### Fixed
+- **NTP: Stratum 2 Reference ID was `b"LOCL"`** — RFC 5905 §7.3 reserves kiss-o'-death / reference clock keywords (LOCL, GPS, PPS, etc.) for Stratum 1; a Stratum 2 server must encode the IPv4 address of its upstream reference clock as the 4-byte Reference ID; changed to `\xd8\xef\x23\x00` (216.239.35.0 = `time.google.com` Stratum 1); NTP clients and analysis tools that inspect the refid field no longer see the simulator fingerprint
+
+---
+
 ## [2026.03.13-1] — 2026-03-13
 
 ### Fixed
