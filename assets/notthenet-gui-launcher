@@ -1,14 +1,36 @@
 #!/usr/bin/env bash
-# NotTheNet GUI launcher — thin wrapper executed AS ROOT by pkexec.
+# NotTheNet GUI launcher — installed to /usr/local/bin/notthenet-gui
 #
-# Installed to /usr/local/bin/notthenet-gui by the installer.
-# The .desktop file calls:  pkexec /usr/local/bin/notthenet-gui
+# Two roles in one script:
+#   1. When called as non-root (from .desktop): escalates via pkexec/xterm+sudo
+#   2. When called as root (by pkexec or sudo): execs python directly
 #
-# pkexec handles privilege escalation and, because the polkit action
-# has allow_gui=true with exec.path pointing here, pkexec automatically
-# forwards DISPLAY and XAUTHORITY into this process.
+# pkexec calls this script with exec.path=/usr/local/bin/notthenet-gui,
+# which matches the polkit action, so DISPLAY/XAUTHORITY are forwarded.
 
 VENV_PYTHON="VENV_PYTHON_PLACEHOLDER"
 SCRIPT="SCRIPT_PLACEHOLDER"
 
-exec "$VENV_PYTHON" "$SCRIPT" "$@"
+# ── Already root (pkexec path or sudo notthenet-gui) ─────────────────
+if [[ $EUID -eq 0 ]]; then
+    exec "$VENV_PYTHON" "$SCRIPT" "$@"
+fi
+
+# ── Try pkexec (graphical polkit agent must be running) ──────────────
+if command -v pkexec &>/dev/null; then
+    pkexec "$(readlink -f "$0")" "$@"
+    _rc=$?
+    # 127 = no auth agent available — fall through to xterm.
+    # 126 = user dismissed the dialog — exit cleanly.
+    [[ $_rc -eq 127 ]] || exit $_rc
+fi
+
+# ── Fallback: xterm + sudo ────────────────────────────────────────────
+# Reliable on Kali regardless of polkit agent status.
+if command -v xterm &>/dev/null; then
+    exec xterm -T "NotTheNet — sudo required" \
+        -e "sudo '$VENV_PYTHON' '$SCRIPT' || { echo; read -rp 'Press Enter to close…'; }"
+fi
+
+echo "No escalation method found (pkexec/xterm). Run: sudo '$VENV_PYTHON' '$SCRIPT'" >&2
+exit 1

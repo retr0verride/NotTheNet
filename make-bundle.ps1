@@ -353,6 +353,21 @@ for dir in "${SCRIPT_DIR}/logs" \
     chmod 700 "$dir"
 done
 
+# ── Fix ownership of user-writable files ──────────────────────────────────────
+# The installer runs as root, so config.json and logs end up owned by root.
+# chown them back to the real user so the app can write them whether launched
+# via sudo, pkexec, or as the plain user.
+# Resolve the real user: prefer $SUDO_USER (set by sudo), then logname.
+_REAL_USER="${SUDO_USER:-}"
+if [[ -z "$_REAL_USER" ]]; then
+    _REAL_USER=$(logname 2>/dev/null || true)
+fi
+if [[ -n "$_REAL_USER" ]] && id "$_REAL_USER" &>/dev/null; then
+    chown -R "${_REAL_USER}:" "${SCRIPT_DIR}/logs" 2>/dev/null || true
+    [[ -f "${SCRIPT_DIR}/config.json" ]] && \
+        chown "${_REAL_USER}:" "${SCRIPT_DIR}/config.json" 2>/dev/null || true
+fi
+
 # ── Install man page ──────────────────────────────────────────────────────────
 if [[ $EUID -eq 0 ]] && [[ -f "${SCRIPT_DIR}/man/notthenet.1" ]]; then
     MAN_DIR="/usr/local/share/man/man1"
