@@ -24,10 +24,46 @@ import logging
 import os
 import ssl
 import stat
+import struct
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
+
+
+def _make_fake_sct_extension():
+    """
+    Build a structurally valid (but cryptographically fake) SCT list extension.
+    OID 1.3.6.1.4.1.11129.2.4.2 — id-ce-signedCertificateTimestampList.
+
+    The SCT wire format (RFC 6962 §3.2 v1) is correct so that parsers that
+    decode the extension will find a plausible entry.  The ECDSA signature
+    bytes are random and will not verify against any real log public key —
+    but sandbox-detection malware that merely checks «SCT present» passes.
+    """
+    from cryptography.x509 import ObjectIdentifier, UnrecognizedExtension
+
+    # --- One fake SCT (RFC 6962 §3.2, version=v1=0) ---
+    log_id    = os.urandom(32)                              # 32-byte fake log-key hash
+    timestamp = struct.pack(">Q", int(time.time() * 1000)) # uint64 ms since epoch
+    exts      = struct.pack(">H", 0)                        # no extensions
+    # Digitally-signed portion: HashAlgorithm(1) + SignatureAlgorithm(1) + sig_len(2) + sig
+    hash_alg  = bytes([4])        # sha_256 (TLS HashAlgorithm enum, RFC 5246)
+    sig_alg   = bytes([3])        # ecdsa   (TLS SignatureAlgorithm enum, RFC 5246)
+    fake_sig  = os.urandom(71)    # typical DER-encoded P-256 ECDSA signature length
+    sig_block = hash_alg + sig_alg + struct.pack(">H", len(fake_sig)) + fake_sig
+    sct = bytes([0]) + log_id + timestamp + exts + sig_block
+
+    # --- TLS-encode as SignedCertificateTimestampList (RFC 6962 §3.3) ---
+    sct_entry = struct.pack(">H", len(sct)) + sct         # 2-byte per-SCT length
+    sct_list  = struct.pack(">H", len(sct_entry)) + sct_entry  # 2-byte list length
+
+    # Pass sct_list bytes directly — the cryptography library wraps the value
+    # in a DER OCTET STRING when encoding the extension into the certificate.
+    # Adding a manual OCTET STRING here would double-wrap and break parsers.
+    SCT_OID = ObjectIdentifier("1.3.6.1.4.1.11129.2.4.2")
+    return UnrecognizedExtension(SCT_OID, sct_list)
 
 
 def generate_self_signed_cert(
@@ -145,6 +181,10 @@ def generate_self_signed_cert(
                         ),
                     ),
                 ]),
+                critical=False,
+            )
+            .add_extension(
+                _make_fake_sct_extension(),
                 critical=False,
             )
             .sign(key, hashes.SHA256())
@@ -398,6 +438,10 @@ def forge_domain_cert(
             ),
             critical=False,
         )
+        .add_extension(
+            _make_fake_sct_extension(),
+            critical=False,
+        )
         .sign(ca_key, hashes.SHA256())  # type: ignore[arg-type]  # same reason
     )
 
@@ -467,7 +511,15 @@ class DynamicCertCache:
             pass
 
         ctx.load_cert_chain(certfile=cert_file, keyfile=key_file)
-        logger.info(f"TLS  Forged certificate for: {hostname}")
+        # SSLContext holds key material in memory once loaded — temp files are
+        # no longer needed and would accumulate one file-pair per unique SNI.
+        # Deleting them also avoids leaking domain names visited by malware.
+        for _f in (cert_file, key_file):
+            try:
+                os.unlink(_f)
+            except OSError:
+                pass
+        logger.info("TLS  Forged certificate for: %s", hostname)
         return ctx
 
     def sni_callback(

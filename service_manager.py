@@ -12,6 +12,7 @@ from network.iptables_manager import IPTablesManager
 from network.tcp_fingerprint import apply_os_fingerprint
 from services.catch_all import CatchAllTCPService, CatchAllUDPService
 from services.dns_server import DNSService
+from services.dot_server import DoTService
 from services.ftp_server import FTPService
 from services.http_server import HTTPService, HTTPSService
 from services.icmp_responder import ICMPResponder
@@ -73,6 +74,7 @@ class ServiceManager:
             ("rdp",   "tcp"), ("smb",   "tcp"), ("vnc",   "tcp"),
             ("redis", "tcp"), ("ldap",  "tcp"),
             ("dns",   "tcp"), ("dns",   "udp"),
+            ("dot",   "tcp"),
             ("ntp",   "udp"), ("tftp",  "udp"),
         ]
         for svc, proto in svc_ports:
@@ -150,6 +152,16 @@ class ServiceManager:
                 failed.append(name)
 
         _try_start("dns", DNSService({**self.config.get_section("dns"), "bind_ip": bind_ip}))
+
+        # DoT shares all DNS resolver settings; cert comes from HTTPS config.
+        dot_cfg = {
+            **self.config.get_section("dns"),   # resolve_to, ttl, entropy thresholds, etc.
+            **self.config.get_section("dot"),   # port, enabled (may override)
+            "bind_ip":   bind_ip,
+            "cert_file": https_cfg.get("cert_file", "certs/server.crt"),
+            "key_file":  https_cfg.get("key_file",  "certs/server.key"),
+        }
+        _try_start("dot", DoTService(dot_cfg))
 
         http_cfg = {
             **self.config.get_section("http"),
@@ -277,6 +289,10 @@ class ServiceManager:
             "redis":  ("tcp", self.config.get("redis",  "port") or 6379),
             "ldap":   ("tcp", self.config.get("ldap",   "port") or 389),
         }
+        # Only add DoT port if the service actually started (same pattern as DNS)
+        if "dot" in self._services:
+            dot_port = self.config.get("dot", "port") or 853
+            service_ports["tcp"].append(int(dot_port))
         # TFTP uses UDP port 69
         if "tftp" in self._services:
             tftp_port = self.config.get("tftp", "port") or 69

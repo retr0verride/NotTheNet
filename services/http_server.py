@@ -784,9 +784,90 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
             do_OPTIONS = do_PATCH = do_TRACE = _send_fake_response
         do_CONNECT = _send_connect_response
 
+        # First line of the HTTP/2 client connection preface (RFC 7540 §3.5).
+        _HTTP2_PREFACE_LINE = b"PRI * HTTP/2.0"
+
+        def _handle_http2_goaway(self):
+            """
+            Respond to an HTTP/2 connection preface with a server SETTINGS
+            frame followed by GOAWAY(HTTP_1_1_REQUIRED).
+
+            RFC 7540 §3.5  — the server sends its own connection preface
+                             (a SETTINGS frame) before any other frame.
+            RFC 7540 §6.8  — GOAWAY carries the last processed stream ID
+                             and an error code.
+            Error 0x0D (HTTP_1_1_REQUIRED) tells the client to retry the
+            request using HTTP/1.1 rather than h2.  Well-behaved HTTP/2
+            clients will reconnect and fall back to http/1.1 via ALPN.
+            """
+            try:
+                # The first readline() consumed "PRI * HTTP/2.0\r\n" (16 bytes).
+                # The remaining preface bytes are "\r\nSM\r\n\r\n" = 8 bytes.
+                self.rfile.read(8)
+            except OSError:
+                return
+            try:
+                # Empty SETTINGS frame — server connection preface (RFC 7540 §6.5)
+                settings_frame = (
+                    b"\x00\x00\x00"       # payload length = 0
+                    b"\x04"               # frame type = SETTINGS
+                    b"\x00"               # flags = 0
+                    b"\x00\x00\x00\x00"  # stream ID = 0
+                )
+                # GOAWAY: last_stream_id=0, error=HTTP_1_1_REQUIRED (0x0D)
+                goaway_frame = (
+                    b"\x00\x00\x08"       # payload length = 8
+                    b"\x07"               # frame type = GOAWAY
+                    b"\x00"               # flags = 0
+                    b"\x00\x00\x00\x00"  # stream ID = 0
+                    b"\x00\x00\x00\x00"  # last stream ID = 0
+                    b"\x00\x00\x00\x0d"  # error = HTTP_1_1_REQUIRED
+                )
+                self.wfile.write(settings_frame + goaway_frame)
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                pass
+
         def handle_one_request(self):
             try:
-                super().handle_one_request()
+                # Read the request line ourselves so we can inspect it before
+                # parse_request() sees it — needed for HTTP/2 preface detection.
+                self.raw_requestline = self.rfile.readline(65537)
+                if not self.raw_requestline:
+                    self.close_connection = True
+                    return
+                if len(self.raw_requestline) > 65536:
+                    self.requestline = ""
+                    self.request_version = ""
+                    self.command = ""
+                    self.send_error(414)
+                    self.close_connection = True
+                    return
+                # HTTP/2 connection preface (RFC 7540 §3.5): respond with
+                # SETTINGS + GOAWAY(HTTP_1_1_REQUIRED) and close.
+                if self.raw_requestline.startswith(self._HTTP2_PREFACE_LINE):
+                    safe_addr = sanitize_ip(self.client_address[0])
+                    logger.debug("HTTP2 preface from %s -> GOAWAY(HTTP_1_1_REQUIRED)", safe_addr)
+                    self._handle_http2_goaway()
+                    self.close_connection = True
+                    return
+                if not self.parse_request():
+                    return
+                # Explicit allowlist prevents do___init__ style attribute probing
+                # and gives a clean 501 for genuinely unknown HTTP methods.
+                _KNOWN_METHODS = frozenset({
+                    "GET", "POST", "PUT", "DELETE", "HEAD",
+                    "OPTIONS", "PATCH", "TRACE", "CONNECT",
+                })
+                if self.command not in _KNOWN_METHODS:
+                    self.send_error(501, f"Unsupported method ({self.command!r})")
+                    return
+                mname = "do_" + self.command
+                if not hasattr(self, mname):
+                    self.send_error(501, f"Unsupported method ({self.command!r})")
+                    return
+                getattr(self, mname)()
+                self.wfile.flush()
             except Exception as e:
                 logger.debug(f"HTTP handler error (benign): {e}")
 
@@ -804,6 +885,16 @@ class _ThreadedServer(socketserver.ThreadingTCPServer):
 
     def process_request(self, request, client_address):
         self._pool.submit(self.process_request_thread, request, client_address)
+
+    def process_request_thread(self, request, client_address):
+        # Set a read timeout before handing the socket to the handler.
+        # Without this, a client that negotiates h2 via ALPN but never sends
+        # the connection preface holds a pool worker indefinitely.
+        try:
+            request.settimeout(30)
+        except OSError:
+            pass
+        super().process_request_thread(request, client_address)
 
     def server_close(self):
         self._pool.shutdown(wait=False)
@@ -903,6 +994,7 @@ class HTTPSService:
         - TLSv1.2 minimum
         - OP_NO_SSLv2, OP_NO_SSLv3, OP_NO_TLSv1, OP_NO_TLSv1_1
         - Strong cipher list, no export / null / anonymous
+        - ALPN: h2 + http/1.1 (matches real Apache 2.4 behaviour)
         """
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.minimum_version = ssl.TLSVersion.TLSv1_2
@@ -916,6 +1008,10 @@ class HTTPSService:
             | ssl.OP_SINGLE_ECDH_USE
         )
         ctx.set_ciphers(_SECURE_CIPHERS)
+        # Advertise h2 + http/1.1 via ALPN — matches real Apache 2.4.x ServerHello.
+        # When h2 is negotiated the handler detects the connection preface and
+        # sends GOAWAY(HTTP_1_1_REQUIRED) so the client retries on HTTP/1.1.
+        ctx.set_alpn_protocols(["h2", "http/1.1"])
         ctx.load_cert_chain(certfile=self.cert_file, keyfile=self.key_file)
         return ctx
 
