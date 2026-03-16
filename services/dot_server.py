@@ -18,16 +18,15 @@ import ssl
 import struct
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
-
-_DOT_MAX_WORKERS = 50
 
 from utils.logging_utils import sanitize_ip
+
+_DOT_MAX_WORKERS = 50
 
 logger = logging.getLogger(__name__)
 
 try:
-    from dnslib import DNSRecord
+    from dnslib import DNSRecord  # noqa: I001
     from services.dns_server import _DNSLIB_AVAILABLE, _FakeResolver
 except ImportError:
     _DNSLIB_AVAILABLE = False
@@ -72,10 +71,10 @@ class DoTService:
         self.public_response_ips: list[str] = list(
             config.get("public_response_ips", []) or []
         )
-        self._server_sock: Optional[socket.socket] = None
-        self._ssl_ctx: Optional[ssl.SSLContext] = None
-        self._thread: Optional[threading.Thread] = None
-        self._pool: Optional[ThreadPoolExecutor] = None
+        self._server_sock: socket.socket | None = None
+        self._ssl_ctx: ssl.SSLContext | None = None
+        self._thread: threading.Thread | None = None
+        self._pool: ThreadPoolExecutor | None = None
         self.running = False
 
     def start(self) -> bool:

@@ -142,7 +142,7 @@ if [[ $EUID -eq 0 ]]; then
         warn "No SVG→PNG converter found (rsvg-convert/convert/inkscape); skipping PNG icon."
     fi
 
-    gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
+    gtk-update-icon-cache -q /usr/share/icons/hicolor 2>/dev/null || true
     info "Icon installed: /usr/share/icons/hicolor/"
 fi
 

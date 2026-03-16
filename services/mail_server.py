@@ -144,7 +144,7 @@ class _SMTPClientThread(threading.Thread):
                 and os.path.exists(self.cert_path)
                 and os.path.exists(self.key_path)
             ):
-                starttls_line = f"250-STARTTLS\r\n"
+                starttls_line = "250-STARTTLS\r\n"
             self._send(
                 f"250-{self.hostname}\r\n"
                 f"250-PIPELINING\r\n"

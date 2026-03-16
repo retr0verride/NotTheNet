@@ -13,7 +13,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VERSION="2026.02.24-2"
+VERSION="2026.03.16-1"
 PKG="notthenet"
 ARCH="all"
 DEB_NAME="${PKG}_${VERSION}_${ARCH}.deb"

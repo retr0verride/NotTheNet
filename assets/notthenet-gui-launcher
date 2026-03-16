@@ -1,34 +1,14 @@
 #!/usr/bin/env bash
-# NotTheNet GUI launcher — requests root privilege via pkexec, with
-# fallbacks for kdesudo / gksudo / xterm+sudo.
+# NotTheNet GUI launcher — thin wrapper executed AS ROOT by pkexec.
 #
-# Installed to /usr/local/bin/notthenet-gui by notthenet-install.sh
+# Installed to /usr/local/bin/notthenet-gui by the installer.
+# The .desktop file calls:  pkexec /usr/local/bin/notthenet-gui
 #
-# This script is referenced in the .desktop Exec= field so that
-# double-clicking the app icon prompts for the password graphically.
+# pkexec handles privilege escalation and, because the polkit action
+# has allow_gui=true with exec.path pointing here, pkexec automatically
+# forwards DISPLAY and XAUTHORITY into this process.
 
 VENV_PYTHON="VENV_PYTHON_PLACEHOLDER"
 SCRIPT="SCRIPT_PLACEHOLDER"
 
-# ── Pick an escalation method ────────────────────────────────────────
-if command -v pkexec &>/dev/null; then
-    # pkexec (polkit >= 0.106) strips the environment — pass display-related
-    # and D-Bus variables explicitly so Tkinter can reach the X/Wayland server.
-    exec pkexec --disable-internal-agent env \
-        DISPLAY="$DISPLAY" \
-        XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}" \
-        WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
-        XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" \
-        DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-}" \
-        "$VENV_PYTHON" "$SCRIPT" "$@"
-elif command -v kdesudo &>/dev/null; then
-    exec kdesudo -- "$VENV_PYTHON" "$SCRIPT" "$@"
-elif command -v gksudo &>/dev/null; then
-    exec gksudo -- "$VENV_PYTHON" "$SCRIPT" "$@"
-elif command -v xterm &>/dev/null; then
-    exec xterm -e "sudo '$VENV_PYTHON' '$SCRIPT' $* || read -p 'Press enter to close…'"
-else
-    echo "No graphical sudo helper found (pkexec/kdesudo/gksudo/xterm)." >&2
-    echo "Run manually: sudo '$VENV_PYTHON' '$SCRIPT'" >&2
-    exit 1
-fi
+exec "$VENV_PYTHON" "$SCRIPT" "$@"

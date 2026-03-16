@@ -17,15 +17,15 @@ import http.server
 import ipaddress
 import logging
 import os
+import random
 import select
 import socketserver
-from datetime import datetime, timedelta, timezone
-from urllib.parse import parse_qs, urlparse
 import ssl
 import threading
 import time
-import random
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qs, urlparse
 
 from services.doh_websocket import (
     DOH_CONTENT_TYPE,
@@ -374,7 +374,15 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
                     body = "\n".join(_field_map.get(f, "") for f in _fields).encode() + b"\n"
                     content_type = "text/plain; charset=utf-8"
                 elif (_path_base == "/csv" or _path_base.startswith("/csv/") or "fields=csv" in path):
-                    body = f"success,United States,US,OH,Ohio,Columbus,43215,39.9612,-82.9988,America/New_York,Comcast Cable Communications,Comcast Cable Communications,AS7922 Comcast Cable Communications LLC,false,false,false,{ip}\n".encode()
+                    _csv = (
+                        f"success,United States,US,OH,Ohio,Columbus,43215,"
+                        f"39.9612,-82.9988,America/New_York,"
+                        f"Comcast Cable Communications,"
+                        f"Comcast Cable Communications,"
+                        f"AS7922 Comcast Cable Communications LLC,"
+                        f"false,false,false,{ip}\n"
+                    )
+                    body = _csv.encode()
                     content_type = "text/csv"
                 else:
                     body = (
@@ -658,7 +666,7 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
             if self._delay_ms > 0 and not _probe_host:
                 jitter = self._delay_jitter_ms
                 actual = (
-                    self._delay_ms + random.randint(-jitter, jitter)
+                    self._delay_ms + random.randint(-jitter, jitter)  # noqa: S311  # nosec B311
                     if jitter > 0
                     else self._delay_ms
                 )

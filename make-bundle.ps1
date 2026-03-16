@@ -376,20 +376,20 @@ if [[ $EUID -eq 0 ]]; then
         elif command -v convert &>/dev/null; then
             convert -background none -resize 128x128 "$ICON_SVG" "${ICON_128}/notthenet.png"
         fi
-        gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
+        gtk-update-icon-cache -q /usr/share/icons/hicolor 2>/dev/null || true
     fi
 
     GUI_LAUNCHER="/usr/local/bin/notthenet-gui"
     sed \
         -e "s|VENV_PYTHON_PLACEHOLDER|${VENV_DIR}/bin/python|g" \
         -e "s|SCRIPT_PLACEHOLDER|${SCRIPT_DIR}/notthenet.py|g" \
-        "${SCRIPT_DIR}/assets/notthenet-gui-launcher" > "$GUI_LAUNCHER"
+        "${SCRIPT_DIR}/assets/notthenet-gui-launcher" | tr -d '\r' > "$GUI_LAUNCHER"
     chmod 0755 "$GUI_LAUNCHER"
 
     DESKTOP_FILE="/usr/share/applications/notthenet.desktop"
     sed \
         -e "s|NOTTHENET_EXEC_PLACEHOLDER|/usr/local/bin/notthenet-gui|g" \
-        "${SCRIPT_DIR}/assets/notthenet.desktop" > "$DESKTOP_FILE"
+        "${SCRIPT_DIR}/assets/notthenet.desktop" | tr -d '\r' > "$DESKTOP_FILE"
     chmod 0644 "$DESKTOP_FILE"
     update-desktop-database -q /usr/share/applications 2>/dev/null || true
 
@@ -397,8 +397,9 @@ if [[ $EUID -eq 0 ]]; then
     if [[ -d "$POLKIT_DIR" ]]; then
         sed \
             -e "s|VENV_PYTHON_PLACEHOLDER|${VENV_DIR}/bin/python|g" \
+            -e "s|NOTTHENET_GUI_PLACEHOLDER|${GUI_LAUNCHER}|g" \
             "${SCRIPT_DIR}/assets/com.retr0verride.notthenet.policy" \
-            > "${POLKIT_DIR}/com.retr0verride.notthenet.policy"
+            | tr -d '\r' > "${POLKIT_DIR}/com.retr0verride.notthenet.policy"
         chmod 0644 "${POLKIT_DIR}/com.retr0verride.notthenet.policy"
     fi
     info "Desktop integration installed."
@@ -466,7 +467,8 @@ fi
     # Strip all \r so PowerShell here-strings don't introduce CRLF endings.
     $content = ($out -join "`n").Replace("`r", "")
     $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-    [System.IO.File]::WriteAllText((Resolve-Path (Split-Path $Output) | Join-Path -ChildPath (Split-Path $Output -Leaf)), $content, $utf8NoBom)
+    $outFull = [System.IO.Path]::GetFullPath($Output)
+    [System.IO.File]::WriteAllText($outFull, $content, $utf8NoBom)
 
     $outResolved = $Output
     $sizeMB = [math]::Round((Get-Item $Output).Length / 1MB, 1)
@@ -498,7 +500,21 @@ fi
             }
             -not $skip
         }
-        $files | Compress-Archive -DestinationPath $zipPath -CompressionLevel Optimal
+
+        # Use ZipFile API directly to preserve directory structure.
+        # Compress-Archive loses subdirectory paths when piped individual FileInfo objects.
+        Add-Type -Assembly System.IO.Compression.FileSystem
+        $zipStream = [System.IO.Compression.ZipFile]::Open($zipPath, [System.IO.Compression.ZipArchiveMode]::Create)
+        try {
+            foreach ($file in $files) {
+                $entryName = $file.FullName.Substring($projectRoot.Length + 1).Replace('\', '/')
+                [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                    $zipStream, $file.FullName, $entryName,
+                    [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+            }
+        } finally {
+            $zipStream.Dispose()
+        }
         $zipMB = [math]::Round((Get-Item $zipPath).Length / 1MB, 1)
         info "Zip created: $zipPath  ($zipMB MB)"
         Write-Host ""

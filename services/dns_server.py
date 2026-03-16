@@ -15,11 +15,12 @@ Security notes (OpenSSF):
 - Query name length validated (≤ 253 chars per RFC 1035)
 """
 
+from __future__ import annotations
+
 import logging
 import math
 import re
 from collections import Counter
-from typing import Optional
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_hostname, sanitize_ip
@@ -37,7 +38,7 @@ def _shannon_entropy(label: str) -> float:
 
 
 try:
-    from dnslib import MX, NS, PTR, QTYPE, RR, SOA, TXT, A, CAA, SRV, DNSRecord
+    from dnslib import A, CAA, DNSRecord, MX, NS, PTR, QTYPE, RR, SOA, SRV, TXT  # noqa: I001
     from dnslib.server import DNSServer
     _DNSLIB_AVAILABLE = True
 except ImportError:
@@ -73,7 +74,7 @@ class _FakeResolver:
         # malware from flagging the "all domains → 10.x.x.x" pattern.
         self._public_ips: list[str] = list(public_response_ips or [])
 
-    def resolve(self, request: "DNSRecord", handler) -> "DNSRecord":
+    def resolve(self, request: DNSRecord, handler) -> DNSRecord:
         reply = request.reply()
         try:
             qname = str(request.q.qname).lower().rstrip(".")
@@ -305,8 +306,8 @@ class DNSService:
         self.public_response_ips: list[str] = list(
             config.get("public_response_ips", []) or []
         )
-        self._server_udp: Optional[DNSServer] = None
-        self._server_tcp: Optional[DNSServer] = None
+        self._server_udp: DNSServer | None = None
+        self._server_tcp: DNSServer | None = None
 
     def start(self) -> bool:
         if not self.enabled:
