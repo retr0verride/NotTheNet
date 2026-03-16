@@ -9,6 +9,7 @@ import copy
 import json
 import logging
 import os
+import threading
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ class Config:
         self.config_path = config_path
         self._data: dict[str, Any] = {}
         self._defaults: dict[str, Any] = {}
+        self._write_lock = threading.Lock()
         self.load()
         # When the user points at a custom config file that predates the
         # current release, merge any newly-added default keys so the GUI
@@ -56,8 +58,11 @@ class Config:
         """Save current configuration to a JSON file."""
         target = path or self.config_path
         try:
-            with open(target, "w") as f:
-                json.dump(self._data, f, indent=2)
+            with self._write_lock:
+                tmp = target + ".tmp"
+                with open(tmp, "w") as f:
+                    json.dump(self._data, f, indent=2)
+                os.replace(tmp, target)  # atomic on POSIX; near-atomic on Windows
             logger.debug(f"Config saved to {target}")
             return True
         except Exception as e:

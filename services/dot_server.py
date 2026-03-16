@@ -154,7 +154,14 @@ class DoTService:
                 except OSError:
                     pass
                 continue
-            self._pool.submit(self._handle_client, tls_sock, addr)
+            pool = self._pool
+            if pool is not None:
+                pool.submit(self._handle_client, tls_sock, addr)
+            else:
+                try:
+                    tls_sock.close()
+                except OSError:
+                    pass
 
     def _handle_client(self, sock: ssl.SSLSocket, addr: tuple):
         handler = _FakeClientHandler(addr)
@@ -203,12 +210,26 @@ class DoTService:
 
     def stop(self):
         self.running = False
-        if self._pool:
-            self._pool.shutdown(wait=False)
-            self._pool = None
+        # Close the socket first so any blocked accept() raises OSError
+        # and the accept thread exits before we tear down the thread pool.
+        # Without SHUT_RDWR, close() alone may not immediately unblock
+        # accept() on all Linux kernel versions.
         if self._server_sock:
+            try:
+                self._server_sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
             try:
                 self._server_sock.close()
             except OSError:
                 pass
             self._server_sock = None
+        # Join the accept thread so we know no new pool.submit() calls can
+        # happen before we shut down the pool (prevents RuntimeError on
+        # late submissions if a connection arrived just before socket close).
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2.0)
+            self._thread = None
+        if self._pool:
+            self._pool.shutdown(wait=False, cancel_futures=True)
+            self._pool = None

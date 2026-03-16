@@ -2069,7 +2069,11 @@ class NotTheNetApp(tk.Tk):
             tags = (tag, "HIDDEN")
 
         self._log_widget.insert("end", msg + "\n", tags)
-        self._log_widget.see("end")
+        # Only auto-scroll when the user is already at (or within 1% of)
+        # the bottom — if they've scrolled up to read history, leave the
+        # view where it is so the new line doesn't yank it away.
+        if self._log_widget.yview()[1] >= 0.99:
+            self._log_widget.see("end")
         self._log_widget.configure(state="disabled")
 
     # ── Service control ───────────────────────────────────────────────────────
