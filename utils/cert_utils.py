@@ -123,7 +123,7 @@ def generate_self_signed_cert(
         subject = issuer = x509.Name([
             x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
             x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "California"),
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Internet Widgits Pty Ltd"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "DigiCert Inc"),
             x509.NameAttribute(NameOID.COMMON_NAME, common_name),
         ])
 
@@ -368,10 +368,11 @@ def forge_domain_cert(
         public_exponent=65537, key_size=key_bits
     )
 
+    # DV-style subject (no O/ST) — matches Let's Encrypt and DigiCert DV certs.
+    # Including O=<known-sandbox-org> in the leaf cert is an instant sandbox tell
+    # for malware that inspects the TLS certificate chain.
     subject = x509.Name([
         x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
-        x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "California"),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Internet Widgits Pty Ltd"),
         x509.NameAttribute(NameOID.COMMON_NAME, hostname),
     ])
 

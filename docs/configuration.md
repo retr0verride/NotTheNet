@@ -7,6 +7,7 @@ The GUI exposes every field — you can also edit the JSON directly.
 
 - [general](#general)
 - [dns](#dns)
+- [dot](#dot)
 - [http](#http)
 - [https](#https)
 - [smtp](#smtp)
@@ -105,6 +106,39 @@ Fake DNS server — resolves every query to `resolve_to`.
   }
 }
 ```
+
+---
+
+## `dot`
+
+DNS-over-TLS server (RFC 7858). Shares all resolver logic with the plain DNS service.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Enable the DoT service. |
+| `port` | int | `853` | TCP port to listen on. |
+| `cert_file` | string | `"certs/server.crt"` | Path to the PEM certificate. Reuses the HTTPS cert by default. |
+| `key_file` | string | `"certs/server.key"` | Path to the PEM private key. Reuses the HTTPS key by default. |
+| `resolve_to` | string | `"127.0.0.1"` | IP address returned for all A/AAAA queries (inherited from DNS config at startup). |
+| `ttl` | int | `300` | DNS TTL in seconds for synthesised records. |
+| `handle_ptr` | bool | `true` | If `true`, PTR queries return a synthetic ISP-style hostname. |
+| `custom_records` | object | `{}` | Per-hostname overrides (same format as `dns.custom_records`). |
+| `nxdomain_entropy_threshold` | float | `3.2` | Shannon entropy threshold for DGA NXDOMAIN (0 = disabled). |
+| `nxdomain_label_min_length` | int | `8` | Minimum SLD length for DGA evaluation. |
+| `public_response_ips` | array | `[]` | Public IP pool for A responses (same as `dns.public_response_ips`). |
+
+### Example
+
+```json
+"dot": {
+  "enabled": true,
+  "port": 853,
+  "cert_file": "certs/server.crt",
+  "key_file": "certs/server.key"
+}
+```
+
+> **Note:** `resolve_to`, `ttl`, `handle_ptr`, `custom_records`, and the DGA/public-IP keys are populated automatically from the `dns` section at startup so you only need to set them here if you want DoT to behave differently from plain DNS.
 
 ---
 

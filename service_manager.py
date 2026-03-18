@@ -120,8 +120,11 @@ class ServiceManager:
                 logger.error("Failed to initialise JSON logger at %s", json_path)
 
         # --- Ensure TLS certs exist before binding ---
+        # Both HTTPS and DoT share the same cert files; generate them if either
+        # service is enabled so that DoT doesn't fail just because HTTPS is off.
         https_cfg = self.config.get_section("https")
-        if https_cfg.get("enabled"):
+        dot_cfg_preview = self.config.get_section("dot")
+        if https_cfg.get("enabled") or dot_cfg_preview.get("enabled"):
             ensure_certs(
                 https_cfg.get("cert_file", "certs/server.crt"),
                 https_cfg.get("key_file", "certs/server.key"),
@@ -145,18 +148,28 @@ class ServiceManager:
 
         def _try_start(name: str, svc):
             """Start a service and track success/failure."""
-            if svc.start():
-                self._services[name] = svc
-                started.append(name)
-            elif getattr(svc, 'enabled', True):
+            try:
+                if svc.start():
+                    self._services[name] = svc
+                    started.append(name)
+                elif getattr(svc, 'enabled', True):
+                    failed.append(name)
+            except Exception:
+                logger.exception("Unexpected error starting %s", name)
                 failed.append(name)
 
         _try_start("dns", DNSService({**self.config.get_section("dns"), "bind_ip": bind_ip}))
 
         # DoT shares all DNS resolver settings; cert comes from HTTPS config.
+        # NOTE: the dns section brings "port": 53 via the first spread; the dot
+        # section should override it, but may be absent on older config.json files
+        # (pre-dating the DoT feature).  Explicitly re-pin port/enabled from the
+        # dot section so the DNS port can never bleed through.
         dot_cfg = {
             **self.config.get_section("dns"),   # resolve_to, ttl, entropy thresholds, etc.
             **self.config.get_section("dot"),   # port, enabled (may override)
+            "port":      int(self.config.get("dot", "port") or 853),
+            "enabled":   self.config.get("dot", "enabled") if self.config.get("dot", "enabled") is not None else True,
             "bind_ip":   bind_ip,
             "cert_file": https_cfg.get("cert_file", "certs/server.crt"),
             "key_file":  https_cfg.get("key_file",  "certs/server.key"),
@@ -332,11 +345,19 @@ class ServiceManager:
         with self._lock:
             items = list(self._services.items())
             self._services.clear()
-        for name, svc in items:
+
+        # Stop all services in parallel so total shutdown time is
+        # max(individual stop times) rather than their sum.
+        def _stop_one(name_svc):
+            name, svc = name_svc
             try:
                 svc.stop()
             except Exception as e:
                 logger.warning("Error stopping %s: %s", name, e)
+
+        from concurrent.futures import ThreadPoolExecutor as _TPE
+        with _TPE(max_workers=min(len(items), 16) or 1) as ex:
+            list(ex.map(_stop_one, items))
 
         if self._iptables:
             self._iptables.remove_rules()

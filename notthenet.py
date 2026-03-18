@@ -20,8 +20,10 @@ import json
 import logging
 import os
 import queue
+import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from tkinter import font as _tkfont
@@ -34,10 +36,12 @@ from config import Config
 from service_manager import ServiceManager
 from utils.logging_utils import setup_logging
 
+logger = logging.getLogger(__name__)
+
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 APP_TITLE = "NotTheNet — Fake Internet Simulator"
-APP_VERSION = "2026.03.16-1"
+APP_VERSION = "2026.03.17-1"
 PAD = 8
 FIELD_WIDTH = 22
 LOG_MAX_LINES = 2000  # Cap displayed log lines to avoid memory creep
@@ -275,7 +279,16 @@ class _QueueHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord):
         try:
-            self.log_queue.put_nowait(self.format(record))
+            # put_nowait: never block a service thread waiting for GUI to drain.
+            # If the queue is full (GUI lagging), drop the oldest entry first.
+            try:
+                self.log_queue.put_nowait(self.format(record))
+            except queue.Full:
+                try:
+                    self.log_queue.get_nowait()
+                except queue.Empty:
+                    pass
+                self.log_queue.put_nowait(self.format(record))
         except Exception:
             pass
 
@@ -564,7 +577,8 @@ class _JsonEventsPage(tk.Frame):
     """Live-updating JSON event log viewer with search and event-type filtering."""
 
     _POLL_MS = 1000          # file-poll interval
-    _MAX_DISPLAY_ROWS = 5000 # cap rows to keep the Treeview responsive
+    _MAX_DISPLAY_ROWS = 5000 # cap rows visible in the Treeview
+    _ALL_ROWS_CAP = 20000    # cap in-memory row history to prevent unbounded growth
     _COLUMNS = ("timestamp", "event", "src_ip", "detail")
 
     def __init__(self, parent, cfg: "Config"):
@@ -576,6 +590,11 @@ class _JsonEventsPage(tk.Frame):
         self._search_var = tk.StringVar()
         self._filter_var = tk.StringVar(value="ALL")
         self._event_types: set = set()
+        # Auto-export: when _all_rows hits _ALL_ROWS_CAP the overflow is
+        # written to this file (append mode) so no events are ever silently
+        # dropped.  Path is set on first overflow; resets on _clear_view().
+        self._auto_export_path: Optional[str] = None
+        self._auto_exported_count: int = 0
         self._build()
 
     # ── UI construction ───────────────────────────────────────────────────
@@ -716,7 +735,7 @@ class _JsonEventsPage(tk.Frame):
             new_lines = []
 
         if new_lines:
-            added = 0
+            new_parsed: list = []
             for line in new_lines:
                 line = line.strip()
                 if not line:
@@ -727,7 +746,7 @@ class _JsonEventsPage(tk.Frame):
                     continue
                 row = self._obj_to_row(obj)
                 self._all_rows.append((row, obj))
-                added += 1
+                new_parsed.append((row, obj))
 
                 # Track event types for filter dropdown
                 evt = obj.get("event", "")
@@ -736,8 +755,24 @@ class _JsonEventsPage(tk.Frame):
                     choices = ["ALL"] + sorted(self._event_types)
                     self._filter_combo.configure(values=choices)
 
-            if added:
-                self._apply_filter()
+            # Trim history to prevent unbounded memory growth.
+            # Overflow rows are auto-exported to disk so nothing is silently
+            # dropped — the file accumulates across multiple cap rollovers.
+            if len(self._all_rows) > self._ALL_ROWS_CAP:
+                overflow = self._all_rows[:-self._ALL_ROWS_CAP]
+                self._all_rows = self._all_rows[-self._ALL_ROWS_CAP:]
+                self._auto_export_rows(overflow)
+
+            if new_parsed:
+                # Fast path: no filter active — just append new rows.
+                # Avoids the O(_MAX_DISPLAY_ROWS) delete+reinsert that
+                # _apply_filter() does, which was pinning CPU at 50%+.
+                search = self._search_var.get().strip()
+                evt_filter = self._filter_var.get()
+                if not search and evt_filter == "ALL":
+                    self._append_new_rows(new_parsed)
+                else:
+                    self._apply_filter()
 
         self._poll_job = self.after(self._POLL_MS, self._poll_file)
 
@@ -751,11 +786,58 @@ class _JsonEventsPage(tk.Frame):
             self._tree.delete(iid)
         self._poll_file()
 
+    def _auto_export_rows(self, rows: list):
+        """Append overflow rows to the session auto-export file.
+
+        The write is done in a daemon thread so the main Tkinter thread is
+        never blocked by disk I/O — important on slow drives (USB, NFS).
+        `rows` is already a detached copy of the trimmed slice, so handing
+        it to a thread is safe with no locking needed.
+        """
+        if not rows:
+            return
+        if self._auto_export_path is None:
+            from datetime import datetime as _dt
+            ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+            log_dir = os.path.dirname(
+                os.path.abspath(self._get_log_path())
+            )
+            self._auto_export_path = os.path.join(
+                log_dir, f"events_autoexport_{ts}.jsonl"
+            )
+            logger.info("JSON Events auto-export started: %s",
+                        self._auto_export_path)  # noqa: G004
+
+        path = self._auto_export_path  # capture; thread must not read self._auto_export_path
+        _log = logger  # capture module-level logger for use inside inner function
+
+        def _write():
+            try:
+                with open(path, "a", encoding="utf-8") as fh:
+                    for _row, obj in rows:
+                        fh.write(
+                            json.dumps(obj, default=str, ensure_ascii=False)
+                            + "\n"
+                        )
+                _log.debug(
+                    "Auto-exported %d rows to %s", len(rows), path,
+                )
+            except OSError as e:
+                _log.error("JSON Events auto-export failed: %s", e)
+
+        threading.Thread(target=_write, daemon=True, name="json-autoexport").start()
+        # Update the counter on the main thread immediately (before the write
+        # completes) so the label reflects the spill without waiting for I/O.
+        self._auto_exported_count += len(rows)
+
     def _clear_view(self):
         """Clear the table without deleting the file."""
         self._all_rows.clear()
         for iid in self._tree.get_children():
             self._tree.delete(iid)
+        # Reset auto-export so the next overflow starts a fresh export file
+        self._auto_export_path = None
+        self._auto_exported_count = 0
         self._count_label.configure(text="0 events")
 
     @staticmethod
@@ -772,8 +854,37 @@ class _JsonEventsPage(tk.Frame):
 
     # ── Filtering ─────────────────────────────────────────────────────────
 
+    def _append_new_rows(self, new_rows: list):
+        """Fast-path: append only newly received rows to the Treeview.
+
+        Avoids the full delete+reinsert of _apply_filter() when no filter
+        is active.  Trims the oldest visible rows to stay within
+        _MAX_DISPLAY_ROWS, then auto-scrolls to the bottom.
+        """
+        for row, _obj in new_rows:
+            self._tree.insert("", "end", values=row)
+
+        # Trim the oldest displayed rows to stay within the cap
+        children = self._tree.get_children()
+        excess = len(children) - self._MAX_DISPLAY_ROWS
+        if excess > 0:
+            for iid in children[:excess]:
+                self._tree.delete(iid)
+
+        displayed = len(self._tree.get_children())
+        auto = (f"  +{self._auto_exported_count:,} auto-exported"
+                if self._auto_exported_count else "")
+        self._count_label.configure(
+            text=f"{displayed} event{'s' if displayed != 1 else ''}"
+                 f" (of {len(self._all_rows)} total){auto}"
+        )
+        children = self._tree.get_children()
+        if children:
+            self._tree.see(children[-1])
+
     def _apply_filter(self, *_args):
         """Rebuild the Treeview to show only matching rows."""
+        # Full rebuild — only called when a filter/search is active or changes.
         search = self._search_var.get().strip().lower()
         evt_filter = self._filter_var.get()
 
@@ -794,9 +905,11 @@ class _JsonEventsPage(tk.Frame):
             self._tree.insert("", "end", values=row)
             count += 1
 
+        auto = (f"  +{self._auto_exported_count:,} auto-exported"
+                if self._auto_exported_count else "")
         self._count_label.configure(
             text=f"{count} event{'s' if count != 1 else ''}"
-                 f" (of {len(self._all_rows)} total)"
+                 f" (of {len(self._all_rows)} total){auto}"
         )
         # Auto-scroll to bottom
         children = self._tree.get_children()
@@ -830,21 +943,44 @@ class _JsonEventsPage(tk.Frame):
 
     # ── External open ─────────────────────────────────────────────────────
 
+    def _export_events(self):
+        """Save all loaded events to a user-chosen .jsonl file."""
+        if not self._all_rows:
+            messagebox.showinfo("No Events",
+                                "No events loaded yet — start a capture session first.")
+            return
+        from datetime import datetime as _dt
+        ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+        dest = filedialog.asksaveasfilename(
+            title="Export Events Log",
+            defaultextension=".jsonl",
+            filetypes=[("JSON Lines", "*.jsonl"), ("All files", "*.*")],
+            initialfile=f"events_export_{ts}.jsonl",
+        )
+        if not dest:
+            return
+        try:
+            with open(dest, "w", encoding="utf-8") as fh:
+                for _row, obj in self._all_rows:
+                    fh.write(json.dumps(obj, default=str, ensure_ascii=False) + "\n")
+            messagebox.showinfo(
+                "Exported",
+                f"Exported {len(self._all_rows):,} event(s) to:\n{dest}\n\n"
+                "Place this file in the same folder as your PCAP before "
+                "opening it in MalNetInfo.",
+            )
+        except OSError as e:
+            messagebox.showerror("Export Failed", f"Could not write file:\n{e}")
+
     def _open_file_external(self):
-        """Open the .jsonl file in the OS default application."""
-        import subprocess
+        """Open the .jsonl file in the system file manager (xdg-open)."""
         path = os.path.abspath(self._get_log_path())
         if not os.path.exists(path):
             messagebox.showinfo("Not Found",
                                 f"JSON log file does not exist yet:\n{path}")
             return
         try:
-            if sys.platform == "win32":
-                os.startfile(path)  # noqa: S606 — intentional; opens user's own log file
-            elif sys.platform == "darwin":
-                subprocess.Popen(["open", path])
-            else:
-                subprocess.Popen(["xdg-open", path])
+            subprocess.Popen(["xdg-open", path])
         except Exception as e:
             messagebox.showerror("Error", f"Could not open file:\n{e}")
 
@@ -1036,10 +1172,16 @@ class NotTheNetApp(tk.Tk):
             pass  # non-fatal -- icon is cosmetic only
 
         self._cfg = Config(config_path or "config.json")
-        self._log_queue: queue.Queue = queue.Queue()
+        # Bounded queue: caps the backlog so a burst of service threads can't
+        # accumulate faster than the 100 ms GUI drain, starving the event loop.
+        # Oldest entries are silently dropped when full (non-blocking put).
+        self._log_queue: queue.Queue = queue.Queue(maxsize=2000)
+        self._log_line_count: int = 0  # tracked locally — avoids widget.index() scan
         self._manager: Optional[ServiceManager] = None
         self._svc_vars: dict = {}  # service name → BooleanVar (status indicator)
         self._pages: dict = {}     # section name → page frame
+        self._start_time: Optional[float] = None   # monotonic time when started
+        self._timer_job: Optional[str] = None      # after() handle for elapsed ticker
 
         # Initialise zoom-aware fonts before any widget is built
         self._zoom_factor: float = float(self._cfg.get("ui", "zoom") or 1.0)
@@ -1060,7 +1202,7 @@ class NotTheNetApp(tk.Tk):
         )
         root_logger.addHandler(qh)
 
-        self._log_level_filter: str = ""   # empty = show all
+        self._log_level_filter: set[str] = set()  # empty = show all
         self._build_ui()
         self._poll_log_queue()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -1947,10 +2089,10 @@ class NotTheNetApp(tk.Tk):
         filter_frame.pack(side="left", padx=12)
         self._log_filter_btns: dict = {}
         _pill_tips = {
-            "DEBUG":   "Show only DEBUG messages (verbose trace output).\nClick again to show all levels.",
-            "INFO":    "Show only INFO messages (normal operational events).\nClick again to show all levels.",
-            "WARNING": "Show only WARNING messages (non-fatal issues).\nClick again to show all levels.",
-            "ERROR":   "Show only ERROR messages (failures and exceptions).\nClick again to show all levels.",
+            "DEBUG":   "Toggle DEBUG messages on/off.\nAny combination of levels can be active simultaneously.",
+            "INFO":    "Toggle INFO messages on/off.\nAny combination of levels can be active simultaneously.",
+            "WARNING": "Toggle WARNING messages on/off.\nAny combination of levels can be active simultaneously.",
+            "ERROR":   "Toggle ERROR messages on/off.\nAny combination of levels can be active simultaneously.",
         }
         for lvl, colour in [("DEBUG", C_DIM), ("INFO", C_SUBTLE),
                             ("WARNING", C_ORANGE), ("ERROR", C_RED)]:
@@ -1966,13 +2108,33 @@ class NotTheNetApp(tk.Tk):
             tooltip(b, _pill_tips[lvl])
             self._log_filter_btns[lvl] = b
 
+        export_log_btn = tk.Button(
+            hdr, text="💾 Export...",
+            bg=C_BG, fg=C_DIM, relief="flat",
+            font=_f(8), cursor="hand2",
+            command=lambda: self._pages["json_events"]._export_events(),
+        )
+        export_log_btn.pack(side="right", padx=(0, 2))
+        _hover_bind(export_log_btn, C_BG, C_HOVER)
+        tooltip(export_log_btn,
+                "Save a copy of all loaded JSON events to a .jsonl file "
+                "(e.g. alongside your PCAP for use with MalNetInfo).")
+
+        open_logs_btn = tk.Button(
+            hdr, text="📁 Open Logs",
+            bg=C_BG, fg=C_DIM, relief="flat",
+            font=_f(8), cursor="hand2",
+            command=self._open_log_folder,
+        )
+        open_logs_btn.pack(side="right", padx=(0, 2))
+        _hover_bind(open_logs_btn, C_BG, C_HOVER)
+        tooltip(open_logs_btn, "Open the logs folder in the system file manager.")
+
         clear_btn = tk.Button(
             hdr, text="✕ Clear",
             bg=C_BG, fg=C_DIM, relief="flat",
             font=_f(8), cursor="hand2",
-            command=lambda: self._log_widget.configure(state="normal") or
-                            self._log_widget.delete("1.0", "end") or
-                            self._log_widget.configure(state="disabled"),
+            command=self._clear_log_widget,
         )
         clear_btn.pack(side="right", padx=PAD)
         tooltip(clear_btn, "Clear all messages from the log panel.\n(Log files on disk are not affected.)")
@@ -1995,28 +2157,39 @@ class NotTheNetApp(tk.Tk):
         self._log_widget.tag_config("HIDDEN",  elide=True)
 
     def _toggle_log_filter(self, level: str):
-        """Toggle showing only one log level. Click again to clear filter."""
-        if self._log_level_filter == level:
-            self._log_level_filter = ""
-            for b in self._log_filter_btns.values():
-                b.configure(relief="flat", bd=0)
+        """Toggle a log level in/out of the active filter set.
+
+        Any combination of levels can be active simultaneously.
+        When no levels are active the view shows all messages.
+        """
+        if level in self._log_level_filter:
+            self._log_level_filter.discard(level)
         else:
-            self._log_level_filter = level
-            for lvl, b in self._log_filter_btns.items():
-                b.configure(relief=("sunken" if lvl == level else "flat"),
-                            bd=(1 if lvl == level else 0))
+            self._log_level_filter.add(level)
+        # Update button visuals
+        for lvl, b in self._log_filter_btns.items():
+            active = lvl in self._log_level_filter
+            b.configure(relief="sunken" if active else "flat",
+                        bd=1 if active else 0)
         self._reapply_log_filter()
 
     def _reapply_log_filter(self):
-        """Re-apply the active level filter to all existing lines in the log widget."""
+        """Re-apply the active filter set to all existing lines in the log widget.
+
+        Instead of calling tag_names() once per line (O(n) bridge round-trips),
+        use tag_ranges() to fetch all ranges for each hidden level in O(1) calls,
+        then add HIDDEN to those ranges.  For 10 k lines this cuts Tkinter bridge
+        calls from ~10 000 to ≤ 4 + |hidden ranges|.
+        """
         w = self._log_widget
         w.configure(state="normal")
         w.tag_remove("HIDDEN", "1.0", "end")
         if self._log_level_filter:
-            end_line = int(w.index("end-1c").split(".")[0])
-            for i in range(1, end_line + 1):
-                if self._log_level_filter not in w.tag_names(f"{i}.0"):
-                    w.tag_add("HIDDEN", f"{i}.0", f"{i + 1}.0")
+            for level in ("INFO", "WARNING", "ERROR", "DEBUG"):
+                if level not in self._log_level_filter:
+                    ranges = w.tag_ranges(level)
+                    for i in range(0, len(ranges), 2):
+                        w.tag_add("HIDDEN", ranges[i], ranges[i + 1])
         w.configure(state="disabled")
 
     def _build_statusbar(self):
@@ -2036,45 +2209,93 @@ class NotTheNetApp(tk.Tk):
     # ── Log polling ───────────────────────────────────────────────────────────
 
     def _poll_log_queue(self):
-        """Drain the log queue into the GUI log widget every 100 ms."""
+        """Drain up to 75 queued log messages per poll cycle.
+
+        Capped to keep the Tkinter main thread responsive under flood-level
+        traffic (e.g. active malware hitting every service).  Any backlog
+        drains across subsequent 100 ms ticks rather than blocking the event
+        loop for the full drain duration.
+        """
+        msgs: list[str] = []
         try:
-            while True:
-                msg = self._log_queue.get_nowait()
-                self._append_log(msg)
+            for _ in range(75):
+                msgs.append(self._log_queue.get_nowait())
         except queue.Empty:
             pass
+        if msgs:
+            self._append_logs(msgs)
         self.after(100, self._poll_log_queue)
 
-    def _append_log(self, msg: str):
+    def _open_log_folder(self):
+        """Open the configured log directory in the system file manager (xdg-open)."""
+        log_dir = os.path.abspath(
+            self._cfg.get("general", "log_dir") or "logs"
+        )
+        try:
+            os.makedirs(log_dir, exist_ok=True)
+        except OSError:
+            pass
+        try:
+            subprocess.Popen(["xdg-open", log_dir])
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not open log folder:\n{e}")
+
+    def _clear_log_widget(self):
+        """
+        Clear the live log panel and reset the line counter atomically.
+
+        Always use this method instead of calling widget.delete() directly.
+        If the widget is cleared without resetting _log_line_count, the
+        counter desyncs: it believes the widget is still full, so every new
+        log line triggers a trim that immediately deletes the line just added,
+        making the log panel appear permanently dead after a clear.
+        """
         self._log_widget.configure(state="normal")
+        self._log_widget.delete("1.0", "end")
+        self._log_line_count = 0
+        self._log_widget.configure(state="disabled")
 
-        # Trim to cap
-        line_count = int(self._log_widget.index("end-1c").split(".")[0])
-        if line_count > LOG_MAX_LINES:
-            self._log_widget.delete("1.0", f"{line_count - LOG_MAX_LINES}.0")
+    def _append_logs(self, msgs: list[str]):
+        """Insert a batch of log messages in a single widget open/close cycle."""
+        widget = self._log_widget
+        widget.configure(state="normal")
 
-        # Pick colour tag
-        tag = "INFO"
-        upper = msg.upper()
-        if "[ERROR]" in upper:
-            tag = "ERROR"
-        elif "[WARNING]" in upper:
-            tag = "WARNING"
-        elif "[DEBUG]" in upper:
-            tag = "DEBUG"
+        for msg in msgs:
+            # Pick colour tag
+            tag = "INFO"
+            upper = msg.upper()
+            if "[ERROR]" in upper:
+                tag = "ERROR"
+            elif "[WARNING]" in upper:
+                tag = "WARNING"
+            elif "[DEBUG]" in upper:
+                tag = "DEBUG"
 
-        # Apply active level filter (hide non-matching lines)
-        tags: tuple[str, ...] = (tag,)
-        if self._log_level_filter and tag != self._log_level_filter:
-            tags = (tag, "HIDDEN")
+            # Apply active filter set (hide lines whose level isn't selected)
+            tags: tuple[str, ...] = (tag,)
+            if self._log_level_filter and tag not in self._log_level_filter:
+                tags = (tag, "HIDDEN")
 
-        self._log_widget.insert("end", msg + "\n", tags)
+            widget.insert("end", msg + "\n", tags)
+            self._log_line_count += 1
+
+        # Trim to cap using the locally-tracked count — avoids an O(n)
+        # widget.index() scan on every batch.
+        if self._log_line_count > LOG_MAX_LINES:
+            excess = self._log_line_count - LOG_MAX_LINES
+            widget.delete("1.0", f"{excess + 1}.0")
+            self._log_line_count = LOG_MAX_LINES
+
         # Only auto-scroll when the user is already at (or within 1% of)
         # the bottom — if they've scrolled up to read history, leave the
         # view where it is so the new line doesn't yank it away.
-        if self._log_widget.yview()[1] >= 0.99:
-            self._log_widget.see("end")
-        self._log_widget.configure(state="disabled")
+        if widget.yview()[1] >= 0.99:
+            widget.see("end")
+        widget.configure(state="disabled")
+
+    def _append_log(self, msg: str):
+        """Single-message convenience wrapper (used by _reapply_log_filter)."""
+        self._append_logs([msg])
 
     # ── Service control ───────────────────────────────────────────────────────
 
@@ -2085,6 +2306,8 @@ class NotTheNetApp(tk.Tk):
 
     def _on_start(self):
         self._apply_all_pages_to_config()
+        # Clear the live log panel (resets line counter to avoid trim desync)
+        self._clear_log_widget()
         setup_logging(
             log_dir=self._cfg.get("general", "log_dir") or "logs",
             log_level=self._cfg.get("general", "log_level") or "INFO",
@@ -2103,7 +2326,8 @@ class NotTheNetApp(tk.Tk):
         if ok:
             self._btn_start.configure(state="disabled")
             self._btn_stop.configure(state="normal")
-            self._status_label.configure(text="●  Running", fg=C_GREEN)
+            self._start_time = time.monotonic()
+            self._tick_timer()
             running = set(self._manager.status().keys()) if self._manager else set()
             # catch_all sidebar key maps to catch_tcp / catch_udp in _services
             if "catch_tcp" in running or "catch_udp" in running:
@@ -2112,6 +2336,29 @@ class NotTheNetApp(tk.Tk):
                 dot.configure(fg=C_GREEN if key in running else C_DIM)
         else:
             self._status_label.configure(text="●  Failed — check log", fg=C_RED)
+
+    def _tick_timer(self):
+        """Update the status label with elapsed running time, once per second."""
+        if self._start_time is None:
+            return
+        elapsed = int(time.monotonic() - self._start_time)
+        h, remainder = divmod(elapsed, 3600)
+        m, s = divmod(remainder, 60)
+        if h:
+            clock = f"{h}h {m:02d}m {s:02d}s"
+        elif m:
+            clock = f"{m}m {s:02d}s"
+        else:
+            clock = f"{s}s"
+        self._status_label.configure(text=f"●  Running  {clock}", fg=C_GREEN)
+        self._timer_job = self.after(1000, self._tick_timer)
+
+    def _stop_timer(self):
+        """Cancel the elapsed timer and clear state."""
+        if self._timer_job is not None:
+            self.after_cancel(self._timer_job)
+            self._timer_job = None
+        self._start_time = None
 
     def _on_stop(self):
         if not self._manager:
@@ -2129,6 +2376,7 @@ class NotTheNetApp(tk.Tk):
         threading.Thread(target=_stop_thread, daemon=True).start()
 
     def _update_ui_after_stop(self):
+        self._stop_timer()
         self._btn_start.configure(state="normal")
         self._btn_stop.configure(state="disabled")
         self._status_label.configure(text="●  Stopped", fg=C_DIM)
@@ -2165,8 +2413,12 @@ class NotTheNetApp(tk.Tk):
                 "Confirm Exit",
                 "NotTheNet is still running.\nStop all services and exit?",
             ):
-                self._manager.stop()
-                self.destroy()
+                # Stop in a background thread — same pattern as _on_stop —
+                # so the main thread never blocks on service.stop() calls.
+                def _stop_and_destroy():
+                    self._manager.stop()
+                    self.after(0, self.destroy)
+                threading.Thread(target=_stop_and_destroy, daemon=True).start()
         else:
             self.destroy()
 

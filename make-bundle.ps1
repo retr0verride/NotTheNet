@@ -23,7 +23,8 @@
 [CmdletBinding()]
 param(
     [string]$Output = ".\notthenet-bundle.sh",
-    [switch]$Zip
+    [switch]$Zip,
+    [string]$ZipOutput = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -452,17 +453,11 @@ echo -e "${GREEN}|                                                      |${NC}"
 echo -e "${GREEN}|   GUI:       sudo notthenet                          |${NC}"
 echo -e "${GREEN}|   Headless:  sudo notthenet --nogui                  |${NC}"
 echo -e "${GREEN}+------------------------------------------------------+${NC}"
-# Clean up the staging directory from the USB/zip, preserving ghost-flare.ps1
+# Clean up the staging directory from the USB/zip
 if [[ -n "${STAGING_DIR:-}" ]] && [[ "$STAGING_DIR" != "$INSTALL_DIR" ]] && [[ -d "$STAGING_DIR" ]]; then
-    if [[ -f "${STAGING_DIR}/ghost-flare.ps1" ]]; then
-        cp "${STAGING_DIR}/ghost-flare.ps1" "${INSTALL_DIR}/ghost-flare.ps1" 2>/dev/null || true
-    fi
     cd / 2>/dev/null
     rm -rf "$STAGING_DIR"
 fi
-echo ""
-echo -e "${YELLOW}  GhostFlare (copy to FlareVM and run as Administrator):${NC}"
-echo -e "  ${INSTALL_DIR}/ghost-flare.ps1"
 else
 echo -e "${GREEN}+------------------------------------------------------+${NC}"
 echo -e "${GREEN}|   NotTheNet installed successfully (offline)!        |${NC}"
@@ -472,9 +467,6 @@ echo -e "${GREEN}|   GUI:       sudo notthenet                          |${NC}"
 echo -e "${GREEN}|   Headless:  sudo notthenet --nogui                  |${NC}"
 echo -e "${GREEN}|   Uninstall: sudo notthenet-uninstall                |${NC}"
 echo -e "${GREEN}+------------------------------------------------------+${NC}"
-echo ""
-echo -e "${YELLOW}  GhostFlare (copy to FlareVM and run as Administrator):${NC}"
-echo -e "  ${SCRIPT_DIR}/ghost-flare.ps1"
 fi
 '@)
 
@@ -500,7 +492,7 @@ fi
     # ── Optional zip ─────────────────────────────────────────────────────────
     if ($Zip) {
         $projectRoot = (Resolve-Path ".").Path
-        $zipPath     = (Resolve-Path "..").Path.TrimEnd('\') + "\NotTheNet-bundle.zip"
+        $zipPath     = if ($ZipOutput) { [System.IO.Path]::GetFullPath($ZipOutput) } else { (Resolve-Path "..").Path.TrimEnd('\') + "\NotTheNet-bundle.zip" }
         $excludeDirs = @('.venv','.mypy_cache','.pytest_cache','.ruff_cache',
                          '__pycache__','build','dist','notthenet.egg-info','.git')
 
@@ -518,11 +510,13 @@ fi
 
         # Use ZipFile API directly to preserve directory structure.
         # Compress-Archive loses subdirectory paths when piped individual FileInfo objects.
+        Add-Type -Assembly System.IO.Compression
         Add-Type -Assembly System.IO.Compression.FileSystem
         $zipStream = [System.IO.Compression.ZipFile]::Open($zipPath, [System.IO.Compression.ZipArchiveMode]::Create)
         try {
+            $topFolder = Split-Path $projectRoot -Leaf   # "NotTheNet"
             foreach ($file in $files) {
-                $entryName = $file.FullName.Substring($projectRoot.Length + 1).Replace('\', '/')
+                $entryName = "$topFolder/" + $file.FullName.Substring($projectRoot.Length + 1).Replace('\', '/')
                 [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
                     $zipStream, $file.FullName, $entryName,
                     [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null

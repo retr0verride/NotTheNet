@@ -43,11 +43,13 @@ VS Code will detect the `.venv` automatically. If prompted, select it as the Pyt
 bash predeploy.sh
 ```
 
-This runs ruff (lint), mypy (type check), bandit (security scan), pytest (70 tests), and builds the package.
+This runs ruff (lint), mypy (type check), bandit (security scan), pytest (86 tests), and builds the package.
 
 ---
 
-## Windows
+## Windows (dev only)
+
+NotTheNet **runs on Kali Linux only**. The Windows workflow is for developers who write and test code on a Windows host before pushing.
 
 ### 1. Clone and set up the environment
 
@@ -71,7 +73,7 @@ code .
 .\predeploy.ps1
 ```
 
-This runs ruff (lint), mypy (type check), bandit (security scan), pytest (70 tests), and builds the package.
+This runs ruff (lint), mypy (type check), bandit (security scan), pytest (86 tests), and builds the package.
 
 ---
 
@@ -80,10 +82,10 @@ This runs ruff (lint), mypy (type check), bandit (security scan), pytest (70 tes
 All tests are pure-Python, require no root access or network, and complete in under a second:
 
 ```bash
-# Linux / macOS
+# Kali / Debian / Ubuntu
 pytest tests/ -v
 
-# Windows
+# Windows (dev-only)
 .venv\Scripts\python.exe -m pytest tests/ -v
 ```
 
@@ -126,4 +128,4 @@ pytest tests/ -v
 
 - The GUI uses **Tkinter** only — no extra GUI dependencies beyond the Python standard library.
 - Services require **root** (or iptables redirect) to bind to ports below 1024. Run with `sudo` when testing services end-to-end; the GUI itself can be developed and launched as a normal user with services disabled.
-- `network/iptables_manager.py` and `utils/privilege.py` are Linux-only — mypy suppresses errors on those modules when running on Windows (configured in `pyproject.toml`).
+- `network/iptables_manager.py` and `utils/privilege.py` are Linux-only (`iptables`, `grp`, `pwd`). On a Windows dev machine mypy suppresses errors for those modules (configured in `pyproject.toml`); they are fully exercised on Kali at deploy time.

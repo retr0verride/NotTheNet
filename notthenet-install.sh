@@ -86,7 +86,7 @@ if [[ ! -f "${CERT_DIR}/server.crt" ]] || [[ ! -f "${CERT_DIR}/server.key" ]]; t
     info "Generating self-signed TLS certificate (4096-bit RSA, SHA-256)..."
     "$VPYTHON" - <<'PYEOF'
 import sys, os
-sys.path.insert(0, os.path.dirname(os.path.abspath(".")))
+sys.path.insert(0, os.getcwd())
 from utils.cert_utils import generate_self_signed_cert
 ok = generate_self_signed_cert(
     "certs/server.crt", "certs/server.key",

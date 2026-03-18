@@ -30,11 +30,39 @@ MAX_DISK_USAGE_BYTES = 200 * 1024 * 1024   # 200 MB total upload storage
 PASV_PORT_LOW = 50000
 PASV_PORT_HIGH = 51000
 
+_MAX_CONNECTIONS = 50   # maximum simultaneous FTP control connections
+
 
 class _ReuseServer(socketserver.ThreadingTCPServer):
     """ThreadingTCPServer with allow_reuse_address set before server_bind()."""
     allow_reuse_address = True
     daemon_threads = True
+
+    def server_bind(self):
+        self._sem = threading.BoundedSemaphore(_MAX_CONNECTIONS)
+        super().server_bind()
+
+    def process_request(self, request, client_address):
+        """Drop connection immediately if the session limit is reached."""
+        if not self._sem.acquire(blocking=False):
+            try:
+                request.close()
+            except OSError:
+                pass
+            return
+        sem = self._sem
+
+        def _run():
+            try:
+                self.finish_request(request, client_address)
+            except Exception:
+                self.handle_error(request, client_address)
+            finally:
+                self.shutdown_request(request)
+                sem.release()
+
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
 
 
 def _get_disk_usage(directory: str) -> int:
@@ -197,6 +225,12 @@ class _FTPSession(threading.Thread):
         if not data_conn:
             self._send("425 Can't open data connection")
             return
+
+        # Enforce a per-transfer deadline so a trickle-sending client can't
+        # hold this control-connection thread indefinitely.  The session
+        # timeout on the control connection (30 s) is separate; a client
+        # could open PASV, send one byte every 29 s forever without this cap.
+        data_conn.settimeout(30)
 
         if not self.upload_dir:
             # Uploads disabled — drain and discard

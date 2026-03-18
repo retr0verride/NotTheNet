@@ -5,6 +5,7 @@ Detailed technical reference for every fake service included in NotTheNet.
 ## Table of Contents
 
 - [DNS](#dns-service)
+- [DNS-over-TLS (DoT)](#dns-over-tls-dot-service)
 - [HTTP](#http-service)
 - [HTTPS](#https-service)
 - [SMTP](#smtp-service)
@@ -76,6 +77,60 @@ dig @127.0.0.1 evil.com AAAA +short
 # Custom override
 dig @127.0.0.1 update.microsoft.com +short
 # → whatever you set in custom_records
+```
+
+---
+
+## DNS-over-TLS (DoT) Service
+
+**File:** `services/dot_server.py`  
+**Protocol:** TCP on port 853 with TLS  
+**RFC:** [7858](https://datatracker.ietf.org/doc/html/rfc7858)  
+**Requires:** dnslib (same as DNS service)
+
+### Behaviour
+
+Implements DNS-over-TLS — every query is resolved with the same logic as the plain DNS server (`_FakeResolver` is shared). DGA entropy detection, FCrDNS consistency, NCSI exact-match overrides, public IP pool rotation, and custom record overrides all apply identically inside the TLS tunnel.
+
+Each DNS message is framed with a 2-byte big-endian length prefix as required by RFC 7858 (same framing as DNS-over-TCP per RFC 1035 §4.2.2). Multiple queries can be pipelined over a single TLS connection; the session times out after 10 s of inactivity.
+
+### TLS Configuration
+
+| Setting | Value |
+|---------|-------|
+| Minimum version | TLS 1.2 |
+| ALPN | `"dot"` (RFC 7858 §4.1) |
+| Certificate | Shared with HTTPS (`certs/server.crt` / `certs/server.key`) |
+
+Because DoT reuses the HTTPS certificate, installing `certs/ca.crt` (the NotTheNet Root CA) in the analysis VM trust store makes DoT lookups appear fully validated.
+
+### Connection Model
+
+- Accepts on a raw `socket.SOCK_STREAM` socket, performs TLS handshake in the accept loop before submitting to the thread pool
+- Bounded to `ThreadPoolExecutor(50)` workers — degrades gracefully under load
+- Handshake failures (`ssl.SSLError`, `OSError`) log at DEBUG and continue without killing the loop
+- Stop is clean: `SHUT_RDWR` forces the accept loop to unblock, then the pool is drained with `cancel_futures=True`
+
+### Key Design Decisions vs INetSim/FakeNet-NG
+
+- **Shared resolver** — all DNS anti-detection features (DGA NXDOMAIN, public IP pool, FCrDNS) apply over DoT without any duplication
+- **Correct framing** — many fake DNS servers use raw `recv()` without length-prefix handling; malware that follows RFC 7858 framing exactly will get correct responses
+- **Same cert as HTTPS** — no extra certificate management; analysts who have already installed the root CA get transparent DoT interception
+
+### Verifying
+
+```bash
+# Requires kdig (knot-dnsutils) or any RFC 7858 DoT client
+kdig @127.0.0.1 +tls-ca=certs/ca.crt c2.evil.com A +short
+# → 127.0.0.1
+
+# With openssl (manual framing test)
+openssl s_client -connect 127.0.0.1:853 -quiet 2>/dev/null
+# → Server sends TLS handshake, ALPN=dot
+
+# Skip CA validation
+kdig @127.0.0.1 +tls-no-auth c2.evil.com A +short
+# → 127.0.0.1
 ```
 
 ---
@@ -194,10 +249,12 @@ websocat ws://127.0.0.1/ws
 |---------|-------|
 | Minimum version | TLS 1.2 |
 | Disabled | SSLv2, SSLv3, TLS 1.0, TLS 1.1 |
+| ALPN | `h2`, `http/1.1`; HTTP/2 clients receive SETTINGS + GOAWAY(HTTP_1_1_REQUIRED) |
 | Cipher suites | ECDHE-RSA-AES128-GCM-SHA256, ECDHE-RSA-AES256-GCM-SHA384, ECDHE-RSA-CHACHA20-POLY1305 and ECDSA variants |
 | Key exchange | Ephemeral ECDHE (forward secrecy) |
 | Certificate | 4096-bit RSA, self-signed, SHA-256 |
 | SAN | localhost, notthenet.local, 127.0.0.1 |
+| SCT extension | Fake `SignedCertificateTimestampList` (RFC 6962 v1) present in all certs |
 
 The certificate is auto-generated at `certs/server.crt` / `certs/server.key` on first start if not present.
 

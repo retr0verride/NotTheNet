@@ -28,6 +28,9 @@ MAX_EMAIL_SIZE_BYTES = 5 * 1024 * 1024   # 5 MB per message
 MAX_DISK_USAGE_BYTES = 100 * 1024 * 1024  # 100 MB total email storage cap
 
 
+_MAX_CONNECTIONS = 50   # maximum simultaneous connections per mail server instance
+
+
 class _ReuseServer(socketserver.ThreadingTCPServer):
     """ThreadingTCPServer with allow_reuse_address set as a class attribute.
     This MUST be a class attribute (not instance attribute) so it is read
@@ -35,6 +38,32 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
     """
     allow_reuse_address = True
     daemon_threads = True
+
+    def server_bind(self):
+        self._sem = threading.BoundedSemaphore(_MAX_CONNECTIONS)
+        super().server_bind()
+
+    def process_request(self, request, client_address):
+        """Drop connection immediately if the session limit is reached."""
+        if not self._sem.acquire(blocking=False):
+            try:
+                request.close()
+            except OSError:
+                pass
+            return
+        sem = self._sem
+
+        def _run():
+            try:
+                self.finish_request(request, client_address)
+            except Exception:
+                self.handle_error(request, client_address)
+            finally:
+                self.shutdown_request(request)
+                sem.release()
+
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
 
 
 # ---------------------------------------------------------------------------
@@ -258,12 +287,46 @@ class _SMTPServer(socketserver.ThreadingTCPServer):
         self.smtp_key_path = key_path
         super().__init__(address, None)
 
-    def finish_request(self, request, client_address):
+    def server_bind(self):
+        self._sem = threading.BoundedSemaphore(_MAX_CONNECTIONS)
+        super().server_bind()
+
+    def process_request(self, request, client_address):
+        """Spawn a session thread that fully owns the socket lifetime.
+
+        Overriding process_request (instead of finish_request) avoids the
+        ThreadingTCPServer race where shutdown_request() — which closes the
+        socket — is called immediately after finish_request() returns but
+        before the session thread has read a single byte.
+        """
+        if not self._sem.acquire(blocking=False):
+            try:
+                request.close()
+            except OSError:
+                pass
+            return
+        sem = self._sem
         t = _SMTPClientThread(
             request, client_address,
             self.smtp_hostname, self.smtp_banner, self.smtp_save_dir,
             cert_path=self.smtp_cert_path, key_path=self.smtp_key_path,
         )
+        # Wrap run() so the semaphore is released and the socket is closed
+        # when the session ends — the server lifecycle never touches it.
+        _orig_run = t.run
+
+        def _guarded_run():
+            try:
+                _orig_run()
+            finally:
+                sem.release()
+                try:
+                    request.close()
+                except OSError:
+                    pass
+
+        t.run = _guarded_run
+        t.daemon = True
         t.start()
 
 

@@ -37,6 +37,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 MAX_FILE_BYTES = 500 * 1024 * 1024  # 500 MB default cap
+_FLUSH_INTERVAL = 1.0  # seconds between periodic flushes
 
 # ─── Module-level singleton ──────────────────────────────────────────────────
 
@@ -104,6 +105,7 @@ class JsonEventLogger:
         self._file = None
         self._bytes_written = 0
         self._cap_warned = False
+        self._last_flush: float = 0.0
         self._open()
 
     def __del__(self):
@@ -173,8 +175,13 @@ class JsonEventLogger:
                 return
             try:
                 self._file.write(line)
-                self._file.flush()
                 self._bytes_written += line_bytes
+                # Flush at most once per _FLUSH_INTERVAL to avoid a syscall
+                # on every single event under high-frequency traffic.
+                now = time.monotonic()
+                if now - self._last_flush >= _FLUSH_INTERVAL:
+                    self._file.flush()
+                    self._last_flush = now
             except OSError as e:
                 logger.error(f"JSON event write error: {e}")
 

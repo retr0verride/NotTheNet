@@ -13,6 +13,7 @@ Security notes (OpenSSF):
 
 from __future__ import annotations
 
+import hashlib
 import http.server
 import ipaddress
 import logging
@@ -186,6 +187,13 @@ _STUB_OCSP_RESPONSE = (
 
 _MAX_BODY_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
+# Stable "last content modification" timestamp for Last-Modified response headers.
+# Computed once at module load to approximate a deployed server whose content was
+# last updated ~60 days before startup — prevents absence-of-header fingerprinting.
+_SERVER_LAST_MODIFIED = (
+    datetime.now(timezone.utc) - timedelta(days=60)
+).strftime("%a, %d %b %Y 12:00:00 GMT")
+
 # RFC 1918 private address ranges — returning one of these as a "public" IP
 # would let sandbox-aware malware detect the private network.
 _RFC1918_NETWORKS = (
@@ -256,7 +264,8 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
                   delay_jitter_ms: int = 0,
                   dynamic_responses: bool = False, custom_rules: list | None = None,
                   doh_enabled: bool = False, doh_redirect_ip: str = "127.0.0.1",
-                  websocket_sinkhole: bool = False):
+                  websocket_sinkhole: bool = False,
+                  pool_ips: frozenset[str] = frozenset()):
     """Factory: create a BaseHTTPRequestHandler subclass with captured config."""
 
     class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
@@ -272,6 +281,7 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
         _doh_enabled = doh_enabled
         _doh_redirect_ip = doh_redirect_ip
         _websocket_sinkhole = websocket_sinkhole
+        _pool_ips = pool_ips
 
         # Use HTTP/1.1 to match real-world server behaviour.  Python's
         # BaseHTTPRequestHandler defaults to HTTP/1.0, which is a detectable
@@ -320,7 +330,10 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
         def _send_ip_check_response(self, host: str):
             """Return the spoofed public IP for known IP-check services."""
             path = self.path or "/"
-            ip = self._spoof_ip
+            # Use configured spoof IP; fall back to a plausible residential IP
+            # so hosting/proxy fields are always correct even when spoof_public_ip
+            # is not set in config.
+            ip = self._spoof_ip or "98.245.112.43"
 
             # ipinfo.io — returns detailed JSON including ISP/org.
             # Malware often checks the 'org' field for datacenter/hosting ASNs
@@ -406,6 +419,16 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
             elif "format=json" in path or path.rstrip("/").endswith("/json"):
                 body = f'{{"ip":"{ip}"}}\n'.encode()
                 content_type = "application/json"
+            # checkip.amazonaws.com wraps the IP in an HTML page.
+            # Many .NET stealers call this endpoint and parse the HTML body;
+            # returning plain text causes their regex to fail and they may
+            # retry via an alternate IP-check service, revealing the sandbox.
+            elif host == "checkip.amazonaws.com":
+                body = (
+                    f"<html><head><title>Current IP Check</title></head>"
+                    f"<body>Current IP Address: {ip}</body></html>\n"
+                ).encode()
+                content_type = "text/html"
             else:
                 body = f"{ip}\n".encode()
                 content_type = "text/plain"
@@ -503,6 +526,27 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
             exactly, Windows reports full connectivity — which prevents
             certain malware from stalling in a 'no network' idle loop.
             """
+            path = (self.path or "/").split("?")[0]
+            # www.msftconnecttest.com/redirect should return HTTP 302 → HTTPS.
+            # Returning 200+body here triggers mismatches in NCSI validator
+            # tools and is a detectable fingerprint for savvy malware.
+            if path == "/redirect":
+                if self._log_requests:
+                    safe_addr = sanitize_ip(self.client_address[0])
+                    logger.info(
+                        f"HTTP  NCSI {sanitize_log_string(host)}/redirect "
+                        f"from {safe_addr} \u2192 302"
+                    )
+                try:
+                    self.send_response(302)
+                    self.send_header("Location", f"https://{host}/redirect")
+                    self.send_header("Content-Length", "0")
+                    self.send_header("Server", self._server_header)
+                    self.send_header("Connection", "close")
+                    self.end_headers()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                return
             body = _NCSI_RESPONSES.get(host, b"Microsoft Connect Test")
             if self._log_requests:
                 safe_addr = sanitize_ip(self.client_address[0])
@@ -701,8 +745,20 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
                 self._send_pki_response(host)
                 return
 
-            # Public IP spoof: intercept well-known IP-check hostnames
-            if self._spoof_ip and host in _IP_CHECK_HOSTS:
+            # IP-check service handler: always intercept well-known IP-check
+            # hostnames regardless of whether spoof_public_ip is configured.
+            # If it isn't set, fall back to a plausible residential IP so that
+            # the response still contains "hosting":false / proxy:false — the
+            # field AgentTesla and similar stealers actually check to detect
+            # sandbox/datacenter environments.  Returning the NotTheNet HTML
+            # page here causes these parsers to fail entirely and may cause the
+            # malware to default to assuming hosting=true (sandbox detected).
+            #
+            # Also intercept requests where Host: is one of our DNS pool IPs
+            # (e.g. 142.250.80.2) — malware resolves ip-api.com to a pool IP
+            # then connects directly to that IP, so the Host header is the IP
+            # rather than the hostname.
+            if host in _IP_CHECK_HOSTS or host in self._pool_ips:
                 self._send_ip_check_response(host)
                 return
             self._send_normal_response()
@@ -745,7 +801,13 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
                 self.send_header("Server", self._server_header)
                 self.send_header("Accept-Ranges", "bytes")
                 self.send_header("Vary", "Accept-Encoding")
-                self.send_header("ETag", '"3a4b1c-264-5f8a7d63c0bc0"')
+                # ETag varies per path — a single static value for every URL is
+                # a detectable fingerprint (real servers use inode/mtime/size).
+                _path_etag = hashlib.md5(  # noqa: S324  # nosec B324 — not crypto
+                    (self.path or "/").encode(), usedforsecurity=False
+                ).hexdigest()[:13]
+                self.send_header("ETag", f'"3a4b1c-{_path_etag}"')
+                self.send_header("Last-Modified", _SERVER_LAST_MODIFIED)
                 self.send_header("Connection", "keep-alive")
                 self.end_headers()
                 # HEAD requests MUST NOT include a message body (RFC 7231 §4.3.2).

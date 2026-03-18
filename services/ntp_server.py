@@ -68,8 +68,8 @@ def _build_response(request: bytes) -> Optional[bytes]:
     #   1B  Stratum = 2 (secondary reference)
     #   1B  Poll interval = 6 (log2 max interval, signed)
     #   1B  Precision = -20 (log2 clock precision ≈ 1 µs, signed)
-    #   4B  Root delay     (fixed-point 16.16, zero for local)
-    #   4B  Root dispersion (fixed-point 16.16, zero for local)
+    #   4B  Root delay     (fixed-point 16.16, ≈ 10 ms upstream RTT)
+    #   4B  Root dispersion (fixed-point 16.16, ≈ 20 ms cumulative dispersion)
     #   4B  Reference ID   upstream Stratum-1 IP (time.google.com = 216.239.35.0)
     #       RFC 5905 §7.3: for Stratum 2+, Reference ID must be the IPv4 address
     #       of the upstream reference clock, NOT an ASCII keyword like "LOCL".
@@ -85,8 +85,8 @@ def _build_response(request: bytes) -> Optional[bytes]:
         2,              # Stratum 2
         6,              # Poll exponent
         -20,            # Precision exponent
-        0,              # Root delay
-        0,              # Root dispersion
+        655,            # Root delay     (≈ 10 ms; NTP 16.16 fixed-point, 0.010 × 65536)
+        1311,           # Root dispersion (≈ 20 ms; Stratum-2 servers never report zero)
         b"\xd8\xef\x23\x00",  # Reference ID: 216.239.35.0 (time.google.com Stratum 1)
         ref_secs, ref_frac,
         orig_secs, orig_frac,

@@ -202,6 +202,7 @@ class IPTablesManager:
         self._saved = False
         self._ttl_rule_applied = False
         self._mangle_saved = False
+        self._filter_icmp_drop_applied = False
         self._prev_ip_forward: Optional[str] = None  # restored on stop
 
     def _validate_interface(self, iface: str) -> bool:
@@ -228,6 +229,8 @@ class IPTablesManager:
         code, _, err = _run(cmd)
         if code == 0:
             self._rules_applied.append(rule)
+            if err.strip():
+                logger.debug("iptables rule applied with warning: %s", err.strip())
             return True
         else:
             logger.warning(f"iptables rule failed ({err.strip()}): {' '.join(cmd)}")
@@ -369,6 +372,33 @@ class IPTablesManager:
             if self._add_rule(icmp_rule):
                 ok_count += 1
 
+        # --- Suppress ICMP destination-unreachable back to monitored hosts -------
+        # When the kernel can't route a forwarded packet it generates an ICMP
+        # type-3 "destination unreachable" from the gateway IP.  That origin
+        # (the gateway itself) reveals the captive network to malware.  DROP
+        # these silently so probes time out like a real firewall would.
+        #
+        # Use -I OUTPUT 1 (insert at position 1 / top of chain) rather than
+        # -A (append) so the DROP fires before any ACCEPT rule that may already
+        # exist in the OUTPUT chain.  If appended, a prior ACCEPT would allow
+        # ICMP unreachables through, making the gateway IP visible again.
+        icmp_drop_rule = [
+            "-t", "filter",
+            "-I", "OUTPUT", "1",
+            "-p", "icmp", "--icmp-type", "destination-unreachable",
+            "-j", "DROP",
+            "-m", "comment", "--comment", _RULE_COMMENT,
+        ]
+        code, _, err = _run(["iptables"] + icmp_drop_rule)
+        if code == 0:
+            self._filter_icmp_drop_applied = True
+            ok_count += 1
+            logger.info("ICMP destination-unreachable DROP rule applied.")
+        else:
+            logger.warning(
+                "Failed to apply ICMP unreachable DROP rule: %s", err.strip()
+            )
+
         # --- Enable ip_forward in gateway mode (required for PREROUTING DNAT) ---
         # Traffic from FlareVM to a foreign IP arrives on the bridge interface
         # and goes through the kernel forwarding path before DNAT rewrites it.
@@ -448,6 +478,14 @@ class IPTablesManager:
                 _run(["iptables"] + ttl_del, check=False)
                 self._ttl_rule_applied = False
                 logger.info("TTL mangle rule removed.")
+            # Remove filter DROP rule — not covered by the nat snapshot
+            if self._filter_icmp_drop_applied:
+                _run(["iptables", "-t", "filter", "-D", "OUTPUT",
+                      "-p", "icmp", "--icmp-type", "destination-unreachable",
+                      "-j", "DROP",
+                      "-m", "comment", "--comment", _RULE_COMMENT], check=False)
+                self._filter_icmp_drop_applied = False
+                logger.info("ICMP destination-unreachable DROP rule removed.")
             return
 
         # No snapshot available (e.g. iptables-save was missing) — flush the
@@ -480,6 +518,15 @@ class IPTablesManager:
             _run(["iptables"] + ttl_del, check=False)
             self._ttl_rule_applied = False
             logger.info("TTL mangle rule removed.")
+
+        # Remove filter DROP rule
+        if self._filter_icmp_drop_applied:
+            _run(["iptables", "-t", "filter", "-D", "OUTPUT",
+                  "-p", "icmp", "--icmp-type", "destination-unreachable",
+                  "-j", "DROP",
+                  "-m", "comment", "--comment", _RULE_COMMENT], check=False)
+            self._filter_icmp_drop_applied = False
+            logger.info("ICMP destination-unreachable DROP rule removed.")
 
 
 

@@ -22,6 +22,7 @@ import os
 import socket
 import ssl
 import threading
+import time
 from typing import Optional
 
 from utils.json_logger import get_json_logger
@@ -29,7 +30,9 @@ from utils.logging_utils import sanitize_ip, sanitize_log_string
 
 logger = logging.getLogger(__name__)
 
-_MAX_LINE = 512  # RFC 1459 §2.3
+_MAX_LINE = 512       # RFC 1459 §2.3
+_PING_INTERVAL = 120  # idle seconds before the server sends a keepalive PING
+_PING_TIMEOUT  = 60   # seconds to wait for PONG before forcibly closing
 
 
 class _IRCClientThread(threading.Thread):
@@ -56,6 +59,7 @@ class _IRCClientThread(threading.Thread):
         self.user: Optional[str] = None
         self.registered = False
         self._sem = sem
+        self._waiting_for_pong: bool = False
 
     # ── I/O helpers ──────────────────────────────────────────────────────────
 
@@ -139,12 +143,29 @@ class _IRCClientThread(threading.Thread):
         jl = get_json_logger()
         if jl:
             jl.log("irc_connect", src_ip=self.addr[0])
+        self.conn.settimeout(_PING_INTERVAL)
         try:
             buf = b""
             while True:
-                chunk = self.conn.recv(1024)
+                try:
+                    chunk = self.conn.recv(1024)
+                except socket.timeout:
+                    if self._waiting_for_pong:
+                        # No PONG received in time — drop the connection.
+                        self._send_raw(f"ERROR :Closing Link: {self.hostname} (Ping timeout)")
+                        break
+                    # First idle timeout — send a keepalive PING and wait.
+                    self._waiting_for_pong = True
+                    self.conn.settimeout(_PING_TIMEOUT)
+                    token = str(int(time.monotonic() * 1e6) % 0xFFFF_FFFF)
+                    self._send_raw(f"PING :{token}")
+                    continue
                 if not chunk:
                     break
+                if self._waiting_for_pong:
+                    # Any data from the client resets the keepalive state.
+                    self._waiting_for_pong = False
+                    self.conn.settimeout(_PING_INTERVAL)
                 buf += chunk
                 while b"\n" in buf:
                     raw_line, buf = buf.split(b"\n", 1)
@@ -216,7 +237,9 @@ class _IRCClientThread(threading.Thread):
             self._send_raw(f":{self.hostname} PONG {self.hostname} :{token}")
 
         elif cmd == "PONG":
-            pass  # Client responding to our server PING
+            # Reset keepalive state so the session isn't dropped.
+            self._waiting_for_pong = False
+            self.conn.settimeout(_PING_INTERVAL)
 
         elif cmd == "JOIN":
             if not self.registered:
