@@ -174,6 +174,12 @@ if [[ $EUID -eq 0 ]]; then
     update-desktop-database -q /usr/share/applications 2>/dev/null || true
     info "Desktop entry installed."
 
+    # Install app icon so Icon=notthenet resolves correctly
+    install -Dm644 "${SCRIPT_DIR}/assets/notthenet-icon.svg" \
+        /usr/share/pixmaps/notthenet.svg
+    gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
+    info "Icon installed."
+
     POLKIT_DIR="/usr/share/polkit-1/actions"
     if [[ -d "$POLKIT_DIR" ]]; then
         sed \

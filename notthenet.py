@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 APP_TITLE = "NotTheNet — Fake Internet Simulator"
-APP_VERSION = "2026.03.17-1"
+APP_VERSION = "2026.03.19-19"
 PAD = 8
 FIELD_WIDTH = 22
 LOG_MAX_LINES = 2000  # Cap displayed log lines to avoid memory creep
@@ -576,8 +576,8 @@ class _GeneralPage(tk.Frame):
 class _JsonEventsPage(tk.Frame):
     """Live-updating JSON event log viewer with search and event-type filtering."""
 
-    _POLL_MS = 1000          # file-poll interval
-    _MAX_DISPLAY_ROWS = 5000 # cap rows visible in the Treeview
+    _POLL_MS = 2000          # file-poll interval (relaxed to reduce Treeview churn)
+    _MAX_DISPLAY_ROWS = 2000 # cap rows visible in the Treeview
     _ALL_ROWS_CAP = 20000    # cap in-memory row history to prevent unbounded growth
     _COLUMNS = ("timestamp", "event", "src_ip", "detail")
 
@@ -590,6 +590,7 @@ class _JsonEventsPage(tk.Frame):
         self._search_var = tk.StringVar()
         self._filter_var = tk.StringVar(value="ALL")
         self._event_types: set = set()
+        self._tree_count: int = 0  # locally tracked — avoids O(n) get_children()
         # Auto-export: when _all_rows hits _ALL_ROWS_CAP the overflow is
         # written to this file (append mode) so no events are ever silently
         # dropped.  Path is set on first overflow; resets on _clear_view().
@@ -782,8 +783,10 @@ class _JsonEventsPage(tk.Frame):
         self._all_rows.clear()
         self._event_types.clear()
         self._filter_combo.configure(values=["ALL"])
-        for iid in self._tree.get_children():
-            self._tree.delete(iid)
+        children = self._tree.get_children()
+        if children:
+            self._tree.delete(*children)
+        self._tree_count = 0
         self._poll_file()
 
     def _auto_export_rows(self, rows: list):
@@ -833,8 +836,10 @@ class _JsonEventsPage(tk.Frame):
     def _clear_view(self):
         """Clear the table without deleting the file."""
         self._all_rows.clear()
-        for iid in self._tree.get_children():
-            self._tree.delete(iid)
+        children = self._tree.get_children()
+        if children:
+            self._tree.delete(*children)
+        self._tree_count = 0
         # Reset auto-export so the next overflow starts a fresh export file
         self._auto_export_path = None
         self._auto_exported_count = 0
@@ -863,24 +868,24 @@ class _JsonEventsPage(tk.Frame):
         """
         for row, _obj in new_rows:
             self._tree.insert("", "end", values=row)
+        self._tree_count += len(new_rows)
 
         # Trim the oldest displayed rows to stay within the cap
-        children = self._tree.get_children()
-        excess = len(children) - self._MAX_DISPLAY_ROWS
+        excess = self._tree_count - self._MAX_DISPLAY_ROWS
         if excess > 0:
-            for iid in children[:excess]:
-                self._tree.delete(iid)
+            children = self._tree.get_children()
+            # Bulk detach + delete is faster than per-item delete
+            stale = children[:excess]
+            self._tree.delete(*stale)
+            self._tree_count -= len(stale)
 
-        displayed = len(self._tree.get_children())
         auto = (f"  +{self._auto_exported_count:,} auto-exported"
                 if self._auto_exported_count else "")
         self._count_label.configure(
-            text=f"{displayed} event{'s' if displayed != 1 else ''}"
+            text=f"{self._tree_count} event{'s' if self._tree_count != 1 else ''}"
                  f" (of {len(self._all_rows)} total){auto}"
         )
-        children = self._tree.get_children()
-        if children:
-            self._tree.see(children[-1])
+        self._tree.see(self._tree.get_children()[-1] if self._tree_count else "")
 
     def _apply_filter(self, *_args):
         """Rebuild the Treeview to show only matching rows."""
@@ -888,8 +893,9 @@ class _JsonEventsPage(tk.Frame):
         search = self._search_var.get().strip().lower()
         evt_filter = self._filter_var.get()
 
-        for iid in self._tree.get_children():
-            self._tree.delete(iid)
+        children = self._tree.get_children()
+        if children:
+            self._tree.delete(*children)
 
         count = 0
         start = max(0, len(self._all_rows) - self._MAX_DISPLAY_ROWS)
@@ -905,6 +911,7 @@ class _JsonEventsPage(tk.Frame):
             self._tree.insert("", "end", values=row)
             count += 1
 
+        self._tree_count = count
         auto = (f"  +{self._auto_exported_count:,} auto-exported"
                 if self._auto_exported_count else "")
         self._count_label.configure(
@@ -2209,22 +2216,24 @@ class NotTheNetApp(tk.Tk):
     # ── Log polling ───────────────────────────────────────────────────────────
 
     def _poll_log_queue(self):
-        """Drain up to 75 queued log messages per poll cycle.
+        """Drain up to 200 queued log messages per poll cycle.
 
-        Capped to keep the Tkinter main thread responsive under flood-level
-        traffic (e.g. active malware hitting every service).  Any backlog
-        drains across subsequent 100 ms ticks rather than blocking the event
-        loop for the full drain duration.
+        Uses adaptive timing: 250 ms when messages are flowing, 500 ms when
+        idle.  The larger batch + slower cadence keeps throughput high while
+        dramatically reducing the number of Tkinter widget open/close cycles
+        that were pinning CPU under load.
         """
         msgs: list[str] = []
         try:
-            for _ in range(75):
+            for _ in range(200):
                 msgs.append(self._log_queue.get_nowait())
         except queue.Empty:
             pass
         if msgs:
             self._append_logs(msgs)
-        self.after(100, self._poll_log_queue)
+            self.after(250, self._poll_log_queue)   # active — faster tick
+        else:
+            self.after(500, self._poll_log_queue)   # idle — back off
 
     def _open_log_folder(self):
         """Open the configured log directory in the system file manager (xdg-open)."""

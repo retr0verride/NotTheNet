@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from utils.logging_utils import sanitize_ip
 
-_DOT_MAX_WORKERS = 50
+_DOT_MAX_WORKERS = 4
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +115,7 @@ class DoTService:
             raw.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             raw.bind((self.bind_ip, self.port))
             raw.listen(64)
+            raw.settimeout(1.0)
             self._server_sock = raw
         except OSError as e:
             logger.error(
@@ -138,6 +139,8 @@ class DoTService:
         while self.running:
             try:
                 client_sock, addr = self._server_sock.accept()
+            except socket.timeout:
+                continue  # settimeout(1.0) fired — re-check self.running
             except OSError:
                 break  # server socket was closed via stop()
             # Perform TLS handshake before submitting to thread pool.

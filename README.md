@@ -25,7 +25,7 @@ NotTheNet simulates the internet for malware being analysed in an isolated envir
 | [Installation](docs/installation.md) | System requirements, install steps, virtualenv setup |
 | [Configuration](docs/configuration.md) | Full reference for every `config.json` field |
 | [Usage](docs/usage.md) | GUI walkthrough, CLI/headless mode, command-line flags |
-| [Services](docs/services.md) | DNS, HTTP/HTTPS, SMTP, POP3, IMAP, FTP, Catch-All, DoH/WebSocket sinkhole, dynamic responses |
+| [Services](docs/services.md) | DNS, DoT, HTTP/HTTPS, SMTP/S, POP3/S, IMAP/S, FTP, NTP, TFTP, IRC/TLS, Telnet, SOCKS5, VNC, RDP, SMB, Redis, MSSQL, MySQL, LDAP, ICMP, Catch-All, DoH/WS sinkhole, dynamic responses |
 | [Network & iptables](docs/network.md) | Traffic redirection, loopback vs gateway mode, TCP/IP fingerprint spoofing |
 | [Security Hardening](docs/security-hardening.md) | Lab isolation, interface binding, privilege model, OpenSSF practices |
 | [Troubleshooting](docs/troubleshooting.md) | Common errors and fixes |
@@ -41,21 +41,36 @@ Man page available at [`man/notthenet.1`](man/notthenet.1) — install with `sud
 
 | Service / Feature | Details |
 |---------|---------|
-| **DNS** | Resolves every hostname to your configured IP. PTR/rDNS handled cleanly. Per-host override records. |
-| **HTTP/HTTPS** | Configurable response code, body, and `Server:` header. TLS 1.2+ with ECDHE+AEAD ciphers only. |
-| **SMTP** | Accepts and archives email to `logs/emails/`. UUID filenames, disk cap enforced. |
-| **POP3 / IMAP** | Minimal state machines that satisfy poll-checkers. Zero stored state. |
-| **FTP** | Accepts uploads with UUID filenames, size-capped storage. Active (PORT) mode disabled (SSRF). |
-| **TCP Catch-All** | Receives any TCP connection redirected by iptables; responds with `200 OK`. |
-| **UDP Catch-All** | Optional UDP drain; responds with `OK`. |
-| **iptables manager** | Auto-applies NAT REDIRECT rules; cleanly restores originals on stop. |
-| **Public-IP spoof** | HTTP/HTTPS responses to 20+ well-known public-IP-check services (`api.ipify.org`, `icanhazip.com`, `checkip.amazonaws.com`, `ifconfig.me`, `httpbin.org`, and others) return a configurable fake IP. Defeats malware that queries these endpoints to detect sandbox environments. |
-| **Response delay** | Per-millisecond artificial delay on HTTP/HTTPS responses. 50–200 ms simulates realistic network latency and defeats timing-based sandbox detection. |
-| **Dynamic responses** | Extension-based response engine (70+ file types). Requests for `.exe`, `.dll`, `.pdf`, `.zip`, etc. return correct MIME types with minimal valid file stubs (magic bytes + headers). Custom regex rules supported. |
-| **DNS-over-HTTPS sinkhole** | Intercepts DoH queries (`application/dns-message`, `/dns-query`) via GET and POST. Prevents malware from bypassing the fake DNS server. |
+| **DNS** | Resolves every hostname to `redirect_ip`. PTR/rDNS, MX, TXT all handled. Per-host override records. DGA/canary-domain NXDOMAIN detection (Shannon entropy threshold). Public IP pool rotation to defeat single-IP heuristics. |
+| **DNS-over-TLS (DoT)** | RFC 7858, port 853. Shares the same resolver, DGA detection, FCrDNS, and public IP pool as plain DNS. Reuses the HTTPS certificate. |
+| **HTTP / HTTPS** | Configurable response code, body, and `Server:` header. TLS 1.2+ with ECDHE+AEAD ciphers only. HTTP/2 GOAWAY downgrade. Captive portal handlers for Android/ChromeOS/Apple/Windows. Hardened against timing-based sandbox detection. |
+| **SMTP / SMTPS** | Captures outbound email to `logs/emails/` (UUID filenames, disk cap). SMTPS = implicit TLS port 465. STARTTLS in-place upgrade supported. |
+| **POP3 / POP3S** | Minimal RFC 1939 state machine; satisfies poll-checkers. POP3S = implicit TLS port 995. STLS upgrade supported. |
+| **IMAP / IMAPS** | Minimal RFC 3501 state machine; satisfies stealers that enumerate the inbox. IMAPS = implicit TLS port 993. STARTTLS supported. |
+| **FTP** | Accepts uploads with UUID filenames, size-capped storage. Active (PORT) mode disabled (SSRF prevention). |
+| **NTP** | UDP Stratum 2 server (port 123). Reference ID set to a real Stratum 1 IP. Satisfies malware that probes NTP before detonating. |
+| **TFTP** | RFC 1350 RRQ/WRQ. Write requests saved to `logs/tftp_uploads/` with UUID prefix, 10 MB cap. |
+| **IRC / IRC-TLS** | Full RFC 1459 registration burst, CAP negotiation, PRIVMSG/NOTICE logging. IRC-TLS (port 6697) wraps the same handler in TLS. Captures botnet C2. |
+| **Telnet** | RFC 854 IAC negotiation, configurable device banner, accepts any credentials, simulates BusyBox root shell. Captures Mirai and IoT botnet command sequences. |
+| **SOCKS5** | RFC 1928 proxy sinkhole (port 1080). Logs the real CONNECT destination host and port — highest-value C2 intelligence. Used by SystemBC, QakBot, Cobalt Strike. |
+| **VNC** | RFB 003.008 handshake sinkhole (port 5900). Logs connection attempts. |
+| **RDP** | TPKT/X.224 connection request banner (port 3389). Logs source IPs of RDP probes. |
+| **SMB** | SMB2 NEGOTIATE banner (port 445). Logs SMB connection attempts from malware enumerating shares. |
+| **Redis** | RESP protocol sinkhole (port 6379). Responds to PING/INFO/CONFIG; logs all commands. |
+| **MSSQL** | TDS pre-login sinkhole (port 1433). Returns a valid server version banner. |
+| **MySQL** | MySQL handshake sinkhole (port 3306). Returns a valid server greeting. |
+| **LDAP** | LDAPv3 bind + search sinkhole (port 389). Returns `LDAP_SUCCESS` to bind and empty search results. |
+| **ICMP Responder** | Raw socket ICMP echo responder. Malware that pings the gateway to confirm reachability gets replies. |
+| **TCP Catch-All** | Receives any TCP connection redirected by iptables. Detects HTTP/TLS first-byte and responds appropriately. |
+| **UDP Catch-All** | Optional UDP drain; silently logs all received datagrams. |
+| **iptables manager** | Auto-applies NAT REDIRECT rules on start; snapshot/restore guarantees a clean state on stop even after a crash. |
+| **Public-IP spoof** | 20+ well-known IP-check endpoints (`api.ipify.org`, `icanhazip.com`, `ip-api.com`, `ifconfig.me`, etc.) return a configurable fake residential IP. Defeats AgentTesla, FormBook, and other stealers. |
+| **Response delay + jitter** | Per-ms artificial delay with random jitter on HTTP/HTTPS responses. 50–200 ms simulates realistic latency; jitter defeats timing-based sandbox fingerprinting. |
+| **Dynamic responses** | Extension-based response engine (70+ file types). Requests for `.exe`, `.dll`, `.pdf`, `.zip`, etc. return correct MIME types with valid file stubs. Custom regex rules supported. |
+| **DNS-over-HTTPS sinkhole** | Intercepts DoH queries via GET and POST. Prevents malware from bypassing the fake DNS via `dns.google` or `cloudflare-dns.com`. |
 | **WebSocket sinkhole** | Completes RFC 6455 handshake, drains up to 4 KB of frames, logs hex preview, sends clean close. Satisfies WebSocket-based C2. |
-| **Dynamic TLS certs** | Auto-generated Root CA + per-domain cert forging via SNI. Each HTTPS connection gets a cert matching the requested hostname. Install `certs/ca.crt` in the analysis VM for seamless interception. |
-| **TCP/IP fingerprint spoof** | Modifies TTL, TCP window size, DF bit, and MSS on listening sockets to mimic Windows, Linux, macOS, or Solaris. Defeats OS fingerprinting-based sandbox detection. |
+| **Dynamic TLS certs** | Auto-generated Root CA + per-domain cert forging via SNI. Each HTTPS connection gets a cert matching the requested hostname (with fake SCT extension). Install `certs/ca.crt` in the VM. |
+| **TCP/IP fingerprint spoof** | Modifies TTL, TCP window size, DF bit, and MSS to mimic Windows, Linux, macOS, or Solaris. Defeats OS fingerprinting-based sandbox detection. |
 | **JSON event logging** | Structured JSONL per-request logging. Pipeline-ready for CAPEv2, Splunk, ELK. GUI includes a live JSON Events viewer with search and filtering. |
 | **Dark GUI** | Grouped sidebar, live colour-coded log panel with level filters, JSON Events viewer, zoom controls (70%–200%), tooltips on every field and button. |
 | **Desktop integration** | App menu icon, pkexec/polkit privilege prompt — no terminal needed to launch. |
@@ -177,13 +192,27 @@ notthenet.py          ← Entry point + GUI (tkinter)
 config.py             ← JSON config loader / saver / validator
 service_manager.py    ← Orchestrates all services + iptables lifecycle
 services/
-  dns_server.py       ← dnslib-based DNS (UDP + TCP, all → redirect_ip)
-  http_server.py      ← HTTP + HTTPS (hardened TLS, dynamic certs, DoH/WS sinkhole)
-  mail_server.py      ← SMTP + POP3 + IMAP
-  ftp_server.py       ← FTP (PASV only, PORT disabled)
-  catch_all.py        ← TCP/UDP catch-all
-  doh_websocket.py    ← DNS-over-HTTPS + WebSocket sinkhole handlers
-  dynamic_response.py ← Extension→MIME map + valid file stub generator
+  dns_server.py       ← DNS (UDP + TCP; DGA/NXDOMAIN; public IP pool; FCrDNS)
+  dot_server.py       ← DNS-over-TLS (RFC 7858, port 853; shares DNS resolver)
+  http_server.py      ← HTTP + HTTPS (dynamic certs, DoH/WS sinkhole, captive portal)
+  mail_server.py      ← SMTP + SMTPS + POP3 + POP3S + IMAP + IMAPS
+  ftp_server.py       ← FTP (PASV only; PORT/SSRF disabled)
+  ntp_server.py       ← NTP (UDP Stratum 2)
+  tftp_server.py      ← TFTP (RRQ/WRQ; UUID uploads; 10 MB cap)
+  irc_server.py       ← IRC (RFC 1459, plaintext + TLS)
+  telnet_server.py    ← Telnet (RFC 854; BusyBox shell simulation)
+  socks5_server.py    ← SOCKS5 proxy (RFC 1928; logs real CONNECT destinations)
+  icmp_responder.py   ← ICMP echo responder (raw socket)
+  mysql_server.py     ← MySQL handshake sinkhole (port 3306)
+  mssql_server.py     ← MSSQL TDS pre-login sinkhole (port 1433)
+  rdp_server.py       ← RDP TPKT/X.224 banner sinkhole (port 3389)
+  smb_server.py       ← SMB2 NEGOTIATE banner sinkhole (port 445)
+  vnc_server.py       ← VNC RFB handshake sinkhole (port 5900)
+  redis_server.py     ← Redis RESP sinkhole (port 6379)
+  ldap_server.py      ← LDAPv3 bind + search sinkhole (port 389)
+  catch_all.py        ← TCP/UDP catch-all (HTTP/TLS detection)
+  doh_websocket.py    ← DoH + WebSocket sinkhole handlers (shared with HTTP/HTTPS)
+  dynamic_response.py ← Extension→MIME map + valid file stub generator (70+ types)
 network/
   iptables_manager.py ← NAT redirect rules, save/restore
   tcp_fingerprint.py  ← TCP/IP OS fingerprint spoofing (TTL, window, DF, MSS)
@@ -208,7 +237,7 @@ tests/
 pytest tests/ -v
 ```
 
-70 tests cover `utils/validators`, `utils/logging_utils`, and `config.py`. All tests are pure-Python and require no network access, root, or external services.
+86 tests cover `utils/validators`, `utils/logging_utils`, `config.py`, service connection caps, IRC session timeout, and JSON logger flush behaviour. All tests are pure-Python and require no network access, root, or external services.
 
 The full pre-deployment gate (lint → type-check → security scan → tests → build) is run via:
 

@@ -20,6 +20,7 @@ import logging
 import os
 import random
 import select
+import socket
 import socketserver
 import ssl
 import threading
@@ -41,10 +42,13 @@ from services.dynamic_response import compile_custom_rules, resolve_dynamic_resp
 from utils.cert_utils import ensure_certs
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
+from utils.validators import sanitize_path
 
 logger = logging.getLogger(__name__)
 
-# Bounded thread pool — prevents resource exhaustion from flooded connections
+# Thread pool sized to match the connection cap of other services.
+# HTTP/1.1 keep-alive means threads can be held by idle connections;
+# 50 workers ensures new connections aren't starved even under concurrent load.
 _MAX_WORKER_THREADS = 50
 
 # Cipher suites: ECDHE forward secrecy + AEAD — no RC4, 3DES, CBC
@@ -241,7 +245,14 @@ def _load_response_body(config: dict) -> str:
     if file_path:
         # Resolve relative to project root (directory of this file's parent)
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        abs_path = os.path.join(project_root, file_path)
+        abs_path = sanitize_path(project_root, file_path)
+        if abs_path is None:
+            logger.error(
+                "response_body_file '%s' rejected (path traversal attempt); "
+                "falling back to response_body string.",
+                file_path,
+            )
+            return config.get("response_body", _DEFAULT_BODY)
         try:
             size = os.path.getsize(abs_path)
             if size > _MAX_BODY_FILE_SIZE:
@@ -940,6 +951,7 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
                 self.wfile.flush()
             except Exception as e:
                 logger.debug(f"HTTP handler error (benign): {e}")
+                self.close_connection = True
 
     return FakeHTTPHandler
 
@@ -1011,7 +1023,9 @@ class HTTPService:
         try:
             self._server = _ThreadedServer((self.bind_ip, self.port), handler)
             self._thread = threading.Thread(
-                target=self._server.serve_forever, daemon=True
+                target=self._server.serve_forever,
+                kwargs={"poll_interval": 2.0},
+                daemon=True,
             )
             self._thread.start()
             logger.info(f"HTTP service started on {self.bind_ip}:{self.port}")
@@ -1022,6 +1036,10 @@ class HTTPService:
 
     def stop(self):
         if self._server:
+            try:
+                self._server.socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
             self._server.shutdown()
             self._server.server_close()
             self._server = None
@@ -1122,7 +1140,9 @@ class HTTPSService:
                 self._server.socket, server_side=True
             )
             self._thread = threading.Thread(
-                target=self._server.serve_forever, daemon=True
+                target=self._server.serve_forever,
+                kwargs={"poll_interval": 2.0},
+                daemon=True,
             )
             self._thread.start()
             logger.info(
@@ -1139,6 +1159,10 @@ class HTTPSService:
 
     def stop(self):
         if self._server:
+            try:
+                self._server.socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
             self._server.shutdown()
             self._server.server_close()
             self._server = None

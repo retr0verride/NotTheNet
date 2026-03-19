@@ -145,12 +145,13 @@ class ServiceManager:
         # ----- Start services -----
         started = []
         failed = []
+        _started_svcs: dict = {}  # accumulate here; committed under lock after all starts
 
         def _try_start(name: str, svc):
             """Start a service and track success/failure."""
             try:
                 if svc.start():
-                    self._services[name] = svc
+                    _started_svcs[name] = svc
                     started.append(name)
                 elif getattr(svc, 'enabled', True):
                     failed.append(name)
@@ -249,6 +250,11 @@ class ServiceManager:
         _try_start("redis", RedisService(self.config.get_section("redis"), bind_ip=bind_ip))
         _try_start("ldap", LDAPService(self.config.get_section("ldap"), bind_ip=bind_ip))
 
+        # Commit all successfully started services under the lock so that any
+        # concurrent stop() call cannot observe a partially-initialised map.
+        with self._lock:
+            self._services.update(_started_svcs)
+
         # --- Apply iptables rules after all services are bound ---
         if self.config.get("general", "auto_iptables"):
             self._apply_iptables()
@@ -345,6 +351,8 @@ class ServiceManager:
         with self._lock:
             items = list(self._services.items())
             self._services.clear()
+            iptables = self._iptables
+            self._iptables = None
 
         # Stop all services in parallel so total shutdown time is
         # max(individual stop times) rather than their sum.
@@ -359,9 +367,8 @@ class ServiceManager:
         with _TPE(max_workers=min(len(items), 16) or 1) as ex:
             list(ex.map(_stop_one, items))
 
-        if self._iptables:
-            self._iptables.remove_rules()
-            self._iptables = None
+        if iptables:
+            iptables.remove_rules()
 
         close_json_logger()
 

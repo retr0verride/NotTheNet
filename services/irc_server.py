@@ -172,7 +172,7 @@ class _IRCClientThread(threading.Thread):
                     line = raw_line.rstrip(b"\r").decode("utf-8", errors="replace")
                     line = line[:_MAX_LINE]  # enforce RFC 1459 §2.3 length cap
                     if line:
-                        self._handle(line, safe_addr)
+                        self._dispatch(line, safe_addr)
         except (OSError, ConnectionResetError):
             pass
         finally:
@@ -186,7 +186,7 @@ class _IRCClientThread(threading.Thread):
 
     # ── Command dispatcher ────────────────────────────────────────────────────
 
-    def _handle(self, line: str, safe_addr: str):
+    def _dispatch(self, line: str, safe_addr: str):
         """Dispatch one IRC client message."""
         # Strip optional leading server prefix (clients sometimes echo it back)
         if line.startswith(":"):

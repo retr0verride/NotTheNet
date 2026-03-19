@@ -12,6 +12,7 @@ Security notes (OpenSSF):
 
 import logging
 import os
+import socket
 import socketserver
 import ssl
 import threading
@@ -392,7 +393,9 @@ class SMTPService:
                 cert_path=self.cert_file, key_path=self.key_file,
             )
             self._thread = threading.Thread(
-                target=self._server.serve_forever, daemon=True
+                target=self._server.serve_forever,
+                kwargs={"poll_interval": 2.0},
+                daemon=True,
             )
             self._thread.start()
             logger.info(f"SMTP service started on {self.bind_ip}:{self.port}")
@@ -403,6 +406,10 @@ class SMTPService:
 
     def stop(self):
         if self._server:
+            try:
+                self._server.socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
             self._server.shutdown()
             self._server = None
         logger.info("SMTP service stopped.")
@@ -455,7 +462,9 @@ class SMTPSService:
                 self.hostname, self.banner, self.save_dir, ssl_ctx
             )
             self._thread = threading.Thread(
-                target=self._server.serve_forever, daemon=True
+                target=self._server.serve_forever,
+                kwargs={"poll_interval": 2.0},
+                daemon=True,
             )
             self._thread.start()
             logger.info(f"SMTPS service started on {self.bind_ip}:{self.port}")
@@ -466,6 +475,10 @@ class SMTPSService:
 
     def stop(self):
         if self._server:
+            try:
+                self._server.socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
             self._server.shutdown()
             self._server = None
         logger.info("SMTPS service stopped.")
@@ -584,7 +597,9 @@ class POP3Service:
             )
             self._server = _ReuseServer((self.bind_ip, self.port), handler)
             self._thread = threading.Thread(
-                target=self._server.serve_forever, daemon=True
+                target=self._server.serve_forever,
+                kwargs={"poll_interval": 2.0},
+                daemon=True,
             )
             self._thread.start()
             logger.info(f"POP3 service started on {self.bind_ip}:{self.port}")
@@ -595,6 +610,10 @@ class POP3Service:
 
     def stop(self):
         if self._server:
+            try:
+                self._server.socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
             self._server.shutdown()
             self._server = None
         logger.info("POP3 service stopped.")
@@ -635,7 +654,9 @@ class POP3SService:
             handler = _make_pop3_handler(self.hostname)
             self._server = _SSLReuseServer((self.bind_ip, self.port), handler, ssl_ctx)
             self._thread = threading.Thread(
-                target=self._server.serve_forever, daemon=True
+                target=self._server.serve_forever,
+                kwargs={"poll_interval": 2.0},
+                daemon=True,
             )
             self._thread.start()
             logger.info(f"POP3S service started on {self.bind_ip}:{self.port}")
@@ -646,6 +667,10 @@ class POP3SService:
 
     def stop(self):
         if self._server:
+            try:
+                self._server.socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
             self._server.shutdown()
             self._server = None
         logger.info("POP3S service stopped.")
@@ -794,7 +819,9 @@ class IMAPService:
             )
             self._server = _ReuseServer((self.bind_ip, self.port), handler)
             self._thread = threading.Thread(
-                target=self._server.serve_forever, daemon=True
+                target=self._server.serve_forever,
+                kwargs={"poll_interval": 2.0},
+                daemon=True,
             )
             self._thread.start()
             logger.info(f"IMAP service started on {self.bind_ip}:{self.port}")
@@ -805,6 +832,10 @@ class IMAPService:
 
     def stop(self):
         if self._server:
+            try:
+                self._server.socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
             self._server.shutdown()
             self._server = None
         logger.info("IMAP service stopped.")
@@ -845,7 +876,9 @@ class IMAPSService:
             handler = _make_imap_handler(self.hostname)
             self._server = _SSLReuseServer((self.bind_ip, self.port), handler, ssl_ctx)
             self._thread = threading.Thread(
-                target=self._server.serve_forever, daemon=True
+                target=self._server.serve_forever,
+                kwargs={"poll_interval": 2.0},
+                daemon=True,
             )
             self._thread.start()
             logger.info(f"IMAPS service started on {self.bind_ip}:{self.port}")
@@ -856,6 +889,10 @@ class IMAPSService:
 
     def stop(self):
         if self._server:
+            try:
+                self._server.socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
             self._server.shutdown()
             self._server = None
         logger.info("IMAPS service stopped.")

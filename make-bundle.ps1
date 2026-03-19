@@ -47,9 +47,11 @@ try {
     pip download dnslib==0.9.26 --dest $tmpDir --quiet
     if ($LASTEXITCODE -ne 0) { fatal "Failed to download dnslib." }
 
-    # cryptography — binary wheel; try Python 3.12 manylinux_2_28 first (Kali 2024+)
+    # cryptography — binary wheel; try Python 3.13 first (Kali 2025+), then 3.12, 3.11
     $cryptoOk = $false
     $targets = @(
+        @{ pyver = "313"; abi = "cp313"; plat = "manylinux_2_28_x86_64" },
+        @{ pyver = "313"; abi = "cp313"; plat = "manylinux_2_17_x86_64" },
         @{ pyver = "312"; abi = "cp312"; plat = "manylinux_2_28_x86_64" },
         @{ pyver = "312"; abi = "cp312"; plat = "manylinux_2_17_x86_64" },
         @{ pyver = "311"; abi = "cp311"; plat = "manylinux_2_28_x86_64" },
@@ -69,6 +71,23 @@ try {
         warn "  Not available for that target, trying next..."
     }
     if (-not $cryptoOk) { fatal "Could not download a cryptography wheel for Linux x86_64." }
+
+    # cffi — required by cryptography's pip metadata (declared dependency).
+    # On Python 3.13, only cffi 2.0.0b1 ships binary wheels; cffi 1.x has none.
+    # We download whatever is available and use --pre during offline install.
+    $cffiOk = $false
+    foreach ($t in $targets) {
+        pip download "cffi>=1.14" `
+            --platform $t.plat `
+            --python-version $t.pyver `
+            --implementation cp `
+            --abi $t.abi `
+            --only-binary :all: `
+            --dest $tmpDir `
+            --quiet 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) { $cffiOk = $true; break }
+    }
+    if (-not $cffiOk) { fatal "Could not download a cffi wheel for Linux x86_64." }
 
     $wheels = @(Get-ChildItem -Path $tmpDir -Filter "*.whl")
     if ($wheels.Count -eq 0) { fatal "No wheels found after download." }
@@ -316,6 +335,7 @@ info "Upgrading pip/setuptools/wheel (offline)..."
 # ── Install Python dependencies from embedded wheels ─────────────────────────
 info "Installing Python dependencies (offline)..."
 "$PIP" install \
+    --pre \
     --no-index \
     --find-links "$TMPWHEELS" \
     -r "${SCRIPT_DIR}/requirements.txt"
@@ -408,6 +428,11 @@ if [[ $EUID -eq 0 ]]; then
         "${SCRIPT_DIR}/assets/notthenet.desktop" | tr -d '\r' > "$DESKTOP_FILE"
     chmod 0644 "$DESKTOP_FILE"
     update-desktop-database -q /usr/share/applications 2>/dev/null || true
+
+    # Install app icon so Icon=notthenet resolves correctly
+    install -Dm644 "${SCRIPT_DIR}/assets/notthenet-icon.svg" \
+        /usr/share/pixmaps/notthenet.svg
+    gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
 
     POLKIT_DIR="/usr/share/polkit-1/actions"
     if [[ -d "$POLKIT_DIR" ]]; then

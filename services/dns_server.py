@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import math
 import re
+import threading
 from collections import Counter
 
 from utils.json_logger import get_json_logger
@@ -334,8 +335,16 @@ class DNSService:
             self._server_tcp = DNSServer(
                 resolver, port=self.port, address=self.bind_ip, tcp=True
             )
-            self._server_udp.start_thread()
-            self._server_tcp.start_thread()
+            # Launch threads manually instead of start_thread() so we can
+            # pass poll_interval=2.0 to serve_forever(), reducing idle
+            # wakeups from 4/sec to 1/sec (2 servers × 0.5/sec each).
+            for srv in (self._server_udp, self._server_tcp):
+                def _run(s=srv):
+                    s.isRunning = True
+                    s.server.serve_forever(poll_interval=2.0)
+                    s.isRunning = False
+                srv.thread = threading.Thread(target=_run, daemon=True)
+                srv.thread.start()
             logger.info(
                 f"DNS service started on {self.bind_ip}:{self.port} "
                 f"(UDP+TCP) -> all queries resolve to {sanitize_ip(self.redirect_ip)}"

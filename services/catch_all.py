@@ -267,7 +267,9 @@ class CatchAllTCPService:
             self._server = _ReuseServer((self.bind_ip, self.port), _CatchAllTCPHandler)
             self._server._sem = threading.BoundedSemaphore(MAX_CONNECTIONS)
             self._thread = threading.Thread(
-                target=self._server.serve_forever, daemon=True
+                target=self._server.serve_forever,
+                kwargs={"poll_interval": 2.0},
+                daemon=True,
             )
             self._thread.start()
             tls_note = (
@@ -286,6 +288,10 @@ class CatchAllTCPService:
 
     def stop(self):
         if self._server:
+            try:
+                self._server.socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
             self._server.shutdown()
             self._server = None
         logger.info("Catch-all TCP service stopped.")

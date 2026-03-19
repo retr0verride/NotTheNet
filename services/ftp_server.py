@@ -13,6 +13,7 @@ Security notes (OpenSSF):
 
 import logging
 import os
+import random
 import socket
 import socketserver
 import threading
@@ -23,6 +24,10 @@ from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
 
 logger = logging.getLogger(__name__)
+
+# Module-level lock: makes disk-usage check + file creation atomic so
+# concurrent uploads cannot all pass the cap check before any write commits.
+_upload_lock = threading.Lock()
 
 MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024   # 50 MB per file
 MAX_DISK_USAGE_BYTES = 200 * 1024 * 1024   # 200 MB total upload storage
@@ -98,7 +103,9 @@ class _FTPSession(threading.Thread):
 
     def _open_pasv(self) -> Optional[str]:
         """Open a passive-mode data socket and return the PASV response string."""
-        for port in range(PASV_PORT_LOW, PASV_PORT_HIGH):
+        ports = list(range(PASV_PORT_LOW, PASV_PORT_HIGH))
+        random.shuffle(ports)
+        for port in ports:
             try:
                 srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -154,6 +161,12 @@ class _FTPSession(threading.Thread):
                 self.conn.close()
             except Exception:
                 pass
+            if self._pasv_server:
+                try:
+                    self._pasv_server.close()
+                except OSError:
+                    pass
+                self._pasv_server = None
 
     def _handle_cmd(self, line: str, safe_addr: str):
         parts = line.split(None, 1)
@@ -243,21 +256,25 @@ class _FTPSession(threading.Thread):
             self._send("226 Transfer complete (discarded)")
             return
 
-        # Cap disk usage
-        if _get_disk_usage(self.upload_dir) > MAX_DISK_USAGE_BYTES:
-            logger.warning("FTP: upload storage cap reached; discarding file.")
-            try:
-                while data_conn.recv(65536):
+        # Cap disk usage — check and create file atomically to prevent TOCTOU
+        # race where concurrent uploads all pass the cap check before any write.
+        with _upload_lock:
+            if _get_disk_usage(self.upload_dir) > MAX_DISK_USAGE_BYTES:
+                logger.warning("FTP: upload storage cap reached; discarding file.")
+                try:
+                    while data_conn.recv(65536):
+                        pass
+                except Exception:
                     pass
-            except Exception:
-                pass
-            data_conn.close()
-            self._send("452 Insufficient storage space")
-            return
+                data_conn.close()
+                self._send("452 Insufficient storage space")
+                return
 
-        # UUID filename — attacker has zero control over the path
-        safe_fname = uuid.uuid4().hex + ".bin"
-        save_path = os.path.join(self.upload_dir, safe_fname)
+            # UUID filename — attacker has zero control over the path
+            safe_fname = uuid.uuid4().hex + ".bin"
+            save_path = os.path.join(self.upload_dir, safe_fname)
+            # Create the file inside the lock to claim the name before releasing.
+            open(save_path, "wb").close()
 
         try:
             received = 0
@@ -323,7 +340,9 @@ class FTPService:
         try:
             self._server = _ReuseServer((self.bind_ip, self.port), _Handler)
             self._thread = threading.Thread(
-                target=self._server.serve_forever, daemon=True
+                target=self._server.serve_forever,
+                kwargs={"poll_interval": 2.0},
+                daemon=True,
             )
             self._thread.start()
             logger.info(f"FTP service started on {self.bind_ip}:{self.port}")
@@ -334,6 +353,10 @@ class FTPService:
 
     def stop(self):
         if self._server:
+            try:
+                self._server.socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
             self._server.shutdown()
             self._server = None
         logger.info("FTP service stopped.")

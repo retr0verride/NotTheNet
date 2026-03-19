@@ -138,6 +138,14 @@ def _parse_bind_request(msg: bytes) -> tuple[int, str, str]:
     return message_id, dn, bind_credential
 
 
+def _ber_length(n: int) -> bytes:
+    """Encode *n* as a BER definite-form length field."""
+    if n < 0x80:
+        return bytes([n])
+    encoded = n.to_bytes((n.bit_length() + 7) // 8, "big")
+    return bytes([0x80 | len(encoded)]) + encoded
+
+
 def _bind_response(message_id: int, result_code: int = 0) -> bytes:
     """
     Build an LDAP BindResponse.
@@ -153,14 +161,14 @@ def _bind_response(message_id: int, result_code: int = 0) -> bytes:
     resp_body = result + matched + diag
 
     # APPLICATION 1 (BindResponse tag = 0x61)
-    resp = bytes([0x61, len(resp_body)]) + resp_body
+    resp = bytes([0x61]) + _ber_length(len(resp_body)) + resp_body
 
     # messageID TLV
     mid_tlv = bytes([0x02, len(mid_bytes)]) + mid_bytes
 
     # Outer SEQUENCE
     inner = mid_tlv + resp
-    return bytes([0x30, len(inner)]) + inner
+    return bytes([0x30]) + _ber_length(len(inner)) + inner
 
 
 class _LDAPSession(threading.Thread):

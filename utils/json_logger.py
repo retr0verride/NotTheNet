@@ -108,9 +108,6 @@ class JsonEventLogger:
         self._last_flush: float = 0.0
         self._open()
 
-    def __del__(self):
-        self.close()
-
     def __enter__(self):
         return self
 

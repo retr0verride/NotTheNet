@@ -116,22 +116,23 @@ class _TelnetSession(threading.Thread):
 
     # ── I/O helpers ──────────────────────────────────────────────────────────
 
-    def _send(self, data: bytes):
+    def _send(self, data: bytes) -> bool:
         try:
             self.conn.sendall(data)
+            return True
         except OSError:
-            pass
+            return False
 
-    def _recv_line(self, max_bytes: int = 256) -> bytes:
+    def _recv_line(self, max_bytes: int = 256) -> Optional[bytes]:
         """Read bytes until \\r\\n or \\n, stripping IAC sub-sequences."""
         buf = b""
         while True:
             try:
                 ch = self.conn.recv(1)
             except OSError:
-                return buf
+                return None
             if not ch:
-                return buf
+                return None
             # Strip Telnet IAC command sequences that may arrive mid-stream
             if ch == b"\xff":
                 try:
@@ -173,11 +174,17 @@ class _TelnetSession(threading.Thread):
 
             # Login sequence
             self._send(b"\r\nlogin: ")
-            username = self._recv_line().decode("utf-8", errors="replace").strip()
+            raw_user = self._recv_line()
+            if raw_user is None:
+                return
+            username = raw_user.decode("utf-8", errors="replace").strip()
 
             self._send(_ECHO_OFF)
             self._send(b"Password: ")
-            password = self._recv_line().decode("utf-8", errors="replace").strip()
+            raw_pass = self._recv_line()
+            if raw_pass is None:
+                return
+            password = raw_pass.decode("utf-8", errors="replace").strip()
             self._send(_ECHO_ON)
             self._send(b"\r\n")
 
@@ -198,7 +205,8 @@ class _TelnetSession(threading.Thread):
 
             # Shell loop
             while True:
-                self._send(self.prompt)
+                if not self._send(self.prompt):
+                    break
                 raw = self._recv_line()
                 if raw is None:
                     break

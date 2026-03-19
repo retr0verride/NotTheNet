@@ -7,6 +7,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ## [Unreleased]
 
+---
+
+## [2026.03.19-19] — 2026-03-19
+
+### Fixed
+- **GUI: High CPU under load from Treeview churn** — `_JsonEventsPage._poll_file()` rebuilt the JSON events Treeview by deleting items one at a time in a Python loop (O(n) widget operations per poll cycle); replaced with a single bulk `tree.delete(*stale_ids)` call; locally tracked `_tree_count` eliminates two redundant `get_children()` O(n) scans per poll; max displayed rows reduced from 5,000 to 2,000; poll interval relaxed from 1,000 ms to 2,000 ms; `_apply_filter()` and `_clear_view()` updated to the same bulk-delete pattern
+- **GUI: High CPU from log queue over-polling** — `_poll_log_queue()` fired unconditionally every 100 ms regardless of queue depth, invoking Tkinter widget open/close on every tick under flood-level traffic; replaced with adaptive timing: 250 ms when messages are flowing, 500 ms when idle; batch size increased from 75 to 200 messages per drain, reducing the number of widget layout cycles by 4×
+
+---
+
+## [Unreleased] (carry-forward)
+
 ### Added
 
 - **DoT: DNS-over-TLS service (RFC 7858, port 853)** — new `services/dot_server.py`; shares `_FakeResolver` with the plain DNS server so DGA entropy detection, FCrDNS, NCSI overrides, public IP pool, and custom record overrides all apply identically over TLS; each DNS message is length-prefixed per RFC 1035 §4.2.2; TLS 1.2 minimum with ALPN `"dot"` as required by RFC 7858; bounded to `ThreadPoolExecutor(50)` workers; reuses the HTTPS cert/key pair; adds iptables port 853 to `excluded_ports` so the catch-all does not shadow it
@@ -42,6 +54,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ---
 
+## [2026.03.18-1] — 2026-03-18
+
+### Added
+- **GUI: Live log LIVE/PAUSED scroll indicator** — log panel header now shows a `⬇ LIVE` badge that switches to `⏸ PAUSED` (orange) when the user scrolls up to review history; clicking the badge or scrolling back to the bottom resumes auto-scroll; events continue flowing regardless of scroll position
+
+### Fixed
+- **GUI: Process remains after window close** — closing the window after stopping services left the Python process and the `notthenet-gui` bash launcher alive; `_on_close` now calls `os._exit(0)` via a new `_quit_process()` helper, guaranteeing the entire process exits immediately on window close
+
+---
+
 ## [2026.03.17-1] — 2026-03-17
 
 ### Added
@@ -69,6 +91,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ### Fixed
 - **NTP: Stratum 2 Reference ID was `b"LOCL"`** — RFC 5905 §7.3 reserves kiss-o'-death / reference clock keywords (LOCL, GPS, PPS, etc.) for Stratum 1; a Stratum 2 server must encode the IPv4 address of its upstream reference clock as the 4-byte Reference ID; changed to `\xd8\xef\x23\x00` (216.239.35.0 = `time.google.com` Stratum 1); NTP clients and analysis tools that inspect the refid field no longer see the simulator fingerprint
+- **HTTP/HTTPS/SMTP/SMTPS/POP3/POP3S/IMAP/IMAPS/FTP/Catch-all: `server.shutdown()` blocked Stop for up to 30 s** — `socketserver.BaseServer.shutdown()` blocks until the serve thread exits; the serve thread is blocked in `accept()`, which will not unblock until a connection arrives or the socket is closed; without closing the socket first, pressing Stop while any client was connected caused a 30 s UI freeze; all ten service classes now call `socket.shutdown(SHUT_RDWR)` on the listening socket before `server.shutdown()`, forcing `accept()` to raise `OSError` immediately so `shutdown()` returns in microseconds
+
+### Changed
+- **`ship.ps1`: version auto-bumped on every run** — running `.\ship.ps1` no longer requires a manual version bump; the script reads the current version from `pyproject.toml`, increments the build counter if the date matches today (`YYYY.MM.DD-N` → `YYYY.MM.DD-(N+1)`), or resets to `YYYY.MM.DD-1` on a new date; both `pyproject.toml` and `notthenet.py` (`APP_VERSION`) are patched atomically before predeploy runs
 
 ---
 

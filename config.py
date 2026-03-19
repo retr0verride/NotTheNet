@@ -59,9 +59,10 @@ class Config:
         target = path or self.config_path
         try:
             with self._write_lock:
+                snapshot = copy.deepcopy(self._data)
                 tmp = target + ".tmp"
                 with open(tmp, "w") as f:
-                    json.dump(self._data, f, indent=2)
+                    json.dump(snapshot, f, indent=2)
                 os.replace(tmp, target)  # atomic on POSIX; near-atomic on Windows
             logger.debug(f"Config saved to {target}")
             return True

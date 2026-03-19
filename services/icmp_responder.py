@@ -20,6 +20,7 @@ Security notes (OpenSSF):
 import logging
 import socket
 import threading
+import time
 from typing import Optional
 
 from utils.json_logger import get_json_logger
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 _ICMP_ECHO_REQUEST = 8
 _MIN_IP_HDR        = 20
 _MIN_ICMP_HDR      = 8
+_LOG_INTERVAL      = 5.0  # seconds between repeated log entries for the same src→dst pair
 
 
 class ICMPResponder:
@@ -45,6 +47,7 @@ class ICMPResponder:
         self._sock: Optional[socket.socket] = None
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
+        self._last_logged: dict[tuple[str, str], float] = {}
 
     def start(self) -> bool:
         if not self.enabled:
@@ -107,6 +110,20 @@ class ICMPResponder:
             # Bytes 16-19 of the IP header are the destination address.
             # After DNAT this will be redirect_ip, which is logged for visibility.
             dst_ip = socket.inet_ntoa(raw[16:20])
+
+            # Rate-limit: log at most once per _LOG_INTERVAL seconds per src→dst pair
+            # so a continuous ping flood doesn't saturate the GUI log queue.
+            now = time.monotonic()
+            key = (src_ip, dst_ip)
+            if now - self._last_logged.get(key, 0.0) < _LOG_INTERVAL:
+                continue
+            self._last_logged[key] = now
+            # Prune stale entries to cap dict growth under many unique sources.
+            if len(self._last_logged) > 500:
+                self._last_logged = {
+                    k: v for k, v in self._last_logged.items()
+                    if now - v < _LOG_INTERVAL
+                }
 
             logger.info(
                 "ICMP ping: %s → %s",
