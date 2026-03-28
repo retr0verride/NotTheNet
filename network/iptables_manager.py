@@ -350,11 +350,22 @@ class IPTablesManager:
         for proto, port in (("tcp", catch_all_tcp_port), ("udp", catch_all_udp_port)):
             if port <= 0:
                 continue
-            rule = table_flag + ["-A", chain, "-p", proto]
             valid_excluded = [str(ep) for ep in excluded_ports if validate_port(ep)]
-            if valid_excluded:
-                rule += ["-m", "multiport", "!", "--dports", ",".join(valid_excluded)]
-            rule += [
+            # Add one RETURN rule per excluded port.  Using a single multiport
+            # "! --dports" rule would hit the 15-port kernel limit with a typical
+            # excluded_ports list; individual rules have no such restriction and
+            # are tracked in _rules_applied for cleanup.
+            for ep in valid_excluded:
+                skip_rule = table_flag + [
+                    "-A", chain, "-p", proto,
+                    "--dport", ep,
+                    "-j", "RETURN",
+                    "-m", "comment", "--comment", _RULE_COMMENT,
+                ]
+                self._add_rule(skip_rule)
+            # Catch-all DNAT: only reached if the packet didn't match any RETURN rule.
+            rule = table_flag + [
+                "-A", chain, "-p", proto,
                 "-j", "DNAT", "--to-destination",
                 f"{self.redirect_ip}:{port}",
                 "-m", "comment", "--comment", _RULE_COMMENT,
