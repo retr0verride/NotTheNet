@@ -33,7 +33,7 @@ _IPTABLES_SAVE_FILE = os.path.join(tempfile.gettempdir(), "notthenet_iptables_sa
 _MANGLE_SAVE_FILE = os.path.join(tempfile.gettempdir(), "notthenet_mangle_save.rules")
 
 
-def _run(args: list[str], check: bool = True) -> tuple[int, str, str]:
+def _run(args: list[str]) -> tuple[int, str, str]:
     """
     Run a subprocess command safely (no shell=True).
     Returns (returncode, stdout, stderr).
@@ -48,10 +48,10 @@ def _run(args: list[str], check: bool = True) -> tuple[int, str, str]:
         )
         return result.returncode, result.stdout, result.stderr
     except subprocess.TimeoutExpired:
-        logger.error(f"Command timed out: {args[0]}")
+        logger.error("Command timed out: %s", args[0])
         return 1, "", "timeout"
     except FileNotFoundError:
-        logger.error(f"Command not found: {args[0]}")
+        logger.error("Command not found: %s", args[0])
         return 127, "", "not found"
 
 
@@ -80,10 +80,10 @@ def _save_nat_snapshot() -> bool:
                 os.write(fd, out.encode())
             finally:
                 os.close(fd)
-            logger.debug(f"nat table snapshot saved to {_IPTABLES_SAVE_FILE}")
+            logger.debug("nat table snapshot saved to %s", _IPTABLES_SAVE_FILE)
             return True
         except Exception as e:
-            logger.error(f"Failed to save nat snapshot: {e}")
+            logger.error("Failed to save nat snapshot: %s", e)
     return False
 
 
@@ -94,16 +94,16 @@ def _restore_nat_snapshot() -> bool:
     if not shutil.which("iptables-restore"):
         return False
     # Flush first so no stale rules survive a partial restore
-    _run(["iptables", "-t", "nat", "-F"], check=False)
+    _run(["iptables", "-t", "nat", "-F"])
     code, _, err = _run(["iptables-restore", _IPTABLES_SAVE_FILE])
     if code == 0:
         logger.info("nat table restored from pre-start snapshot.")
         try:
             os.unlink(_IPTABLES_SAVE_FILE)
         except Exception:
-            pass
+            logger.debug("NAT snapshot cleanup failed", exc_info=True)
         return True
-    logger.error(f"iptables-restore failed: {err}")
+    logger.error("iptables-restore failed: %s", err)
     return False
 
 
@@ -123,10 +123,10 @@ def _save_mangle_snapshot() -> bool:
                 os.write(fd, out.encode())
             finally:
                 os.close(fd)
-            logger.debug(f"mangle table snapshot saved to {_MANGLE_SAVE_FILE}")
+            logger.debug("mangle table snapshot saved to %s", _MANGLE_SAVE_FILE)
             return True
         except Exception as e:
-            logger.error(f"Failed to save mangle snapshot: {e}")
+            logger.error("Failed to save mangle snapshot: %s", e)
     return False
 
 
@@ -136,16 +136,16 @@ def _restore_mangle_snapshot() -> bool:
         return False
     if not shutil.which("iptables-restore"):
         return False
-    _run(["iptables", "-t", "mangle", "-F"], check=False)
+    _run(["iptables", "-t", "mangle", "-F"])
     code, _, err = _run(["iptables-restore", _MANGLE_SAVE_FILE])
     if code == 0:
         logger.info("mangle table restored from pre-start snapshot.")
         try:
             os.unlink(_MANGLE_SAVE_FILE)
         except Exception:
-            pass
+            logger.debug("Mangle snapshot cleanup failed", exc_info=True)
         return True
-    logger.error(f"mangle restore failed: {err}")
+    logger.error("mangle restore failed: %s", err)
     return False
 
 
@@ -233,7 +233,7 @@ class IPTablesManager:
                 logger.debug("iptables rule applied with warning: %s", err.strip())
             return True
         else:
-            logger.warning(f"iptables rule failed ({err.strip()}): {' '.join(cmd)}")
+            logger.warning("iptables rule failed (%s): %s", err.strip(), ' '.join(cmd))
             return False
 
     def _del_rule(self, rule: list[str]):
@@ -241,7 +241,7 @@ class IPTablesManager:
         # Replace -A (append) with -D (delete) to construct removal command
         del_rule = ["-D" if a == "-A" else a for a in rule]
         cmd = ["iptables"] + del_rule
-        _run(cmd, check=False)
+        _run(cmd)
 
     def apply_rules(
         self,
@@ -288,100 +288,100 @@ class IPTablesManager:
         excluded_ports = excluded_ports or []
 
         ok_count = 0
+        ok_count += self._apply_service_redirects(service_ports, chain, table_flag)
 
-        # --- Redirect known service ports ---
+        ok_count += self._apply_catch_all(
+            chain, table_flag, excluded_ports,
+            catch_all_tcp_port, catch_all_udp_port,
+        )
+
+        ok_count += self._apply_icmp_redirect(chain, table_flag, icmp_enabled)
+        ok_count += self._apply_icmp_drop()
+        self._apply_ip_forward()
+
+        logger.info(
+            f"Applied {ok_count} iptables NAT rules "
+            f"(chain={chain}, mode={self.mode})"
+        )
+
+        self._apply_ttl_mangle()
+
+        return ok_count > 0
+
+    # -- Extracted helpers for apply_rules (CC reduction) --------------------
+
+    def _apply_service_redirects(
+        self,
+        service_ports: dict,
+        chain: str,
+        table_flag: list[str],
+    ) -> int:
+        """Add per-service DNAT redirect rules; return count of rules applied."""
+        count = 0
         for proto, ports in service_ports.items():
+            proto = proto.lower()
+            if proto not in ("tcp", "udp"):
+                logger.warning("Skipping unsupported protocol: %s", proto)
+                continue
             for port in ports:
-                port_ok, port_int = validate_port(port)
-                if not port_ok:
+                if not validate_port(port):
                     continue
                 rule = table_flag + [
                     "-A", chain,
-                    "-p", proto,
-                    "--dport", str(port_int),
-                    "-j", "REDIRECT", "--to-ports", str(port_int),
+                    "-p", proto, "--dport", str(port),
+                    "-j", "DNAT", "--to-destination",
+                    f"{self.redirect_ip}:{port}",
                     "-m", "comment", "--comment", _RULE_COMMENT,
                 ]
                 if self._add_rule(rule):
-                    ok_count += 1
+                    count += 1
+        return count
 
-        # --- Catch-all: redirect all OTHER TCP traffic to catch_all_tcp_port ---
-        for excl in excluded_ports:
-            _, ep = validate_port(excl)
-            if not ep:
+    def _apply_catch_all(
+        self,
+        chain: str,
+        table_flag: list[str],
+        excluded_ports: list[int],
+        catch_all_tcp_port: int,
+        catch_all_udp_port: int,
+    ) -> int:
+        """Add catch-all TCP/UDP redirect rules; return count applied."""
+        count = 0
+        for proto, port in (("tcp", catch_all_tcp_port), ("udp", catch_all_udp_port)):
+            if port <= 0:
                 continue
-            rule = table_flag + [
-                "-A", chain,
-                "-p", "tcp",
-                "--dport", str(ep),
-                "-j", "RETURN",
-                "-m", "comment", "--comment", _RULE_COMMENT,
-            ]
-            self._add_rule(rule)
-
-        _, cat_port = validate_port(catch_all_tcp_port)
-        if cat_port:
-            rule = table_flag + [
-                "-A", chain,
-                "-p", "tcp",
-                "-j", "REDIRECT", "--to-ports", str(cat_port),
+            rule = table_flag + ["-A", chain, "-p", proto]
+            valid_excluded = [str(ep) for ep in excluded_ports if validate_port(ep)]
+            if valid_excluded:
+                rule += ["-m", "multiport", "!", "--dports", ",".join(valid_excluded)]
+            rule += [
+                "-j", "DNAT", "--to-destination",
+                f"{self.redirect_ip}:{port}",
                 "-m", "comment", "--comment", _RULE_COMMENT,
             ]
             if self._add_rule(rule):
-                ok_count += 1
+                count += 1
+        return count
 
-        # --- Catch-all: redirect all OTHER UDP traffic to catch_all_udp_port ---
-        _, cat_udp_port = validate_port(catch_all_udp_port)
-        if cat_udp_port:
-            for excl in excluded_ports:
-                _, ep = validate_port(excl)
-                if not ep:
-                    continue
-                rule = table_flag + [
-                    "-A", chain,
-                    "-p", "udp",
-                    "--dport", str(ep),
-                    "-j", "RETURN",
-                    "-m", "comment", "--comment", _RULE_COMMENT,
-                ]
-                self._add_rule(rule)
+    def _apply_icmp_redirect(
+        self, chain: str, table_flag: list[str], icmp_enabled: bool,
+    ) -> int:
+        """DNAT echo-requests so pings appear to succeed. Returns 0 or 1."""
+        if not icmp_enabled:
+            return 0
+        icmp_target = (
+            "127.0.0.1" if self.mode != "gateway" else self.redirect_ip
+        )
+        icmp_rule = table_flag + [
+            "-A", chain,
+            "-p", "icmp", "--icmp-type", "echo-request",
+            "-j", "DNAT", "--to-destination", icmp_target,
+            "-m", "comment", "--comment", _RULE_COMMENT,
+        ]
+        return 1 if self._add_rule(icmp_rule) else 0
 
-            rule = table_flag + [
-                "-A", chain,
-                "-p", "udp",
-                "-j", "REDIRECT", "--to-ports", str(cat_udp_port),
-                "-m", "comment", "--comment", _RULE_COMMENT,
-            ]
-            if self._add_rule(rule):
-                ok_count += 1
-
-        # --- ICMP echo-request redirect (makes pings appear to succeed) ------
-        # DNAT redirects all forwarded pings to this host so the kernel can
-        # issue echo-replies naturally.  In loopback mode, redirect to
-        # localhost; in gateway mode, redirect to redirect_ip.
-        if icmp_enabled:
-            icmp_target = (
-                "127.0.0.1" if self.mode != "gateway" else self.redirect_ip
-            )
-            icmp_rule = table_flag + [
-                "-A", chain,
-                "-p", "icmp", "--icmp-type", "echo-request",
-                "-j", "DNAT", "--to-destination", icmp_target,
-                "-m", "comment", "--comment", _RULE_COMMENT,
-            ]
-            if self._add_rule(icmp_rule):
-                ok_count += 1
-
-        # --- Suppress ICMP destination-unreachable back to monitored hosts -------
-        # When the kernel can't route a forwarded packet it generates an ICMP
-        # type-3 "destination unreachable" from the gateway IP.  That origin
-        # (the gateway itself) reveals the captive network to malware.  DROP
-        # these silently so probes time out like a real firewall would.
-        #
-        # Use -I OUTPUT 1 (insert at position 1 / top of chain) rather than
-        # -A (append) so the DROP fires before any ACCEPT rule that may already
-        # exist in the OUTPUT chain.  If appended, a prior ACCEPT would allow
-        # ICMP unreachables through, making the gateway IP visible again.
+    def _apply_icmp_drop(self) -> int:
+        """DROP outbound ICMP destination-unreachable to hide the gateway."""
         icmp_drop_rule = [
             "-t", "filter",
             "-I", "OUTPUT", "1",
@@ -392,119 +392,57 @@ class IPTablesManager:
         code, _, err = _run(["iptables"] + icmp_drop_rule)
         if code == 0:
             self._filter_icmp_drop_applied = True
-            ok_count += 1
             logger.info("ICMP destination-unreachable DROP rule applied.")
-        else:
-            logger.warning(
-                "Failed to apply ICMP unreachable DROP rule: %s", err.strip()
-            )
-
-        # --- Enable ip_forward in gateway mode (required for PREROUTING DNAT) ---
-        # Traffic from FlareVM to a foreign IP arrives on the bridge interface
-        # and goes through the kernel forwarding path before DNAT rewrites it.
-        # This is true even on a single-NIC bridge setup.
-        if self.mode == "gateway":
-            prev = _read_ip_forward()
-            if prev is not None and prev != "1":
-                if _write_ip_forward("1"):
-                    self._prev_ip_forward = prev
-                    logger.info("ip_forward enabled for gateway mode (was %s).", prev)
-                else:
-                    logger.warning(
-                        "Could not enable ip_forward; pings and forwarded traffic "
-                        "may not reach fake services."
-                    )
-            elif prev == "1":
-                logger.debug("ip_forward already enabled.")
-
-        logger.info(
-            f"Applied {ok_count} iptables NAT rules "
-            f"(chain={chain}, mode={self.mode})"
+            return 1
+        logger.warning(
+            "Failed to apply ICMP unreachable DROP rule: %s", err.strip()
         )
+        return 0
 
-        # --- TTL spoofing (mangle table) ---
-        # Setting TTL on outgoing packets makes them look like they’ve
-        # traversed internet routing hops rather than being sourced locally.
-        # Value 54 = 64 - 10 hops (typical Linux server with internet routing).
-        # Requires xt_TTL kernel module; silently skipped if unavailable.
-        if self.spoof_ttl > 0:
-            self._mangle_saved = _save_mangle_snapshot()
-            ttl_rule = [
-                "-t", "mangle", "-A", "POSTROUTING",
-                "-o", self.interface,
-                "-j", "TTL", "--ttl-set", str(self.spoof_ttl),
-                "-m", "comment", "--comment", _RULE_COMMENT,
-            ]
-            code, _, err = _run(["iptables"] + ttl_rule)
-            if code == 0:
-                self._ttl_rule_applied = True
-                logger.info(
-                    "TTL mangle rule applied: outgoing TTL=%d "
-                    "(simulates %d routing hops).",
-                    self.spoof_ttl, 64 - self.spoof_ttl,
-                )
+    def _apply_ip_forward(self) -> None:
+        """Enable ip_forward when running in gateway mode."""
+        if self.mode != "gateway":
+            return
+        prev = _read_ip_forward()
+        if prev is not None and prev != "1":
+            if _write_ip_forward("1"):
+                self._prev_ip_forward = prev
+                logger.info("ip_forward enabled for gateway mode (was %s).", prev)
             else:
                 logger.warning(
-                    "TTL mangle rule failed — xt_TTL module may not be loaded "
-                    "('modprobe xt_TTL' to enable): %s", err.strip()
+                    "Could not enable ip_forward; pings and forwarded traffic "
+                    "may not reach fake services."
                 )
+        elif prev == "1":
+            logger.debug("ip_forward already enabled.")
 
-        return ok_count > 0
-
-    def remove_rules(self):
-        """Stop: restore the nat table to its pre-start state."""
-        if os.geteuid() != 0:
-            logger.warning("Cannot remove iptables rules: not root.")
+    def _apply_ttl_mangle(self) -> None:
+        """Apply TTL-spoofing mangle rule if spoof_ttl > 0."""
+        if self.spoof_ttl <= 0:
             return
+        self._mangle_saved = _save_mangle_snapshot()
+        ttl_rule = [
+            "-t", "mangle", "-A", "POSTROUTING",
+            "-o", self.interface,
+            "-j", "TTL", "--ttl-set", str(self.spoof_ttl),
+            "-m", "comment", "--comment", _RULE_COMMENT,
+        ]
+        code, _, err = _run(["iptables"] + ttl_rule)
+        if code == 0:
+            self._ttl_rule_applied = True
+            logger.info(
+                "TTL mangle rule applied: outgoing TTL=%d "
+                "(simulates %d routing hops).",
+                self.spoof_ttl, 64 - self.spoof_ttl,
+            )
+        else:
+            logger.warning(
+                "TTL mangle rule failed -- xt_TTL module may not be loaded "
+                "('modprobe xt_TTL' to enable): %s", err.strip()
+            )
 
-        if self._saved and _restore_nat_snapshot():
-            # Snapshot restore also flushed the table — we're clean.
-            self._rules_applied.clear()
-            if self._prev_ip_forward is not None:
-                if _write_ip_forward(self._prev_ip_forward):
-                    logger.info("ip_forward restored to %s.", self._prev_ip_forward)
-                self._prev_ip_forward = None
-            # Restore mangle table even when nat snapshot succeeded
-            if self._mangle_saved:
-                _restore_mangle_snapshot()
-                self._mangle_saved = False
-            elif self._ttl_rule_applied:
-                ttl_del = [
-                    "-t", "mangle", "-D", "POSTROUTING",
-                    "-o", self.interface,
-                    "-j", "TTL", "--ttl-set", str(self.spoof_ttl),
-                    "-m", "comment", "--comment", _RULE_COMMENT,
-                ]
-                _run(["iptables"] + ttl_del, check=False)
-                self._ttl_rule_applied = False
-                logger.info("TTL mangle rule removed.")
-            # Remove filter DROP rule — not covered by the nat snapshot
-            if self._filter_icmp_drop_applied:
-                _run(["iptables", "-t", "filter", "-D", "OUTPUT",
-                      "-p", "icmp", "--icmp-type", "destination-unreachable",
-                      "-j", "DROP",
-                      "-m", "comment", "--comment", _RULE_COMMENT], check=False)
-                self._filter_icmp_drop_applied = False
-                logger.info("ICMP destination-unreachable DROP rule removed.")
-            return
-
-        # No snapshot available (e.g. iptables-save was missing) — flush the
-        # entire nat table.  In a lab this is safe; there are no rules we need
-        # to preserve that aren't NotTheNet's own.
-        logger.warning(
-            "No nat snapshot available; flushing entire nat table as fallback."
-        )
-        _run(["iptables", "-t", "nat", "-F"], check=False)
-        self._rules_applied.clear()
-        logger.info("nat table flushed.")
-
-        # Restore ip_forward to its previous value
-        if self._prev_ip_forward is not None:
-            if _write_ip_forward(self._prev_ip_forward):
-                logger.info("ip_forward restored to %s.", self._prev_ip_forward)
-            self._prev_ip_forward = None
-
-        # Remove TTL mangle rule if we applied one
+    def _remove_auxiliary_rules(self) -> None:
+        """Remove TTL mangle + ICMP DROP rules (not covered by nat snapshot)."""
         if self._mangle_saved:
             _restore_mangle_snapshot()
             self._mangle_saved = False
@@ -515,20 +453,40 @@ class IPTablesManager:
                 "-j", "TTL", "--ttl-set", str(self.spoof_ttl),
                 "-m", "comment", "--comment", _RULE_COMMENT,
             ]
-            _run(["iptables"] + ttl_del, check=False)
+            _run(["iptables"] + ttl_del)
             self._ttl_rule_applied = False
             logger.info("TTL mangle rule removed.")
-
-        # Remove filter DROP rule
         if self._filter_icmp_drop_applied:
             _run(["iptables", "-t", "filter", "-D", "OUTPUT",
                   "-p", "icmp", "--icmp-type", "destination-unreachable",
                   "-j", "DROP",
-                  "-m", "comment", "--comment", _RULE_COMMENT], check=False)
+                  "-m", "comment", "--comment", _RULE_COMMENT])
             self._filter_icmp_drop_applied = False
             logger.info("ICMP destination-unreachable DROP rule removed.")
 
+    def remove_rules(self):
+        """Stop: restore the nat table to its pre-start state."""
+        if os.geteuid() != 0:
+            logger.warning("Cannot remove iptables rules: not root.")
+            return
 
+        if self._saved and _restore_nat_snapshot():
+            self._rules_applied.clear()
+        else:
+            logger.warning(
+                "No nat snapshot available; flushing entire nat table as fallback."
+            )
+            _run(["iptables", "-t", "nat", "-F"])
+            self._rules_applied.clear()
+            logger.info("nat table flushed.")
+
+        # Restore ip_forward
+        if self._prev_ip_forward is not None:
+            if _write_ip_forward(self._prev_ip_forward):
+                logger.info("ip_forward restored to %s.", self._prev_ip_forward)
+            self._prev_ip_forward = None
+
+        self._remove_auxiliary_rules()
 
     @staticmethod
     def list_notthenet_rules() -> list[str]:

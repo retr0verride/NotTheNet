@@ -124,9 +124,9 @@ class JsonEventLogger:
                 self._bytes_written = os.path.getsize(self._path)
             except OSError:
                 self._bytes_written = 0
-            logger.info(f"JSON event log opened: {self._path}")
+            logger.info("JSON event log opened: %s", self._path)
         except OSError as e:
-            logger.error(f"Failed to open JSON event log: {e}")
+            logger.error("Failed to open JSON event log: %s", e)
             self._file = None
 
     def log(self, event_type: str, **kwargs: Any) -> None:
@@ -153,7 +153,7 @@ class JsonEventLogger:
         try:
             line = json.dumps(event, default=str, ensure_ascii=False) + "\n"
         except (TypeError, ValueError) as e:
-            logger.debug(f"JSON serialization error: {e}")
+            logger.debug("JSON serialization error: %s", e)
             return
 
         line_bytes = len(line.encode("utf-8"))
@@ -180,7 +180,7 @@ class JsonEventLogger:
                     self._file.flush()
                     self._last_flush = now
             except OSError as e:
-                logger.error(f"JSON event write error: {e}")
+                logger.error("JSON event write error: %s", e)
 
     def close(self):
         """Flush and close the event log file."""

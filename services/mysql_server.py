@@ -5,20 +5,20 @@ Why this matters:
     SQL-injecting stealers, database credential harvesters, and malware that
     exfiltrates data to a remote MySQL instance all speak the MySQL wire
     protocol.  Common families:
-      - RedLine, Vidar, Raccoon  — exfiltrate logs to actor-controlled MySQL
-      - Web shells               — probe for local MySQL with default creds
-      - Brute-force tools        — spray username/password combos over TCP/3306
+      - RedLine, Vidar, Raccoon  â€” exfiltrate logs to actor-controlled MySQL
+      - Web shells               â€” probe for local MySQL with default creds
+      - Brute-force tools        â€” spray username/password combos over TCP/3306
 
     This server:
       1. Sends an authentic MySQL 5.7.x Handshake V10 greeting packet
       2. Reads the client's HandshakeResponse41 and extracts the username
-         (the auth response is an SHA1 hash — not reversible — but the
+         (the auth response is an SHA1 hash â€” not reversible â€” but the
          username arrives in plaintext)
       3. Returns an OK packet so the client proceeds to issue queries
       4. Logs every COM_QUERY the client sends (credentials, commands, etc.)
 
 Security notes (OpenSSF):
-- Auth challenge is os.urandom(20) — never reused, never predictable
+- Auth challenge is os.urandom(20) â€” never reused, never predictable
 - Received query strings are sanitised before logging (log injection)
 - Each session runs in a daemon thread; cannot block process exit
 - Sessions are bounded to SESSION_TIMEOUT seconds
@@ -85,12 +85,6 @@ def _ok_packet() -> bytes:
     return struct.pack("<I", len(payload))[:3] + b"\x02" + payload
 
 
-def _err_packet(code: int, msg: str) -> bytes:
-    """MySQL ERR packet."""
-    body = b"\xff" + struct.pack("<H", code) + b"#HY000" + msg.encode()
-    return struct.pack("<I", len(body))[:3] + b"\x01" + body
-
-
 def _read_mysql_packet(sock: socket.socket) -> Optional[bytes]:
     """Read one MySQL packet. Returns payload bytes or None."""
     hdr = sock.recv(4)
@@ -118,55 +112,56 @@ class _MySQLSession(threading.Thread):
         self.addr = addr
         self._sem = sem
 
-    def run(self):
+    @staticmethod
+    def _parse_username(payload: bytes) -> str:
+        """Extract null-terminated username from HandshakeResponse41 (byte 32+)."""
+        if len(payload) <= 32:
+            return ""
+        end = payload.find(b"\x00", 32)
+        if end < 32:
+            return ""
+        return payload[32:end].decode("utf-8", errors="replace")
+
+    def _query_loop(self, safe_addr: str, jl) -> None:
+        """Read and log MySQL queries until the client disconnects."""
+        while True:
+            payload = _read_mysql_packet(self.conn)
+            if payload is None or not payload:
+                break
+            if payload[0] == _COM_QUERY:
+                query = payload[1:].decode("utf-8", errors="replace")
+                logger.info(
+                    "MySQL query from %s: %s",
+                    safe_addr,
+                    sanitize_log_string(query[:300]),
+                )
+                if jl:
+                    jl.log("mysql_query", src_ip=self.addr[0], query=query[:300])
+            self.conn.sendall(_ok_packet())
+
+    def run(self) -> None:
         safe_addr = sanitize_ip(self.addr[0])
         jl = get_json_logger()
         try:
             self.conn.settimeout(SESSION_TIMEOUT)
 
-            # ── 1. Send server greeting ────────────────────────────────────
             self.conn.sendall(_make_handshake())
 
-            # ── 2. Read HandshakeResponse41 ─────────────────────────────────
             payload = _read_mysql_packet(self.conn)
             if payload is None:
                 return
 
-            # Username is null-terminated starting at byte 32
-            # (4 cap_flags + 4 max_pkt + 1 charset + 23 reserved = 32)
-            username = ""
-            if len(payload) > 32:
-                end = payload.find(b"\x00", 32)
-                if end >= 32:
-                    username = payload[32:end].decode("utf-8", errors="replace")
-
+            username = self._parse_username(payload)
             safe_user = sanitize_log_string(username)
             logger.info("MySQL login attempt from %s: user=%s", safe_addr, safe_user)
             if jl:
                 jl.log("mysql_auth", src_ip=self.addr[0], username=username)
 
-            # ── 3. Accept unconditionally ──────────────────────────────────
             self.conn.sendall(_ok_packet())
-
-            # ── 4. Read and log queries ────────────────────────────────────
-            while True:
-                payload = _read_mysql_packet(self.conn)
-                if payload is None or not payload:
-                    break
-                if payload[0] == _COM_QUERY:
-                    query = payload[1:].decode("utf-8", errors="replace")
-                    logger.info(
-                        "MySQL query from %s: %s",
-                        safe_addr,
-                        sanitize_log_string(query[:300]),
-                    )
-                    if jl:
-                        jl.log("mysql_query", src_ip=self.addr[0], query=query[:300])
-                # Always respond OK / empty resultset
-                self.conn.sendall(_ok_packet())
+            self._query_loop(safe_addr, jl)
 
         except OSError:
-            pass
+            logger.debug("MySQL session error", exc_info=True)
         finally:
             try:
                 self.conn.close()
@@ -174,7 +169,6 @@ class _MySQLSession(threading.Thread):
                 pass
             if self._sem:
                 self._sem.release()
-
 
 class MySQLService:
     """Fake MySQL server on TCP port 3306."""
@@ -208,7 +202,8 @@ class MySQLService:
             logger.error("MySQL failed to bind on port %s: %s", self.port, e)
             return False
 
-    def _serve(self):
+    def _serve(self) -> None:
+        assert self._sock is not None
         while not self._stop.is_set():
             try:
                 conn, addr = self._sock.accept()
@@ -222,7 +217,7 @@ class MySQLService:
                 continue
             _MySQLSession(conn, addr, sem=self._sem).start()
 
-    def stop(self):
+    def stop(self) -> None:
         self._stop.set()
         if self._sock:
             try:

@@ -4,7 +4,7 @@ Accepts FTP connections, optionally receives uploads, always reports success.
 
 Security notes (OpenSSF):
 - Upload directory is resolved via os.path.realpath and path-traversal checked
-- UUID-based filenames for saved uploads — no attacker path/name control
+- UUID-based filenames for saved uploads â€” no attacker path/name control
 - Total upload size capped (disk exhaustion prevention)
 - PASV port range is restricted to avoid footprint on reserved ports
 - No shell=True subprocess calls
@@ -78,7 +78,7 @@ def _get_disk_usage(directory: str) -> int:
             if os.path.isfile(fp):
                 total += os.path.getsize(fp)
     except Exception:
-        pass
+        logger.debug("FTP disk-usage scan failed", exc_info=True)
     return total
 
 
@@ -99,7 +99,7 @@ class _FTPSession(threading.Thread):
         try:
             self.conn.sendall((msg + "\r\n").encode("utf-8", errors="replace"))
         except Exception:
-            pass
+            logger.debug("FTP control send failed", exc_info=True)
 
     def _open_pasv(self) -> Optional[str]:
         """Open a passive-mode data socket and return the PASV response string."""
@@ -120,7 +120,7 @@ class _FTPSession(threading.Thread):
                 return f"227 Entering Passive Mode ({ip_parts},{p1},{p2})"
             except OSError:
                 continue
-        logger.warning("FTP PASV: no free ports in range %d–%d", PASV_PORT_LOW, PASV_PORT_HIGH)
+        logger.warning("FTP PASV: no free ports in range %dâ€“%d", PASV_PORT_LOW, PASV_PORT_HIGH)
         return None
 
     def _accept_data(self) -> Optional[socket.socket]:
@@ -134,9 +134,9 @@ class _FTPSession(threading.Thread):
                 return None
         return None
 
-    def run(self):
+    def run(self) -> None:
         safe_addr = sanitize_ip(self.addr[0])
-        logger.info(f"FTP connection from {safe_addr}")
+        logger.info("FTP connection from %s", safe_addr)
         jl = get_json_logger()
         if jl:
             jl.log("ftp_connection", src_ip=self.addr[0])
@@ -155,18 +155,37 @@ class _FTPSession(threading.Thread):
                         line.decode("utf-8", errors="replace").strip(), safe_addr
                     )
         except Exception as e:
-            logger.debug(f"FTP {safe_addr} session error: {e}")
+            logger.debug("FTP %s session error: %s", safe_addr, e)
         finally:
             try:
                 self.conn.close()
             except Exception:
-                pass
+                logger.debug("FTP control socket close failed", exc_info=True)
             if self._pasv_server:
                 try:
                     self._pasv_server.close()
                 except OSError:
                     pass
                 self._pasv_server = None
+
+    # Static command â†’ response mapping (commands that just send a fixed reply)
+    _SIMPLE_RESPONSES: dict[str, str] = {
+        "USER": "230 Login successful",
+        "PASS": "230 Login successful",
+        "SYST": "215 Windows_NT",
+        "FEAT": "211-Features:\r\n PASV\r\n211 End",
+        "PWD": '257 "/" is current directory',
+        "CWD": "250 OK",
+        "CDUP": "250 OK",
+        "TYPE": "200 Type set",
+        "PORT": "500 Active mode not supported; use PASV",
+        "NOOP": "200 OK",
+        "ALLO": "200 OK",
+        "DELE": "250 File deleted",
+        "MKD": "257 OK",
+        "RMD": "257 OK",
+        "SIZE": "213 0",
+    }
 
     def _handle_cmd(self, line: str, safe_addr: str):
         parts = line.split(None, 1)
@@ -175,31 +194,15 @@ class _FTPSession(threading.Thread):
         cmd = parts[0].upper()
         arg = parts[1] if len(parts) > 1 else ""
         safe_arg = sanitize_log_string(arg, max_length=128)
-        logger.debug(f"FTP [{safe_addr}] {cmd} {safe_arg}")
+        logger.debug("FTP [%s] %s %s", safe_addr, cmd, safe_arg)
 
-        if cmd in ("USER", "PASS"):
-            self._send("230 Login successful")
-        elif cmd == "SYST":
-            # Windows IIS FTP returns "Windows_NT", matching the TCP/IP OS
-            # fingerprint profile that NotTheNet applies by default.
-            self._send("215 Windows_NT")
-        elif cmd == "FEAT":
-            self._send("211-Features:\r\n PASV\r\n211 End")
-        elif cmd == "PWD":
-            self._send('257 "/" is current directory')
-        elif cmd in ("CWD", "CDUP"):
-            self._send("250 OK")
-        elif cmd == "TYPE":
-            self._send("200 Type set")
+        # Fast path: fixed-response commands
+        simple = self._SIMPLE_RESPONSES.get(cmd)
+        if simple is not None:
+            self._send(simple)
         elif cmd == "PASV":
             resp = self._open_pasv()
-            if resp:
-                self._send(resp)
-            else:
-                self._send("425 Can't open data connection")
-        elif cmd == "PORT":
-            # Active mode intentionally not implemented (SSRF risk)
-            self._send("500 Active mode not supported; use PASV")
+            self._send(resp if resp else "425 Can't open data connection")
         elif cmd == "LIST":
             data = self._accept_data()
             self._send("150 Here comes the directory listing")
@@ -218,96 +221,82 @@ class _FTPSession(threading.Thread):
         elif cmd == "QUIT":
             self._send("221 Goodbye")
             self.conn.close()
-        elif cmd in ("NOOP", "ALLO"):
-            self._send("200 OK")
-        elif cmd == "DELE":
-            self._send("250 File deleted")
-        elif cmd in ("MKD", "RMD"):
-            self._send("257 OK")
-        elif cmd == "SIZE":
-            self._send("213 0")
         else:
             self._send("502 Command not implemented")
 
     def _recv_file(self, remote_name: str, safe_addr: str):
         """Accept a file upload over the data connection."""
-        # RFC 959: send 150 *before* blocking on accept(), so the client
-        # knows to connect to the passive port and begin sending data.
         self._send("150 Ok to send data")
         data_conn = self._accept_data()
         if not data_conn:
             self._send("425 Can't open data connection")
             return
 
-        # Enforce a per-transfer deadline so a trickle-sending client can't
-        # hold this control-connection thread indefinitely.  The session
-        # timeout on the control connection (30 s) is separate; a client
-        # could open PASV, send one byte every 29 s forever without this cap.
         data_conn.settimeout(30)
 
         if not self.upload_dir:
-            # Uploads disabled — drain and discard
-            try:
-                while data_conn.recv(65536):
-                    pass
-            except Exception:
-                pass
-            data_conn.close()
+            self._drain_and_close(data_conn, "uploads disabled")
             self._send("226 Transfer complete (discarded)")
             return
 
-        # Cap disk usage — check and create file atomically to prevent TOCTOU
-        # race where concurrent uploads all pass the cap check before any write.
         with _upload_lock:
             if _get_disk_usage(self.upload_dir) > MAX_DISK_USAGE_BYTES:
                 logger.warning("FTP: upload storage cap reached; discarding file.")
-                try:
-                    while data_conn.recv(65536):
-                        pass
-                except Exception:
-                    pass
-                data_conn.close()
+                self._drain_and_close(data_conn, "cap exceeded")
                 self._send("452 Insufficient storage space")
                 return
 
-            # UUID filename — attacker has zero control over the path
             safe_fname = uuid.uuid4().hex + ".bin"
             save_path = os.path.join(self.upload_dir, safe_fname)
-            # Create the file inside the lock to claim the name before releasing.
             open(save_path, "wb").close()
 
         try:
-            received = 0
-            with open(save_path, "wb") as f:
-                while True:
-                    chunk = data_conn.recv(65536)
-                    if not chunk:
-                        break
-                    received += len(chunk)
-                    if received > MAX_UPLOAD_SIZE_BYTES:
-                        logger.warning(
-                            f"FTP: upload from {safe_addr} exceeded size cap; truncating."
-                        )
-                        break
-                    f.write(chunk)
-            logger.info(
-                f"FTP: upload from {safe_addr} saved as {safe_fname} ({received} bytes)"
-            )
-            jl = get_json_logger()
-            if jl:
-                jl.log("ftp_upload", src_ip=self.addr[0],
-                       filename=remote_name, saved_as=safe_fname,
-                       bytes_received=received)
+            self._write_upload(data_conn, save_path, safe_addr, safe_fname, remote_name)
             self._send("226 Transfer complete")
         except Exception as e:
-            logger.error(f"FTP: upload error: {e}")
+            logger.error("FTP: upload error: %s", e)
             self._send("451 Requested action aborted")
         finally:
-            # Always close the data connection — even if open() or write() raised
             try:
                 data_conn.close()
             except Exception:
-                pass
+                logger.debug("FTP data connection close failed", exc_info=True)
+
+    def _drain_and_close(self, data_conn, reason: str):
+        """Drain and close a data connection, discarding all data."""
+        try:
+            while data_conn.recv(65536):
+                pass  # discard
+        except Exception:
+            logger.debug("FTP STOR drain failed (%s)", reason, exc_info=True)
+        data_conn.close()
+
+    def _write_upload(self, data_conn, save_path: str, safe_addr: str,
+                      safe_fname: str, remote_name: str) -> int:
+        """Write uploaded data to disk; return bytes received."""
+        received = 0
+        with open(save_path, "wb") as f:
+            while True:
+                chunk = data_conn.recv(65536)
+                if not chunk:
+                    break
+                received += len(chunk)
+                if received > MAX_UPLOAD_SIZE_BYTES:
+                    logger.warning(
+                        "FTP: upload from %s exceeded size cap; truncating.", safe_addr
+                    )
+                    break
+                f.write(chunk)
+        logger.info(
+            "FTP: upload from %s saved as %s (%d bytes)",
+            safe_addr, safe_fname, received,
+        )
+        jl = get_json_logger()
+        if jl:
+            jl.log("ftp_upload", src_ip=self.addr[0],
+                   filename=remote_name, saved_as=safe_fname,
+                   bytes_received=received)
+        return received
 
 
 class FTPService:
@@ -345,13 +334,13 @@ class FTPService:
                 daemon=True,
             )
             self._thread.start()
-            logger.info(f"FTP service started on {self.bind_ip}:{self.port}")
+            logger.info("FTP service started on %s:%s", self.bind_ip, self.port)
             return True
         except OSError as e:
-            logger.error(f"FTP failed to bind {self.bind_ip}:{self.port}: {e}")
+            logger.error("FTP failed to bind %s:%s: %s", self.bind_ip, self.port, e)
             return False
 
-    def stop(self):
+    def stop(self) -> None:
         if self._server:
             try:
                 self._server.socket.shutdown(socket.SHUT_RDWR)

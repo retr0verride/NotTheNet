@@ -3,9 +3,9 @@ NotTheNet - Fake VNC Server (TCP port 5900)
 
 Why this matters:
     VNC is a favourite for:
-      - Remote-access trojans  — UltraVNC, TinyVNC, Hidden-VNC (hVNC) payloads
-      - Botnets                — spread by scanning for open 5900 with weak passwords
-      - Ransomware pre-ops     — manual reconnaissance before detonation
+      - Remote-access trojans  â€” UltraVNC, TinyVNC, Hidden-VNC (hVNC) payloads
+      - Botnets                â€” spread by scanning for open 5900 with weak passwords
+      - Ransomware pre-ops     â€” manual reconnaissance before detonation
 
     Key intelligence:
       - The RFB version string the client sends reveals the client software
@@ -22,7 +22,7 @@ Why this matters:
       6. Always accepts (sends SecurityResult = 0 OK)
 
 Security notes (OpenSSF):
-- Challenge is os.urandom(16) — never reused, never predictable
+- Challenge is os.urandom(16) â€” never reused, never predictable
 - DES response bytes are only logged as hex; no crypto operation is performed
 - Each session runs in a daemon thread; cannot block process exit
 - Sessions are bounded to SESSION_TIMEOUT seconds
@@ -43,7 +43,7 @@ SESSION_TIMEOUT = 15
 _MAX_CONNECTIONS = 50
 
 _VNC_VERSION    = b"RFB 003.008\n"
-_SEC_TYPE_NONE  = b"\x01\x01"   # 1 type offered: type 1 (None) — for weaker clients
+
 _SEC_TYPE_VNC   = b"\x01\x02"   # 1 type offered: type 2 (VNC Auth)
 _SECURITY_OK    = b"\x00\x00\x00\x00"
 
@@ -57,82 +57,85 @@ class _VNCSession(threading.Thread):
         self.addr = addr
         self._sem = sem
 
-    def run(self):
-        safe_addr = sanitize_ip(self.addr[0])
+    def _do_handshake(self):
+        """Exchange RFB version and security type. Returns (client_ver, sec_choice) or None."""
+        self.conn.sendall(_VNC_VERSION)
+        ver_bytes = self.conn.recv(12)
+        if len(ver_bytes) < 12:
+            return None
+        client_ver = ver_bytes[:12].decode("ascii", errors="replace").strip()
+        self.conn.sendall(_SEC_TYPE_VNC)
+        sec_choice = self.conn.recv(1)
+        if not sec_choice:
+            return None
+        return client_ver, sec_choice[0]
+
+    def _handle_no_auth(self, safe_addr: str, client_ver: str) -> None:
+        """Client chose None auth — log and accept."""
+        self.conn.sendall(_SECURITY_OK)
+        logger.info(
+            "VNC connect from %s (version=%s, no-auth)",
+            safe_addr,
+            sanitize_log_string(client_ver),
+        )
         jl = get_json_logger()
+        if jl:
+            jl.log("vnc_connect", src_ip=self.addr[0],
+                   client_version=client_ver, auth_type="none")
+        self._drain()
+
+    def _handle_vnc_auth(self, safe_addr: str, client_ver: str) -> None:
+        """VNC Auth type 2: send challenge, read DES response, accept."""
+        challenge = os.urandom(16)
+        self.conn.sendall(challenge)
+        response = self.conn.recv(16)
+
+        logger.info(
+            "VNC auth from %s (version=%s) challenge=%s response=%s",
+            safe_addr,
+            sanitize_log_string(client_ver),
+            challenge.hex(),
+            response.hex() if response else "(empty)",
+        )
+        jl = get_json_logger()
+        if jl:
+            jl.log(
+                "vnc_auth",
+                src_ip=self.addr[0],
+                client_version=client_ver,
+                challenge_hex=challenge.hex(),
+                response_hex=response.hex() if response else "",
+            )
+        self.conn.sendall(_SECURITY_OK)
+        self._drain()
+
+    def _drain(self) -> None:
+        """Read and discard follow-on traffic until EOF."""
+        while True:
+            if not self.conn.recv(4096):
+                break
+
+    def run(self) -> None:
+        safe_addr = sanitize_ip(self.addr[0])
         try:
             self.conn.settimeout(SESSION_TIMEOUT)
 
-            # ── 1. Server → client: RFB version ───────────────────────────
-            self.conn.sendall(_VNC_VERSION)
-
-            # ── 2. Client → server: client's version ──────────────────────
-            ver_bytes = self.conn.recv(12)
-            if len(ver_bytes) < 12:
+            result = self._do_handshake()
+            if result is None:
                 return
-            client_ver = ver_bytes[:12].decode("ascii", errors="replace").strip()
+            client_ver, sec_choice = result
 
-            # ── 3. Server offers VNC Auth (type 2) ────────────────────────
-            self.conn.sendall(_SEC_TYPE_VNC)
-
-            # ── 4. Client picks a security type ───────────────────────────
-            sec_choice = self.conn.recv(1)
-            if not sec_choice:
+            if sec_choice == 1:
+                self._handle_no_auth(safe_addr, client_ver)
                 return
 
-            if sec_choice[0] == 1:
-                # Client chose "None" — log and accept
-                self.conn.sendall(_SECURITY_OK)
-                logger.info(
-                    "VNC connect from %s (version=%s, no-auth)",
-                    safe_addr,
-                    sanitize_log_string(client_ver),
-                )
-                if jl:
-                    jl.log("vnc_connect", src_ip=self.addr[0],
-                           client_version=client_ver, auth_type="none")
-                # Drain post-auth traffic
-                while True:
-                    if not self.conn.recv(4096):
-                        break
+            if sec_choice != 2:
                 return
 
-            if sec_choice[0] != 2:
-                return  # unexpected type
-
-            # ── 5. Server → client: 16-byte VNC challenge ─────────────────
-            challenge = os.urandom(16)
-            self.conn.sendall(challenge)
-
-            # ── 6. Client → server: 16-byte DES response ──────────────────
-            response = self.conn.recv(16)
-
-            logger.info(
-                "VNC auth from %s (version=%s) challenge=%s response=%s",
-                safe_addr,
-                sanitize_log_string(client_ver),
-                challenge.hex(),
-                response.hex() if response else "(empty)",
-            )
-            if jl:
-                jl.log(
-                    "vnc_auth",
-                    src_ip=self.addr[0],
-                    client_version=client_ver,
-                    challenge_hex=challenge.hex(),
-                    response_hex=response.hex() if response else "",
-                )
-
-            # ── 7. Accept unconditionally ──────────────────────────────────
-            self.conn.sendall(_SECURITY_OK)
-
-            # Drain further traffic (ServerInit, key/pointer events, etc.)
-            while True:
-                if not self.conn.recv(4096):
-                    break
+            self._handle_vnc_auth(safe_addr, client_ver)
 
         except OSError:
-            pass
+            logger.debug("VNC session error", exc_info=True)
         finally:
             try:
                 self.conn.close()
@@ -174,7 +177,8 @@ class VNCService:
             logger.error("VNC failed to bind on port %s: %s", self.port, e)
             return False
 
-    def _serve(self):
+    def _serve(self) -> None:
+        assert self._sock is not None
         while not self._stop.is_set():
             try:
                 conn, addr = self._sock.accept()
@@ -188,7 +192,7 @@ class VNCService:
                 continue
             _VNCSession(conn, addr, sem=self._sem).start()
 
-    def stop(self):
+    def stop(self) -> None:
         self._stop.set()
         if self._sock:
             try:

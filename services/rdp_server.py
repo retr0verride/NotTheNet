@@ -3,13 +3,13 @@ NotTheNet - Fake RDP Server (TCP port 3389)
 
 Why this matters:
     RDP is one of the most-targeted services for:
-      - Ransomware operators — manual access before encryption
-      - Brute-force botnets  — NLBrute, Hydra, Crowbar spraying creds
-      - RATs                 — initial foothold via exposed RDP
-      - Worms                — BlueKeep (CVE-2019-0708), DejaBlue lateral movement
+      - Ransomware operators â€” manual access before encryption
+      - Brute-force botnets  â€” NLBrute, Hydra, Crowbar spraying creds
+      - RATs                 â€” initial foothold via exposed RDP
+      - Worms                â€” BlueKeep (CVE-2019-0708), DejaBlue lateral movement
 
     Key intelligence: many RDP clients send a TPKT cookie of the form
-    "Cookie: mstshash=USERNAME\r\n" in the Connection Request TPDU —
+    "Cookie: mstshash=USERNAME\r\n" in the Connection Request TPDU â€”
     the username arrives BEFORE any authentication.  This gives us the
     Windows username being sprayed without needing to decrypt anything.
 
@@ -43,18 +43,18 @@ _MAX_CONNECTIONS = 50
 _COOKIE_RE = re.compile(rb"Cookie:\s*mstshash=([^\r\n]{1,256})")
 
 # X.224 Connection Confirm TPDU + RDP Negotiation Response
-# selectedProtocol = 0x00000000 (PROTOCOL_RDP — no NLA, no CredSSP).
+# selectedProtocol = 0x00000000 (PROTOCOL_RDP â€” no NLA, no CredSSP).
 # Clients will proceed to standard RDP security exchange.
 #
 # Byte layout:
-#   03 00 00 13   — TPKT header (version=3, length=19)
-#   0e            — X.224 TPDU length indicator (14)
-#   d0            — TPDU code: Connection Confirm (CC)
-#   00 00         — dst-ref = 0
-#   12 34         — src-ref = 0x1234
-#   00            — class/options = 0
-#   02 00 08 00   — RDP Negotiation Response header (type=2, flags=0, length=8)
-#   00 00 00 00   — selectedProtocol = PROTOCOL_RDP
+#   03 00 00 13   â€” TPKT header (version=3, length=19)
+#   0e            â€” X.224 TPDU length indicator (14)
+#   d0            â€” TPDU code: Connection Confirm (CC)
+#   00 00         â€” dst-ref = 0
+#   12 34         â€” src-ref = 0x1234
+#   00            â€” class/options = 0
+#   02 00 08 00   â€” RDP Negotiation Response header (type=2, flags=0, length=8)
+#   00 00 00 00   â€” selectedProtocol = PROTOCOL_RDP
 _CONNECTION_CONFIRM = bytes([
     0x03, 0x00, 0x00, 0x13,
     0x0e, 0xd0, 0x00, 0x00, 0x12, 0x34, 0x00,
@@ -72,35 +72,42 @@ class _RDPSession(threading.Thread):
         self.addr = addr
         self._sem = sem
 
-    def run(self):
+    def _read_tpkt(self) -> Optional[bytes]:
+        """Read a TPKT frame (header + body). Returns body or None."""
+        hdr = self.conn.recv(4)
+        if len(hdr) < 4 or hdr[0] != 0x03:
+            return None
+        total_len = (hdr[2] << 8) | hdr[3]
+        body_len = total_len - 4
+        if body_len <= 0 or body_len > 512:
+            return None
+        body = b""
+        while len(body) < body_len:
+            chunk = self.conn.recv(body_len - len(body))
+            if not chunk:
+                break
+            body += chunk
+        return body
+
+    @staticmethod
+    def _extract_cookie_user(body: bytes) -> str:
+        """Extract username from RDP cookie, or return empty string."""
+        m = _COOKIE_RE.search(body)
+        if not m:
+            return ""
+        return m.group(1).decode("utf-8", errors="replace").strip()
+
+    def run(self) -> None:
         safe_addr = sanitize_ip(self.addr[0])
         jl = get_json_logger()
         try:
             self.conn.settimeout(SESSION_TIMEOUT)
 
-            # ── 1. Read TPKT header (4 bytes) ─────────────────────────────
-            hdr = self.conn.recv(4)
-            if len(hdr) < 4 or hdr[0] != 0x03:
+            body = self._read_tpkt()
+            if body is None:
                 return
 
-            total_len = (hdr[2] << 8) | hdr[3]
-            body_len = total_len - 4
-            if body_len <= 0 or body_len > 512:
-                return
-
-            body = b""
-            while len(body) < body_len:
-                chunk = self.conn.recv(body_len - len(body))
-                if not chunk:
-                    break
-                body += chunk
-
-            # Extract username from TPKT cookie if present
-            username = ""
-            m = _COOKIE_RE.search(body)
-            if m:
-                username = m.group(1).decode("utf-8", errors="replace").strip()
-
+            username = self._extract_cookie_user(body)
             logger.info(
                 "RDP connect from %s username=%s",
                 safe_addr,
@@ -109,17 +116,15 @@ class _RDPSession(threading.Thread):
             if jl:
                 jl.log("rdp_connect", src_ip=self.addr[0], username=username)
 
-            # ── 2. Send Connection Confirm ─────────────────────────────────
             self.conn.sendall(_CONNECTION_CONFIRM)
 
-            # ── 3. Drain follow-on encrypted traffic ──────────────────────
             while True:
                 chunk = self.conn.recv(4096)
                 if not chunk:
                     break
 
         except OSError:
-            pass
+            logger.debug("RDP session error", exc_info=True)
         finally:
             try:
                 self.conn.close()
@@ -127,7 +132,6 @@ class _RDPSession(threading.Thread):
                 pass
             if self._sem:
                 self._sem.release()
-
 
 class RDPService:
     """Fake RDP server on TCP port 3389."""
@@ -161,7 +165,8 @@ class RDPService:
             logger.error("RDP failed to bind on port %s: %s", self.port, e)
             return False
 
-    def _serve(self):
+    def _serve(self) -> None:
+        assert self._sock is not None
         while not self._stop.is_set():
             try:
                 conn, addr = self._sock.accept()
@@ -175,7 +180,7 @@ class RDPService:
                 continue
             _RDPSession(conn, addr, sem=self._sem).start()
 
-    def stop(self):
+    def stop(self) -> None:
         self._stop.set()
         if self._sock:
             try:

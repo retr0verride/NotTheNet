@@ -26,6 +26,7 @@ import ssl
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse
 
@@ -51,7 +52,9 @@ logger = logging.getLogger(__name__)
 # 50 workers ensures new connections aren't starved even under concurrent load.
 _MAX_WORKER_THREADS = 50
 
-# Cipher suites: ECDHE forward secrecy + AEAD — no RC4, 3DES, CBC
+_DEFAULT_SERVER_HEADER = "Apache/2.4.51"
+
+# Cipher suites: ECDHE forward secrecy + AEAD â€” no RC4, 3DES, CBC
 _SECURE_CIPHERS = (
     "ECDHE-ECDSA-AES128-GCM-SHA256:"
     "ECDHE-RSA-AES128-GCM-SHA256:"
@@ -63,6 +66,8 @@ _SECURE_CIPHERS = (
 )
 
 _DEFAULT_BODY = "<html><body><h1>200 OK</h1></body></html>"
+
+_CT_JSON = "application/json"
 
 # Well-known public-IP-check services. When spoof_public_ip is set and a
 # request Host header matches one of these, the handler returns the spoofed
@@ -98,16 +103,17 @@ _NCSI_HOSTS = frozenset({
     "ipv6.msftconnecttest.com",
     "www.msftncsi.com",
 })
+_NCSI_BODY = b"Microsoft Connect Test"
 _NCSI_RESPONSES: dict[str, bytes] = {
-    "www.msftconnecttest.com":  b"Microsoft Connect Test",
-    "msftconnecttest.com":      b"Microsoft Connect Test",
-    "ipv6.msftconnecttest.com": b"Microsoft Connect Test",
+    "www.msftconnecttest.com":  _NCSI_BODY,
+    "msftconnecttest.com":      _NCSI_BODY,
+    "ipv6.msftconnecttest.com": _NCSI_BODY,
     "www.msftncsi.com":         b"Microsoft NCSI",
 }
 
 # Google / Android / ChromeOS connectivity checks and Apple captive portal
 # detection hosts.  These are queried by the OS (not just the browser) and
-# must return EXACT expected responses — wrong body or status code causes the
+# must return EXACT expected responses â€” wrong body or status code causes the
 # OS to show "No internet" and some malware will stall waiting for connectivity.
 _CAPTIVE_PORTAL_HOSTS = frozenset({
     # Google generate_204: Chrome OS, Android, Windows/macOS Chrome
@@ -121,10 +127,10 @@ _CAPTIVE_PORTAL_HOSTS = frozenset({
     "www.apple.com",
 })
 
-# Windows PKI infrastructure hosts — CRL, OCSP, and Certificate Trust List
+# Windows PKI infrastructure hosts â€” CRL, OCSP, and Certificate Trust List
 # (CTL) download endpoints.  Windows CryptoAPI hits these during every HTTPS
 # connection to validate the server cert chain.  If the response is HTML (our
-# default page) instead of binary, cert validation fails — a giveaway.
+# default page) instead of binary, cert validation fails â€” a giveaway.
 _PKI_HOSTS = frozenset({
     "crl.microsoft.com",
     "crl3.digicert.com", "crl4.digicert.com",
@@ -137,7 +143,7 @@ _PKI_HOSTS = frozenset({
     "download.windowsupdate.com",
 })
 
-# Minimal CRL stub — an empty DER-encoded X.509 Certificate Revocation List.
+# Minimal CRL stub â€” an empty DER-encoded X.509 Certificate Revocation List.
 # We generate it lazily on first use.
 _STUB_CRL_CACHE: bytes | None = None
 _STUB_CRL_LOCK = threading.Lock()
@@ -179,26 +185,43 @@ def _get_stub_crl() -> bytes:
 # Minimal OCSP "good" response stub (DER).  Real OCSP responses are complex;
 # we return a small valid-looking binary payload with the correct content-type.
 # Most CryptoAPI implementations accept a timeout/error gracefully and don't
-# hard-fail on soft-fail OCSP — but returning HTML would be worse.
+# hard-fail on soft-fail OCSP â€” but returning HTML would be worse.
 _STUB_OCSP_RESPONSE = (
     b"\x30\x03"    # SEQUENCE { OCSPResponse
     b"\x0a\x01"    # ENUMERATED (1 byte)
     b"\x00"        # successful (0)
-    # responseBytes omitted — this is a "successful but no details" stub.
+    # responseBytes omitted â€” this is a "successful but no details" stub.
     # CryptoAPI treats this as soft-pass (same as timeout).
 )
+
+
+def _resolve_pki_response(host: str, path: str) -> tuple[int, bytes, str]:
+    """Determine the appropriate PKI stub response from host and path.
+
+    Returns (status_code, body_bytes, content_type).
+    """
+    low = path.lower()
+    if "ocsp" in host or "/ocsp" in low:
+        return 200, _STUB_OCSP_RESPONSE, "application/ocsp-response"
+    if low.endswith(".crl") or "crl" in host:
+        return 200, _get_stub_crl(), "application/pkix-crl"
+    if low.endswith((".crt", ".cer")) or "cacerts" in host:
+        return 404, b"", ""
+    if "ctldl" in host or low.endswith((".stl", ".cab")):
+        return 200, b"", "application/octet-stream"
+    return 200, b"", "application/octet-stream"
 
 
 _MAX_BODY_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 # Stable "last content modification" timestamp for Last-Modified response headers.
 # Computed once at module load to approximate a deployed server whose content was
-# last updated ~60 days before startup — prevents absence-of-header fingerprinting.
+# last updated ~60 days before startup â€” prevents absence-of-header fingerprinting.
 _SERVER_LAST_MODIFIED = (
     datetime.now(timezone.utc) - timedelta(days=60)
 ).strftime("%a, %d %b %Y 12:00:00 GMT")
 
-# RFC 1918 private address ranges — returning one of these as a "public" IP
+# RFC 1918 private address ranges â€” returning one of these as a "public" IP
 # would let sandbox-aware malware detect the private network.
 _RFC1918_NETWORKS = (
     ipaddress.ip_network("10.0.0.0/8"),
@@ -221,17 +244,113 @@ def _validate_spoof_ip(raw: str, context: str = "") -> str:
         addr = ipaddress.ip_address(raw)
     except ValueError:
         logger.error(
-            "Invalid spoof_public_ip '%s' in %s config — must be a valid IPv4/IPv6 address; "
+            "Invalid spoof_public_ip '%s' in %s config â€” must be a valid IPv4/IPv6 address; "
             "IP spoofing disabled.", raw, context or "http"
         )
         return ""
     if any(addr in net for net in _RFC1918_NETWORKS):
         logger.warning(
-            "spoof_public_ip '%s' (%s) is a private/loopback address — "
+            "spoof_public_ip '%s' (%s) is a private/loopback address â€” "
             "sandbox detection tools may still flag this as non-internet traffic.",
             raw, context or "http"
         )
     return raw
+
+
+# â”€â”€ IP-check response formatters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Pure functions: (ip, path) â†’ (body, content_type, extra_headers | None).
+# Used by FakeHTTPHandler._send_ip_check_response via _IP_CHECK_FORMATTERS.
+
+_COMCAST_GEO = {
+    "status": "success",
+    "country": "United States",
+    "countryCode": "US",
+    "region": "OH",
+    "regionName": "Ohio",
+    "city": "Columbus",
+    "zip": "43215",
+    "lat": "39.9612",
+    "lon": "-82.9988",
+    "timezone": "America/New_York",
+    "isp": "Comcast Cable Communications",
+    "org": "Comcast Cable Communications",
+    "as": "AS7922 Comcast Cable Communications, LLC",
+    "hosting": "false",
+    "proxy": "false",
+    "mobile": "false",
+}
+
+_IpCheckResult = tuple[bytes, str, dict[str, str] | None]
+
+
+def _fmt_ipinfo(ip: str, _path: str) -> _IpCheckResult:
+    body = (
+        f'{{"ip":"{ip}",'
+        f'"city":"Columbus","region":"Ohio","country":"US",'
+        f'"loc":"39.9612,-82.9988",'
+        f'"org":"AS7922 Comcast Cable Communications, LLC",'
+        f'"postal":"43215","timezone":"America/New_York"}}\n'
+    ).encode()
+    return body, _CT_JSON, None
+
+
+def _fmt_ip_api(ip: str, path: str) -> _IpCheckResult:
+    extra: dict[str, str] = {
+        "Server": "nginx",
+        "Access-Control-Allow-Origin": "*",
+        "X-Ttl": "60",
+        "X-Rl": "44",
+    }
+    _path_base = path.split("?")[0].rstrip("/")
+    if _path_base == "/line" or _path_base.startswith("/line/"):
+        _qs = parse_qs(urlparse(path).query)
+        _fields = [f.strip() for f in _qs.get("fields", ["query"])[0].split(",")]
+        _field_map = {**_COMCAST_GEO, "query": ip}
+        body = "\n".join(_field_map.get(f, "") for f in _fields).encode() + b"\n"
+        return body, "text/plain; charset=utf-8", extra
+    if _path_base == "/csv" or _path_base.startswith("/csv/") or "fields=csv" in path:
+        _csv = (
+            f"success,United States,US,OH,Ohio,Columbus,43215,"
+            f"39.9612,-82.9988,America/New_York,"
+            f"Comcast Cable Communications,"
+            f"Comcast Cable Communications,"
+            f"AS7922 Comcast Cable Communications LLC,"
+            f"false,false,false,{ip}\n"
+        )
+        return _csv.encode(), "text/csv", extra
+    body = (
+        f'{{"status":"success","country":"United States",'
+        f'"countryCode":"US","region":"OH","regionName":"Ohio",'
+        f'"city":"Columbus","zip":"43215",'
+        f'"lat":39.9612,"lon":-82.9988,'
+        f'"timezone":"America/New_York",'
+        f'"isp":"Comcast Cable Communications",'
+        f'"org":"Comcast Cable Communications",'
+        f'"as":"AS7922 Comcast Cable Communications, LLC",'
+        f'"hosting":false,"proxy":false,"mobile":false,'
+        f'"query":"{ip}"}}\n'
+    ).encode()
+    return body, _CT_JSON, extra
+
+
+def _fmt_httpbin(ip: str, _path: str) -> _IpCheckResult:
+    return f'{{"origin":"{ip}"}}\n'.encode(), _CT_JSON, None
+
+
+def _fmt_checkip_aws(ip: str, _path: str) -> _IpCheckResult:
+    body = (
+        f"<html><head><title>Current IP Check</title></head>"
+        f"<body>Current IP Address: {ip}</body></html>\n"
+    ).encode()
+    return body, "text/html", None
+
+
+_IP_CHECK_FORMATTERS: dict[str, object] = {
+    "ipinfo.io": _fmt_ipinfo,
+    "ip-api.com": _fmt_ip_api,
+    "httpbin.org": _fmt_httpbin,
+    "checkip.amazonaws.com": _fmt_checkip_aws,
+}
 
 
 def _load_response_body(config: dict) -> str:
@@ -265,701 +384,578 @@ def _load_response_body(config: dict) -> str:
                 with open(abs_path, encoding="utf-8") as fh:
                     return fh.read()
         except OSError as exc:
-            logger.warning(f"response_body_file '{abs_path}' could not be read: {exc}; "
-                           "falling back to response_body string.")
+            logger.warning("response_body_file '%s' could not be read: %s; "
+                           "falling back to response_body string.", abs_path, exc)
     return config.get("response_body", _DEFAULT_BODY)
 
 
-def _make_handler(response_code: int, response_body: str, server_header: str,
-                  log_requests: bool, spoof_ip: str = "", delay_ms: int = 0,
-                  delay_jitter_ms: int = 0,
-                  dynamic_responses: bool = False, custom_rules: list | None = None,
-                  doh_enabled: bool = False, doh_redirect_ip: str = "127.0.0.1",
-                  websocket_sinkhole: bool = False,
-                  pool_ips: frozenset[str] = frozenset()):
-    """Factory: create a BaseHTTPRequestHandler subclass with captured config."""
+@dataclass(frozen=True)
+class _HandlerConfig:
+    """Immutable configuration bundle for FakeHTTPHandler."""
+    response_code: int = 200
+    response_body: bytes = b""
+    server_header: str = _DEFAULT_SERVER_HEADER
+    log_requests: bool = True
+    spoof_ip: str = ""
+    delay_ms: int = 0
+    delay_jitter_ms: int = 0
+    dynamic_responses: bool = False
+    custom_rules: list = field(default_factory=list)
+    doh_enabled: bool = False
+    doh_redirect_ip: str = "127.0.0.1"
+    websocket_sinkhole: bool = False
+    pool_ips: frozenset = field(default_factory=frozenset)
 
-    class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
-        _response_code = response_code
-        _response_body = response_body.encode("utf-8", errors="replace")
-        _server_header = server_header
-        _log_requests = log_requests
-        _spoof_ip = spoof_ip
-        _delay_ms = delay_ms
-        _delay_jitter_ms = delay_jitter_ms
-        _dynamic_responses = dynamic_responses
-        _custom_rules = compile_custom_rules(custom_rules or [])
-        _doh_enabled = doh_enabled
-        _doh_redirect_ip = doh_redirect_ip
-        _websocket_sinkhole = websocket_sinkhole
-        _pool_ips = pool_ips
 
-        # Use HTTP/1.1 to match real-world server behaviour.  Python's
-        # BaseHTTPRequestHandler defaults to HTTP/1.0, which is a detectable
-        # fingerprint — real Apache/nginx never respond with HTTP/1.0 for
-        # normal requests.  Setting this here overrides the default for all
-        # responses emitted by this handler.
-        protocol_version = "HTTP/1.1"
+def _build_handler_config(
+    response_code: int, response_body: str, server_header: str,
+    log_requests: bool, spoof_ip: str = "", delay_ms: int = 0,
+    delay_jitter_ms: int = 0,
+    dynamic_responses: bool = False, custom_rules: list | None = None,
+    doh_enabled: bool = False, doh_redirect_ip: str = "127.0.0.1",
+    websocket_sinkhole: bool = False,
+    pool_ips: frozenset[str] = frozenset(),
+) -> _HandlerConfig:
+    """Build an immutable handler configuration bundle."""
+    return _HandlerConfig(
+        response_code=response_code,
+        response_body=response_body.encode("utf-8", errors="replace"),
+        server_header=server_header,
+        log_requests=log_requests,
+        spoof_ip=spoof_ip,
+        delay_ms=delay_ms,
+        delay_jitter_ms=delay_jitter_ms,
+        dynamic_responses=dynamic_responses,
+        custom_rules=compile_custom_rules(custom_rules or []),
+        doh_enabled=doh_enabled,
+        doh_redirect_ip=doh_redirect_ip,
+        websocket_sinkhole=websocket_sinkhole,
+        pool_ips=pool_ips,
+    )
 
-        # Prevent send_response() from prepending its own
-        # "Server: BaseHTTP/0.6 Python/3.x" header before ours.  Without
-        # this, every response carries two Server headers — an obvious
-        # fingerprint that sandbox-detection tools check for.
-        server_version = ""
 
-        def send_response(self, code, message=None):
-            """Override to suppress Python's auto-injected Server header.
+class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
+    """HTTP request handler — reads config from the owning server instance."""
 
-            Python's BaseHTTPRequestHandler.send_response() unconditionally
-            calls send_header('Server', self.version_string()), which emits
-            'Server:  Python/3.x.y' even when server_version is set to "".
-            This would create two Server headers in every response — the
-            Python one and the spoofed 'Apache/...' one we add explicitly.
-            We reproduce the same status-line + Date logic without the Server
-            header so only our explicit Server declaration is transmitted.
-            """
-            if message is None:
-                if code in self.responses:
-                    message = self.responses[code][0]
-                else:
-                    message = ""
-            if self.request_version != "HTTP/0.9":
-                if not hasattr(self, "_headers_buffer"):
-                    self._headers_buffer = []
-                self._headers_buffer.append(
-                    f"{self.protocol_version} {code} {message}\r\n"
-                    .encode("latin-1", "strict")
-                )
-            self.log_request(code)
-            # Add Date (required by HTTP/1.1) but NOT the Python Server header.
-            self.send_header("Date", self.date_time_string())
+    @property
+    def _cfg(self) -> _HandlerConfig:
+        return getattr(self.server, '_handler_cfg', _HandlerConfig())
 
-        # Suppress default BaseHTTPServer stderr logging (we do our own)
-        def log_message(self, fmt, *args):
+    protocol_version = "HTTP/1.1"
+    server_version = ""
+
+    def send_response(self, code, message=None):
+        """Override to suppress Python's auto-injected Server header."""
+        if message is None:
+            if code in self.responses:
+                message = self.responses[code][0]
+            else:
+                message = ""
+        if self.request_version != "HTTP/0.9":
+            if not hasattr(self, "_headers_buffer"):
+                self._headers_buffer = []
+            self._headers_buffer.append(
+                f"{self.protocol_version} {code} {message}\r\n"
+                .encode("latin-1", "strict")
+            )
+        self.log_request(code)
+        self.send_header("Date", self.date_time_string())
+
+    def log_message(self, fmt, *args):
+        pass  # suppress default stderr logging
+
+    def _send_ip_check_response(self, host: str):
+        """Return the spoofed public IP for known IP-check services."""
+        path = self.path or "/"
+        ip = self._cfg.spoof_ip or "98.245.112.43"
+
+        formatter = _IP_CHECK_FORMATTERS.get(host)
+        if formatter:
+            body, content_type, extra_headers = formatter(ip, path)
+        elif "format=json" in path or path.rstrip("/").endswith("/json"):
+            body = f'{{"ip":"{ip}"}}\n'.encode()
+            content_type = _CT_JSON
+            extra_headers = None
+        else:
+            body = f"{ip}\n".encode()
+            content_type = "text/plain"
+            extra_headers = None
+
+        if self._cfg.log_requests:
+            safe_addr = sanitize_ip(self.client_address[0])
+            logger.info(
+                f"HTTP  IP-CHECK {sanitize_log_string(host)}"
+                f"{sanitize_log_string(path, 128)} "
+                f"from {safe_addr} \u2192 spoofed {ip}"
+            )
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            if extra_headers:
+                for k, v in extra_headers.items():
+                    self.send_header(k, v)
+            if not extra_headers or "Server" not in extra_headers:
+                self.send_header("Server", self._cfg.server_header)
+            self.send_header("Connection", "keep-alive")
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(body)
+        except OSError:
             pass
 
-        def _send_ip_check_response(self, host: str):
-            """Return the spoofed public IP for known IP-check services."""
-            path = self.path or "/"
-            # Use configured spoof IP; fall back to a plausible residential IP
-            # so hosting/proxy fields are always correct even when spoof_public_ip
-            # is not set in config.
-            ip = self._spoof_ip or "98.245.112.43"
-
-            # ipinfo.io — returns detailed JSON including ISP/org.
-            # Malware often checks the 'org' field for datacenter/hosting ASNs
-            # to detect sandboxes; we return a realistic residential ISP.
-            if host == "ipinfo.io":
-                body = (
-                    f'{{"ip":"{ip}",'
-                    f'"city":"Columbus","region":"Ohio","country":"US",'
-                    f'"loc":"39.9612,-82.9988",'
-                    f'"org":"AS7922 Comcast Cable Communications, LLC",'
-                    f'"postal":"43215","timezone":"America/New_York"}}\n'
-                ).encode()
-                content_type = "application/json"
-            # ip-api.com — handle /line/, /csv/, and /json/ endpoints.
-            # AgentTesla and other stealers use GET /line/?fields=hosting to
-            # detect sandbox/datacenter IPs via a plain-text response.
-            # The /line/ endpoint returns one value per requested field,
-            # newline-separated, as text/plain — NOT a JSON object.
-            # Must return "false" for hosting; "true" would cause the malware
-            # to abort C2 activation thinking it's in a datacenter/sandbox.
-            elif host == "ip-api.com":
-                # Normalise the path component so we match both /line/ and
-                # /line?...  (no trailing slash) — some malware omits the
-                # slash and the check must not fall through to the JSON branch,
-                # which would return a JSON body that gets parsed as "true".
-                _path_base = path.split("?")[0].rstrip("/")
-                if _path_base == "/line" or _path_base.startswith("/line/"):
-                    # Parse requested fields from query string
-                    # e.g. ?fields=hosting  or  ?fields=hosting,isp,country
-                    _qs = parse_qs(urlparse(path).query)
-                    _fields = [f.strip() for f in _qs.get("fields", ["query"])[0].split(",")]
-                    _field_map = {
-                        "status": "success",
-                        "country": "United States",
-                        "countryCode": "US",
-                        "region": "OH",
-                        "regionName": "Ohio",
-                        "city": "Columbus",
-                        "zip": "43215",
-                        "lat": "39.9612",
-                        "lon": "-82.9988",
-                        "timezone": "America/New_York",
-                        "isp": "Comcast Cable Communications",
-                        "org": "Comcast Cable Communications",
-                        "as": "AS7922 Comcast Cable Communications, LLC",
-                        "hosting": "false",
-                        "proxy": "false",
-                        "mobile": "false",
-                        "query": ip,
-                    }
-                    body = "\n".join(_field_map.get(f, "") for f in _fields).encode() + b"\n"
-                    content_type = "text/plain; charset=utf-8"
-                elif (_path_base == "/csv" or _path_base.startswith("/csv/") or "fields=csv" in path):
-                    _csv = (
-                        f"success,United States,US,OH,Ohio,Columbus,43215,"
-                        f"39.9612,-82.9988,America/New_York,"
-                        f"Comcast Cable Communications,"
-                        f"Comcast Cable Communications,"
-                        f"AS7922 Comcast Cable Communications LLC,"
-                        f"false,false,false,{ip}\n"
-                    )
-                    body = _csv.encode()
-                    content_type = "text/csv"
-                else:
-                    body = (
-                        f'{{"status":"success","country":"United States",'
-                        f'"countryCode":"US","region":"OH","regionName":"Ohio",'
-                        f'"city":"Columbus","zip":"43215",'
-                        f'"lat":39.9612,"lon":-82.9988,'
-                        f'"timezone":"America/New_York",'
-                        f'"isp":"Comcast Cable Communications",'
-                        f'"org":"Comcast Cable Communications",'
-                        f'"as":"AS7922 Comcast Cable Communications, LLC",'
-                        f'"hosting":false,"proxy":false,"mobile":false,'
-                        f'"query":"{ip}"}}\n'
-                    ).encode()
-                    content_type = "application/json"
-            # httpbin.org/ip uses {"origin": "..."}
-            elif host == "httpbin.org":
-                body = f'{{"origin":"{ip}"}}\n'.encode()
-                content_type = "application/json"
-            # ipify ?format=json or URL ending in /json
-            elif "format=json" in path or path.rstrip("/").endswith("/json"):
-                body = f'{{"ip":"{ip}"}}\n'.encode()
-                content_type = "application/json"
-            # checkip.amazonaws.com wraps the IP in an HTML page.
-            # Many .NET stealers call this endpoint and parse the HTML body;
-            # returning plain text causes their regex to fail and they may
-            # retry via an alternate IP-check service, revealing the sandbox.
-            elif host == "checkip.amazonaws.com":
-                body = (
-                    f"<html><head><title>Current IP Check</title></head>"
-                    f"<body>Current IP Address: {ip}</body></html>\n"
-                ).encode()
-                content_type = "text/html"
-            else:
-                body = f"{ip}\n".encode()
-                content_type = "text/plain"
-            if self._log_requests:
-                safe_addr = sanitize_ip(self.client_address[0])
-                logger.info(
-                    f"HTTP  IP-CHECK {sanitize_log_string(host)}"
-                    f"{sanitize_log_string(path, 128)} "
-                    f"from {safe_addr} \u2192 spoofed {ip}"
-                )
-            try:
-                self.send_response(200)
-                self.send_header("Content-Type", content_type)
-                self.send_header("Content-Length", str(len(body)))
-                # ip-api.com runs nginx; sending Apache here is a detectable
-                # fingerprint. Override for ip-api.com and add the standard
-                # CORS + rate-limit headers the real API always includes.
-                if host == "ip-api.com":
-                    self.send_header("Server", "nginx")
-                    self.send_header("Access-Control-Allow-Origin", "*")
-                    self.send_header("X-Ttl", "60")
-                    self.send_header("X-Rl", "44")
-                else:
-                    self.send_header("Server", self._server_header)
-                self.send_header("Connection", "keep-alive")
-                self.end_headers()
-                if self.command != "HEAD":
-                    self.wfile.write(body)
-            except (BrokenPipeError, ConnectionResetError):
-                pass
-
-        def _send_captive_portal_response(self, host: str) -> bool:
-            """Handle OS-level captive portal and connectivity checks.
-
-            Google / Android / ChromeOS: GET /generate_204 → 204 No Content
-            Apple macOS / iOS: specific paths → 200 with exact success payload
-
-            Returns True if the request was handled, False to fall through to
-            the normal response handler (unrecognised paths on these hosts).
-            """
-            path = (self.path or "/").split("?")[0]
-
-            # Google / Android / ChromeOS connectivity probe
-            if path == "/generate_204":
-                if self._log_requests:
-                    safe_addr = sanitize_ip(self.client_address[0])
-                    logger.info(
-                        f"HTTP  CAPTIVE generate_204 from {safe_addr}"
-                    )
-                try:
-                    self.send_response(204)
-                    self.send_header("Content-Length", "0")
-                    # Real Google response uses GFE server header
-                    self.send_header("Server", "GFE/2.0")
-                    self.send_header("Connection", "keep-alive")
-                    self.end_headers()
-                except (BrokenPipeError, ConnectionResetError):
-                    pass
-                return True
-
-            # Apple captive portal / hotspot detection
-            if host in ("captive.apple.com", "www.apple.com"):
-                if "/hotspot-detect.html" in path or "/library/test/success.html" in path:
-                    # Exact byte-for-byte match of what Apple’s captive portal
-                    # servers return — iOS/macOS will not show “Connected”
-                    # without this precise body.
-                    body = b"<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>"
-                    if self._log_requests:
-                        safe_addr = sanitize_ip(self.client_address[0])
-                        logger.info(
-                            f"HTTP  CAPTIVE apple {sanitize_log_string(path, 64)}"
-                            f" from {safe_addr}"
-                        )
-                    try:
-                        self.send_response(200)
-                        self.send_header("Content-Type", "text/html")
-                        self.send_header("Content-Length", str(len(body)))
-                        # Apple’s hotspot pages are served via Akamai CDN
-                        self.send_header("Server", "AkamaiGHost")
-                        self.send_header("Connection", "keep-alive")
-                        self.end_headers()
-                        if self.command != "HEAD":
-                            self.wfile.write(body)
-                    except (BrokenPipeError, ConnectionResetError):
-                        pass
-                    return True
-
-            return False  # fall through to normal handler
-
-        def _send_ncsi_response(self, host: str):
-            """Return the exact response Windows NCSI expects.
-
-            Windows polls these hosts to determine whether to show the
-            'Internet access' indicator. When the response body matches
-            exactly, Windows reports full connectivity — which prevents
-            certain malware from stalling in a 'no network' idle loop.
-            """
-            path = (self.path or "/").split("?")[0]
-            # www.msftconnecttest.com/redirect should return HTTP 302 → HTTPS.
-            # Returning 200+body here triggers mismatches in NCSI validator
-            # tools and is a detectable fingerprint for savvy malware.
-            if path == "/redirect":
-                if self._log_requests:
-                    safe_addr = sanitize_ip(self.client_address[0])
-                    logger.info(
-                        f"HTTP  NCSI {sanitize_log_string(host)}/redirect "
-                        f"from {safe_addr} \u2192 302"
-                    )
-                try:
-                    self.send_response(302)
-                    self.send_header("Location", f"https://{host}/redirect")
-                    self.send_header("Content-Length", "0")
-                    self.send_header("Server", self._server_header)
-                    self.send_header("Connection", "close")
-                    self.end_headers()
-                except (BrokenPipeError, ConnectionResetError):
-                    pass
-                return
-            body = _NCSI_RESPONSES.get(host, b"Microsoft Connect Test")
-            if self._log_requests:
-                safe_addr = sanitize_ip(self.client_address[0])
-                logger.info(
-                    f"HTTP  NCSI {sanitize_log_string(host)} "
-                    f"from {safe_addr} \u2192 {body.decode()}"
-                )
-            try:
-                self.send_response(200)
-                self.send_header("Content-Type", "text/plain")
-                self.send_header("Content-Length", str(len(body)))
-                self.send_header("Server", self._server_header)
-                self.send_header("Connection", "keep-alive")
-                self.end_headers()
-                if self.command != "HEAD":
-                    self.wfile.write(body)
-            except (BrokenPipeError, ConnectionResetError):
-                pass
-
-        def _send_pki_response(self, host: str):
-            """Return stub CRL/OCSP/CTL binary responses for Windows PKI hosts.
-
-            Windows CryptoAPI fetches CRLs, OCSP responses, and CTLs over HTTP
-            during every HTTPS cert validation.  Returning HTML (our default
-            response) breaks validation.  We return the correct content-type
-            with a minimal valid binary stub.
-            """
-            path = (self.path or "/").lower()
-            if self._log_requests:
-                safe_addr = sanitize_ip(self.client_address[0])
-                logger.info(
-                    f"HTTP  PKI {sanitize_log_string(host)}{sanitize_log_string(path, 128)} "
-                    f"from {safe_addr}"
-                )
-            # Determine response type from path/host
-            if "ocsp" in host or "/ocsp" in path:
-                body = _STUB_OCSP_RESPONSE
-                content_type = "application/ocsp-response"
-            elif path.endswith(".crl") or "crl" in host:
-                body = _get_stub_crl()
-                content_type = "application/pkix-crl"
-            elif path.endswith(".crt") or path.endswith(".cer") or "cacerts" in host:
-                # CA cert download — return an empty 404 rather than HTML.
-                # Windows treats a missing issuer cert as soft-fail.
-                try:
-                    self.send_response(404)
-                    self.send_header("Content-Length", "0")
-                    self.send_header("Server", self._server_header)
-                    self.send_header("Connection", "keep-alive")
-                    self.end_headers()
-                except (BrokenPipeError, ConnectionResetError):
-                    pass
-                return
-            elif "ctldl" in host or path.endswith(".stl") or path.endswith(".cab"):
-                # Certificate Trust List — return empty cab-like response
-                body = b""
-                content_type = "application/octet-stream"
-            else:
-                # Generic PKI host — return empty binary
-                body = b""
-                content_type = "application/octet-stream"
-            try:
-                self.send_response(200)
-                self.send_header("Content-Type", content_type)
-                self.send_header("Content-Length", str(len(body)))
-                self.send_header("Server", self._server_header)
-                self.send_header("Connection", "keep-alive")
-                self.end_headers()
-                if self.command != "HEAD":
-                    self.wfile.write(body)
-            except (BrokenPipeError, ConnectionResetError):
-                pass
-
-        def _handle_doh_request(self):
-            """Handle a DNS-over-HTTPS (DoH) request and return a DNS response."""
+    def _handle_generate_204(self) -> None:
+        """Google / Android / ChromeOS connectivity probe: 204 No Content."""
+        if self._cfg.log_requests:
             safe_addr = sanitize_ip(self.client_address[0])
-            path = self.path or "/"
-            if self.command == "GET":
-                response_data = handle_doh_get(path, self._doh_redirect_ip)
-            else:
-                content_length = int(self.headers.get("Content-Length", 0))
-                body = self.rfile.read(content_length) if content_length > 0 else b""
-                response_data = handle_doh_post(body, self._doh_redirect_ip)
+            logger.info("HTTP  CAPTIVE generate_204 from %s", safe_addr)
+        try:
+            self.send_response(204)
+            self.send_header("Content-Length", "0")
+            self.send_header("Server", "GFE/2.0")
+            self.send_header("Connection", "keep-alive")
+            self.end_headers()
+        except OSError:
+            pass
 
-            if response_data:
-                if self._log_requests:
-                    logger.info(f"DoH   request from {safe_addr} -> sinkholed")
-                jl = get_json_logger()
-                if jl:
-                    jl.log("doh_request", src_ip=self.client_address[0],
-                           method=self.command or "", path=self.path or "/")
-                try:
-                    self.send_response(200)
-                    self.send_header("Content-Type", DOH_CONTENT_TYPE)
-                    self.send_header("Content-Length", str(len(response_data)))
-                    self.send_header("Cache-Control", "no-cache")
-                    self.send_header("Server", self._server_header)
-                    self.end_headers()
-                    self.wfile.write(response_data)
-                except (BrokenPipeError, ConnectionResetError):
-                    pass
-            else:
-                # Couldn't parse DoH — fall through to normal response
-                self._send_normal_response()
-
-        def _handle_websocket_upgrade(self):
-            """Complete a WebSocket handshake then send a close frame."""
+    def _handle_apple_captive(self, path: str) -> bool:
+        """Apple captive portal / hotspot detection; returns True if handled."""
+        if "/hotspot-detect.html" not in path and "/library/test/success.html" not in path:
+            return False
+        body = b"<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>"
+        if self._cfg.log_requests:
             safe_addr = sanitize_ip(self.client_address[0])
-            ws_key = self.headers.get("Sec-WebSocket-Key", "")
-            if not ws_key:
-                self._send_normal_response()
-                return
+            logger.info(
+                "HTTP  CAPTIVE apple %s from %s",
+                sanitize_log_string(path, 64), safe_addr,
+            )
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Server", "AkamaiGHost")
+            self.send_header("Connection", "keep-alive")
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(body)
+        except OSError:
+            pass
+        return True
 
-            if self._log_requests:
-                safe_path = sanitize_log_string(self.path or "/", 256)
+    def _send_captive_portal_response(self, host: str) -> bool:
+        """Handle OS-level captive portal and connectivity checks.
+
+        Returns True if the request was handled, False to fall through.
+        """
+        path = (self.path or "/").split("?")[0]
+
+        if path == "/generate_204":
+            self._handle_generate_204()
+            return True
+
+        if host in ("captive.apple.com", "www.apple.com"):
+            return self._handle_apple_captive(path)
+
+        return False
+    def _send_ncsi_response(self, host: str):
+        """Return the exact response Windows NCSI expects.
+
+        Windows polls these hosts to determine whether to show the
+        'Internet access' indicator. When the response body matches
+        exactly, Windows reports full connectivity â€” which prevents
+        certain malware from stalling in a 'no network' idle loop.
+        """
+        path = (self.path or "/").split("?")[0]
+        # www.msftconnecttest.com/redirect should return HTTP 302 â†’ HTTPS.
+        # Returning 200+body here triggers mismatches in NCSI validator
+        # tools and is a detectable fingerprint for savvy malware.
+        if path == "/redirect":
+            if self._cfg.log_requests:
+                safe_addr = sanitize_ip(self.client_address[0])
                 logger.info(
-                    f"WS    WebSocket upgrade from {safe_addr} "
-                    f"path={safe_path} -> sinkholed"
+                    f"HTTP  NCSI {sanitize_log_string(host)}/redirect "
+                    f"from {safe_addr} \u2192 302"
                 )
+            try:
+                self.send_response(302)
+                self.send_header("Location", f"https://{host}/redirect")
+                self.send_header("Content-Length", "0")
+                self.send_header("Server", self._cfg.server_header)
+                self.send_header("Connection", "close")
+                self.end_headers()
+            except OSError:
+                pass
+            return
+        body = _NCSI_RESPONSES.get(host, b"Microsoft Connect Test")
+        if self._cfg.log_requests:
+            safe_addr = sanitize_ip(self.client_address[0])
+            logger.info(
+                f"HTTP  NCSI {sanitize_log_string(host)} "
+                f"from {safe_addr} \u2192 {body.decode()}"
+            )
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Server", self._cfg.server_header)
+            self.send_header("Connection", "keep-alive")
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(body)
+        except OSError:
+            pass
+
+    def _send_pki_response(self, host: str):
+        """Return stub CRL/OCSP/CTL binary responses for Windows PKI hosts."""
+        path = self.path or "/"
+        if self._cfg.log_requests:
+            safe_addr = sanitize_ip(self.client_address[0])
+            logger.info(
+                f"HTTP  PKI {sanitize_log_string(host)}{sanitize_log_string(path, 128)} "
+                f"from {safe_addr}"
+            )
+        status, body, content_type = _resolve_pki_response(host, path)
+        try:
+            self.send_response(status)
+            if content_type:
+                self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Server", self._cfg.server_header)
+            self.send_header("Connection", "keep-alive")
+            self.end_headers()
+            if self.command != "HEAD" and body:
+                self.wfile.write(body)
+        except OSError:
+            pass
+
+    def _handle_doh_request(self):
+        """Handle a DNS-over-HTTPS (DoH) request and return a DNS response."""
+        safe_addr = sanitize_ip(self.client_address[0])
+        path = self.path or "/"
+        if self.command == "GET":
+            response_data = handle_doh_get(path, self._cfg.doh_redirect_ip)
+        else:
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length) if content_length > 0 else b""
+            response_data = handle_doh_post(body, self._cfg.doh_redirect_ip)
+
+        if response_data:
+            if self._cfg.log_requests:
+                logger.info("DoH   request from %s -> sinkholed", safe_addr)
             jl = get_json_logger()
             if jl:
-                jl.log("websocket_upgrade", src_ip=self.client_address[0],
-                       path=self.path or "/")
-
+                jl.log("doh_request", src_ip=self.client_address[0],
+                       method=self.command or "", path=self.path or "/")
             try:
-                # Send 101 Switching Protocols
-                handshake = build_websocket_handshake_response(ws_key)
-                self.wfile.write(handshake)
-                self.wfile.flush()
-
-                # Drain up to 4KB of incoming WebSocket frames (log preview)
-                readable, _, _ = select.select([self.rfile], [], [], 2.0)
-                if readable:
-                    try:
-                        data = self.rfile.read1(4096) if hasattr(self.rfile, 'read1') else self.rfile.read(4096)
-                        if data and self._log_requests:
-                            preview = sanitize_log_string(
-                                data[:64].hex(), 128
-                            )
-                            logger.debug(f"WS    received frame preview: {preview}")
-                    except Exception:
-                        pass
-
-                # Send close frame
-                close_frame = build_websocket_close_frame(1000, "sinkholed")
-                self.wfile.write(close_frame)
-                self.wfile.flush()
-            except (BrokenPipeError, ConnectionResetError, OSError):
+                self.send_response(200)
+                self.send_header("Content-Type", DOH_CONTENT_TYPE)
+                self.send_header("Content-Length", str(len(response_data)))
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Server", self._cfg.server_header)
+                self.end_headers()
+                self.wfile.write(response_data)
+            except OSError:
                 pass
-
-        def _send_fake_response(self):
-            # Compute host early so we can skip delay for probe requests.
-            # NCSI / PKI / captive-portal probes have strict timing expectations
-            # and must never be held up by artificial latency.
-            host = self.headers.get("Host", "").split(":")[0].strip().lower()
-
-            # Optional artificial delay with jitter (simulates realistic
-            # network latency, defeats timing-based sandbox detection).
-            # Skipped for OS connectivity probes that expect near-instant replies.
-            _probe_host = host in _NCSI_HOSTS or host in _PKI_HOSTS or host in _CAPTIVE_PORTAL_HOSTS
-            if self._delay_ms > 0 and not _probe_host:
-                jitter = self._delay_jitter_ms
-                actual = (
-                    self._delay_ms + random.randint(-jitter, jitter)  # noqa: S311  # nosec B311
-                    if jitter > 0
-                    else self._delay_ms
-                )
-                time.sleep(max(0, actual) / 1000.0)
-
-            # --- DNS over HTTPS (DoH) interception ---
-            if self._doh_enabled:
-                ct = self.headers.get("Content-Type", "")
-                if is_doh_request(ct, self.path):
-                    self._handle_doh_request()
-                    return
-
-            # --- WebSocket sinkhole ---
-            if self._websocket_sinkhole:
-                hdrs = {k: self.headers.get(k, "") for k in ("Connection", "Upgrade", "Sec-WebSocket-Key")}
-                if is_websocket_upgrade(hdrs):
-                    self._handle_websocket_upgrade()
-                    return
-
-            # Windows NCSI: must respond correctly regardless of spoof_ip setting
-            if host in _NCSI_HOSTS:  # host already computed above
-                self._send_ncsi_response(host)
-                return
-
-            # Google / Android / Apple captive portal connectivity checks
-            if host in _CAPTIVE_PORTAL_HOSTS:
-                if self._send_captive_portal_response(host):
-                    return
-
-            # Windows PKI: CRL, OCSP, CTL downloads — return binary stubs
-            if host in _PKI_HOSTS:
-                self._send_pki_response(host)
-                return
-
-            # IP-check service handler: always intercept well-known IP-check
-            # hostnames regardless of whether spoof_public_ip is configured.
-            # If it isn't set, fall back to a plausible residential IP so that
-            # the response still contains "hosting":false / proxy:false — the
-            # field AgentTesla and similar stealers actually check to detect
-            # sandbox/datacenter environments.  Returning the NotTheNet HTML
-            # page here causes these parsers to fail entirely and may cause the
-            # malware to default to assuming hosting=true (sandbox detected).
-            #
-            # Also intercept requests where Host: is one of our DNS pool IPs
-            # (e.g. 142.250.80.2) — malware resolves ip-api.com to a pool IP
-            # then connects directly to that IP, so the Host header is the IP
-            # rather than the hostname.
-            if host in _IP_CHECK_HOSTS or host in self._pool_ips:
-                self._send_ip_check_response(host)
-                return
+        else:
+            # Couldn't parse DoH â€” fall through to normal response
             self._send_normal_response()
 
-        def _send_normal_response(self):
-            if self._log_requests:
-                safe_path = sanitize_log_string(self.path, max_length=256)
-                safe_addr = sanitize_ip(self.client_address[0])
-                logger.info(
-                    f"HTTP  {sanitize_log_string(self.command)} {safe_path} "
-                    f"from {safe_addr}"
-                )
+    def _handle_websocket_upgrade(self):
+        """Complete a WebSocket handshake then send a close frame."""
+        safe_addr = sanitize_ip(self.client_address[0])
+        ws_key = self.headers.get("Sec-WebSocket-Key", "")
+        if not ws_key:
+            self._send_normal_response()
+            return
 
-            # Structured JSON logging
-            jl = get_json_logger()
-            if jl:
-                jl.log("http_request",
-                       method=self.command or "",
-                       path=self.path or "/",
-                       src_ip=self.client_address[0],
-                       host=self.headers.get("Host", ""),
-                       user_agent=self.headers.get("User-Agent", ""),
-                       content_type=self.headers.get("Content-Type", ""))
+        if self._cfg.log_requests:
+            safe_path = sanitize_log_string(self.path or "/", 256)
+            logger.info(
+                f"WS    WebSocket upgrade from {safe_addr} "
+                f"path={safe_path} -> sinkholed"
+            )
+        jl = get_json_logger()
+        if jl:
+            jl.log("websocket_upgrade", src_ip=self.client_address[0],
+                   path=self.path or "/")
 
-            # --- Dynamic response: match path to MIME type + stub body ---
-            if self._dynamic_responses:
-                content_type, body = resolve_dynamic_response(
-                    self.path or "/",
-                    custom_rules=self._custom_rules,
-                    fallback_body=self._response_body,
-                )
-            else:
-                content_type = "text/html; charset=utf-8"
-                body = self._response_body
+        try:
+            # Send 101 Switching Protocols
+            handshake = build_websocket_handshake_response(ws_key)
+            self.wfile.write(handshake)
+            self.wfile.flush()
 
-            try:
-                self.send_response(self._response_code)
-                self.send_header("Content-Type", content_type)
-                self.send_header("Content-Length", str(len(body)))
-                self.send_header("Server", self._server_header)
-                self.send_header("Accept-Ranges", "bytes")
-                self.send_header("Vary", "Accept-Encoding")
-                # ETag varies per path — a single static value for every URL is
-                # a detectable fingerprint (real servers use inode/mtime/size).
-                _path_etag = hashlib.md5(  # noqa: S324  # nosec B324 — not crypto
-                    (self.path or "/").encode(), usedforsecurity=False
-                ).hexdigest()[:13]
-                self.send_header("ETag", f'"3a4b1c-{_path_etag}"')
-                self.send_header("Last-Modified", _SERVER_LAST_MODIFIED)
-                self.send_header("Connection", "keep-alive")
-                self.end_headers()
-                # HEAD requests MUST NOT include a message body (RFC 7231 §4.3.2).
-                # send_response() / send_header() still ran, so headers are correct.
-                if self.command != "HEAD":
-                    self.wfile.write(body)
-            except (BrokenPipeError, ConnectionResetError):
-                pass  # Client disconnected — normal for malware scanners
+            # Drain up to 4KB of incoming WebSocket frames (log preview)
+            readable, _, _ = select.select([self.rfile], [], [], 2.0)
+            if readable:
+                try:
+                    data = self.rfile.read1(4096) if hasattr(self.rfile, 'read1') else self.rfile.read(4096)
+                    if data and self._cfg.log_requests:
+                        preview = sanitize_log_string(
+                            data[:64].hex(), 128
+                        )
+                        logger.debug("WS    received frame preview: %s", preview)
+                except Exception:
+                    logger.debug("WebSocket frame recv failed", exc_info=True)
 
-        def _send_connect_response(self):
-            """Handle HTTP CONNECT tunnel request.
+            # Send close frame
+            close_frame = build_websocket_close_frame(1000, "sinkholed")
+            self.wfile.write(close_frame)
+            self.wfile.flush()
+        except OSError:
+            pass
 
-            Malware configured to route traffic via an HTTP proxy sends
-            CONNECT to tunnel to its C2 (typically port 443).  Returning
-            a proper 200 response — rather than an HTML page — lets the
-            malware believe the tunnel was established; the subsequent TLS
-            handshake fails (no real upstream), but the connection is logged
-            and the client closes cleanly instead of seeing garbled HTML.
-            """
-            safe_addr = sanitize_ip(self.client_address[0])
-            target = sanitize_log_string(self.path or "", 256)
-            if self._log_requests:
-                logger.info(f"HTTP  CONNECT {target} from {safe_addr} \u2192 tunnelled")
-            jl = get_json_logger()
-            if jl:
-                jl.log("http_connect", src_ip=self.client_address[0],
-                       target=self.path or "")
-            try:
-                self.wfile.write(
-                    f"{self.protocol_version} 200 Connection established\r\n\r\n".encode()
-                )
-                self.wfile.flush()
-                # Drain the incoming stream (TLS handshake bytes, app data, etc.)
-                # until the client closes the connection.
-                self.request.settimeout(30)
-                while self.request.recv(4096):
-                    pass
-            except (BrokenPipeError, ConnectionResetError, OSError):
-                pass
+    # â”€â”€ Route registry â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # Each entry: (predicate(self, host) -> bool, handler(self, host) -> bool|None).
+    # Handler returns True (or None) if it consumed the request, False to
+    # fall through. Evaluated in priority order; first match wins.
+    _ROUTES: list[tuple] = []  # populated after class body
 
-        # Respond identically to most methods; CONNECT is special-cased because
-        # it must not return headers/body in the normal HTTP sense.
-        do_GET = do_POST = do_PUT = do_DELETE = do_HEAD = \
-            do_OPTIONS = do_PATCH = do_TRACE = _send_fake_response
-        do_CONNECT = _send_connect_response
+    def _route_doh(self, _host: str):
+        ct = self.headers.get("Content-Type", "")
+        if is_doh_request(ct, self.path):
+            self._handle_doh_request()
+            return True
+        return False
 
-        # First line of the HTTP/2 client connection preface (RFC 7540 §3.5).
-        _HTTP2_PREFACE_LINE = b"PRI * HTTP/2.0"
+    def _route_websocket(self, _host: str):
+        hdrs = {k: self.headers.get(k, "") for k in ("Connection", "Upgrade", "Sec-WebSocket-Key")}
+        if is_websocket_upgrade(hdrs):
+            self._handle_websocket_upgrade()
+            return True
+        return False
 
-        def _handle_http2_goaway(self):
-            """
-            Respond to an HTTP/2 connection preface with a server SETTINGS
-            frame followed by GOAWAY(HTTP_1_1_REQUIRED).
+    def _route_ncsi(self, host: str):
+        self._send_ncsi_response(host)
+        return True
 
-            RFC 7540 §3.5  — the server sends its own connection preface
-                             (a SETTINGS frame) before any other frame.
-            RFC 7540 §6.8  — GOAWAY carries the last processed stream ID
-                             and an error code.
-            Error 0x0D (HTTP_1_1_REQUIRED) tells the client to retry the
-            request using HTTP/1.1 rather than h2.  Well-behaved HTTP/2
-            clients will reconnect and fall back to http/1.1 via ALPN.
-            """
-            try:
-                # The first readline() consumed "PRI * HTTP/2.0\r\n" (16 bytes).
-                # The remaining preface bytes are "\r\nSM\r\n\r\n" = 8 bytes.
-                self.rfile.read(8)
-            except OSError:
+    def _route_captive(self, host: str):
+        return self._send_captive_portal_response(host)
+
+    def _route_pki(self, host: str):
+        self._send_pki_response(host)
+        return True
+
+    def _route_ip_check(self, host: str):
+        self._send_ip_check_response(host)
+        return True
+
+    def _send_fake_response(self):
+        host = self.headers.get("Host", "").split(":")[0].strip().lower()
+
+        # Skip artificial delay for OS connectivity probes.
+        _probe_host = host in _NCSI_HOSTS or host in _PKI_HOSTS or host in _CAPTIVE_PORTAL_HOSTS
+        if self._cfg.delay_ms > 0 and not _probe_host:
+            jitter = self._cfg.delay_jitter_ms
+            actual = (
+                self._cfg.delay_ms + random.randint(-jitter, jitter)  # noqa: S311  # nosec B311
+                if jitter > 0
+                else self._cfg.delay_ms
+            )
+            time.sleep(max(0, actual) / 1000.0)
+
+        # Iterate the route registry; first matching handler wins.
+        for predicate, handler in self._ROUTES:
+            if predicate(self, host) and handler(self, host):
                 return
-            try:
-                # Empty SETTINGS frame — server connection preface (RFC 7540 §6.5)
-                settings_frame = (
-                    b"\x00\x00\x00"       # payload length = 0
-                    b"\x04"               # frame type = SETTINGS
-                    b"\x00"               # flags = 0
-                    b"\x00\x00\x00\x00"  # stream ID = 0
-                )
-                # GOAWAY: last_stream_id=0, error=HTTP_1_1_REQUIRED (0x0D)
-                goaway_frame = (
-                    b"\x00\x00\x08"       # payload length = 8
-                    b"\x07"               # frame type = GOAWAY
-                    b"\x00"               # flags = 0
-                    b"\x00\x00\x00\x00"  # stream ID = 0
-                    b"\x00\x00\x00\x00"  # last stream ID = 0
-                    b"\x00\x00\x00\x0d"  # error = HTTP_1_1_REQUIRED
-                )
-                self.wfile.write(settings_frame + goaway_frame)
-                self.wfile.flush()
-            except (BrokenPipeError, ConnectionResetError, OSError):
-                pass
+        self._send_normal_response()
 
-        def handle_one_request(self):
-            try:
-                # Read the request line ourselves so we can inspect it before
-                # parse_request() sees it — needed for HTTP/2 preface detection.
-                self.raw_requestline = self.rfile.readline(65537)
-                if not self.raw_requestline:
-                    self.close_connection = True
-                    return
-                if len(self.raw_requestline) > 65536:
-                    self.requestline = ""
-                    self.request_version = ""
-                    self.command = ""
-                    self.send_error(414)
-                    self.close_connection = True
-                    return
-                # HTTP/2 connection preface (RFC 7540 §3.5): respond with
-                # SETTINGS + GOAWAY(HTTP_1_1_REQUIRED) and close.
-                if self.raw_requestline.startswith(self._HTTP2_PREFACE_LINE):
-                    safe_addr = sanitize_ip(self.client_address[0])
-                    logger.debug("HTTP2 preface from %s -> GOAWAY(HTTP_1_1_REQUIRED)", safe_addr)
-                    self._handle_http2_goaway()
-                    self.close_connection = True
-                    return
-                if not self.parse_request():
-                    return
-                # Explicit allowlist prevents do___init__ style attribute probing
-                # and gives a clean 501 for genuinely unknown HTTP methods.
-                _KNOWN_METHODS = frozenset({
-                    "GET", "POST", "PUT", "DELETE", "HEAD",
-                    "OPTIONS", "PATCH", "TRACE", "CONNECT",
-                })
-                if self.command not in _KNOWN_METHODS:
-                    self.send_error(501, f"Unsupported method ({self.command!r})")
-                    return
-                mname = "do_" + self.command
-                if not hasattr(self, mname):
-                    self.send_error(501, f"Unsupported method ({self.command!r})")
-                    return
-                getattr(self, mname)()
-                self.wfile.flush()
-            except Exception as e:
-                logger.debug(f"HTTP handler error (benign): {e}")
+    def _send_normal_response(self):
+        if self._cfg.log_requests:
+            safe_path = sanitize_log_string(self.path, max_length=256)
+            safe_addr = sanitize_ip(self.client_address[0])
+            logger.info(
+                "HTTP  %s %s from %s",
+                sanitize_log_string(self.command), safe_path, safe_addr,
+            )
+
+        # Structured JSON logging
+        jl = get_json_logger()
+        if jl:
+            jl.log("http_request",
+                   method=self.command or "",
+                   path=self.path or "/",
+                   src_ip=self.client_address[0],
+                   host=self.headers.get("Host", ""),
+                   user_agent=self.headers.get("User-Agent", ""),
+                   content_type=self.headers.get("Content-Type", ""))
+
+        # --- Dynamic response: match path to MIME type + stub body ---
+        if self._cfg.dynamic_responses:
+            content_type, body = resolve_dynamic_response(
+                self.path or "/",
+                custom_rules=self._cfg.custom_rules,
+                fallback_body=self._cfg.response_body,
+            )
+        else:
+            content_type = "text/html; charset=utf-8"
+            body = self._cfg.response_body
+
+        try:
+            self.send_response(self._cfg.response_code)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Server", self._cfg.server_header)
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Vary", "Accept-Encoding")
+            # ETag varies per path â€” a single static value for every URL is
+            # a detectable fingerprint (real servers use inode/mtime/size).
+            _path_etag = hashlib.md5(  # noqa: S324  # nosec B324 â€” not crypto
+                (self.path or "/").encode(), usedforsecurity=False
+            ).hexdigest()[:13]
+            self.send_header("ETag", f'"3a4b1c-{_path_etag}"')
+            self.send_header("Last-Modified", _SERVER_LAST_MODIFIED)
+            self.send_header("Connection", "keep-alive")
+            self.end_headers()
+            # HEAD requests MUST NOT include a message body (RFC 7231 Â§4.3.2).
+            # send_response() / send_header() still ran, so headers are correct.
+            if self.command != "HEAD":
+                self.wfile.write(body)
+        except OSError:
+            pass  # Client disconnected â€” normal for malware scanners
+
+    def _send_connect_response(self):
+        """Handle HTTP CONNECT tunnel request.
+
+        Malware configured to route traffic via an HTTP proxy sends
+        CONNECT to tunnel to its C2 (typically port 443).  Returning
+        a proper 200 response â€” rather than an HTML page â€” lets the
+        malware believe the tunnel was established; the subsequent TLS
+        handshake fails (no real upstream), but the connection is logged
+        and the client closes cleanly instead of seeing garbled HTML.
+        """
+        safe_addr = sanitize_ip(self.client_address[0])
+        target = sanitize_log_string(self.path or "", 256)
+        if self._cfg.log_requests:
+            logger.info("HTTP  CONNECT %s from %s", target, safe_addr)
+        jl = get_json_logger()
+        if jl:
+            jl.log("http_connect", src_ip=self.client_address[0],
+                   target=self.path or "")
+        try:
+            self.wfile.write(
+                f"{self.protocol_version} 200 Connection established\r\n\r\n".encode()
+            )
+            self.wfile.flush()
+            # Drain the incoming stream (TLS handshake bytes, app data, etc.)
+            # until the client closes the connection.
+            self.request.settimeout(30)
+            while self.request.recv(4096):
+                pass  # drain until client closes
+        except OSError:
+            pass  # client disconnected during CONNECT tunnel drain
+
+    # Respond identically to most methods; CONNECT is special-cased because
+    # it must not return headers/body in the normal HTTP sense.
+    do_GET = do_POST = do_PUT = do_DELETE = do_HEAD = \
+        do_OPTIONS = do_PATCH = do_TRACE = _send_fake_response
+    do_CONNECT = _send_connect_response
+
+    # First line of the HTTP/2 client connection preface (RFC 7540 Â§3.5).
+    _HTTP2_PREFACE_LINE = b"PRI * HTTP/2.0"
+
+    def _handle_http2_goaway(self):
+        """
+        Respond to an HTTP/2 connection preface with a server SETTINGS
+        frame followed by GOAWAY(HTTP_1_1_REQUIRED).
+
+        RFC 7540 Â§3.5  â€” the server sends its own connection preface
+                         (a SETTINGS frame) before any other frame.
+        RFC 7540 Â§6.8  â€” GOAWAY carries the last processed stream ID
+                         and an error code.
+        Error 0x0D (HTTP_1_1_REQUIRED) tells the client to retry the
+        request using HTTP/1.1 rather than h2.  Well-behaved HTTP/2
+        clients will reconnect and fall back to http/1.1 via ALPN.
+        """
+        try:
+            # The first readline() consumed "PRI * HTTP/2.0\r\n" (16 bytes).
+            # The remaining preface bytes are "\r\nSM\r\n\r\n" = 8 bytes.
+            self.rfile.read(8)
+        except OSError:
+            return
+        try:
+            # Empty SETTINGS frame â€” server connection preface (RFC 7540 Â§6.5)
+            settings_frame = (
+                b"\x00\x00\x00"       # payload length: 0
+                b"\x04"               # frame type: SETTINGS
+                b"\x00"               # no flags
+                b"\x00\x00\x00\x00"  # stream ID: 0
+            )
+            # GOAWAY: last_stream_id=0, error=HTTP_1_1_REQUIRED (0x0D)
+            goaway_frame = (
+                b"\x00\x00\x08"       # payload length: 8
+                b"\x07"               # frame type: GOAWAY
+                b"\x00"               # no flags
+                b"\x00\x00\x00\x00"  # stream ID: 0
+                b"\x00\x00\x00\x00"  # last stream ID: 0
+                b"\x00\x00\x00\x0d"  # error code 0x0D (HTTP_1_1_REQUIRED)
+            )
+            self.wfile.write(settings_frame + goaway_frame)
+            self.wfile.flush()
+        except OSError:
+            pass
+
+    def handle_one_request(self):
+        try:
+            # Read the request line ourselves so we can inspect it before
+            # parse_request() sees it â€” needed for HTTP/2 preface detection.
+            self.raw_requestline = self.rfile.readline(65537)
+            if not self.raw_requestline:
                 self.close_connection = True
+                return
+            if len(self.raw_requestline) > 65536:
+                self.requestline = ""
+                self.request_version = ""
+                self.command = ""
+                self.send_error(414)
+                self.close_connection = True
+                return
+            # HTTP/2 connection preface (RFC 7540 Â§3.5): respond with
+            # SETTINGS + GOAWAY(HTTP_1_1_REQUIRED) and close.
+            if self.raw_requestline.startswith(self._HTTP2_PREFACE_LINE):
+                safe_addr = sanitize_ip(self.client_address[0])
+                logger.debug("HTTP2 preface from %s -> GOAWAY(HTTP_1_1_REQUIRED)", safe_addr)
+                self._handle_http2_goaway()
+                self.close_connection = True
+                return
+            if not self.parse_request():
+                return
+            # Explicit allowlist prevents do___init__ style attribute probing
+            # and gives a clean 501 for genuinely unknown HTTP methods.
+            _KNOWN_METHODS = frozenset({
+                "GET", "POST", "PUT", "DELETE", "HEAD",
+                "OPTIONS", "PATCH", "TRACE", "CONNECT",
+            })
+            if self.command not in _KNOWN_METHODS:
+                self.send_error(501, f"Unsupported method ({self.command!r})")
+                return
+            mname = "do_" + self.command
+            if not hasattr(self, mname):
+                self.send_error(501, f"Unsupported method ({self.command!r})")
+                return
+            getattr(self, mname)()
+            self.wfile.flush()
+        except Exception as e:
+            logger.debug("HTTP handler error (benign): %s", e)
+            self.close_connection = True
 
-    return FakeHTTPHandler
+
+# Populate route registry after class body so method refs are valid.
+FakeHTTPHandler._ROUTES = [
+    (lambda s, h: s._cfg.doh_enabled,                           FakeHTTPHandler._route_doh),
+    (lambda s, h: s._cfg.websocket_sinkhole,                    FakeHTTPHandler._route_websocket),
+    (lambda s, h: h in _NCSI_HOSTS,                             FakeHTTPHandler._route_ncsi),
+    (lambda s, h: h in _CAPTIVE_PORTAL_HOSTS,                   FakeHTTPHandler._route_captive),
+    (lambda s, h: h in _PKI_HOSTS,                              FakeHTTPHandler._route_pki),
+    (lambda s, h: h in _IP_CHECK_HOSTS or h in s._cfg.pool_ips, FakeHTTPHandler._route_ip_check),
+]
 
 
 class _ThreadedServer(socketserver.ThreadingTCPServer):
     """TCP server using a bounded thread pool."""
     allow_reuse_address = True
     daemon_threads = True
+    _handler_cfg: _HandlerConfig = _HandlerConfig()
 
     def __init__(self, *args, **kwargs):
         self._pool = ThreadPoolExecutor(max_workers=_MAX_WORKER_THREADS)
@@ -992,7 +988,7 @@ class HTTPService:
         self.bind_ip = bind_ip
         self.response_code = int(config.get("response_code", 200))
         self.response_body = _load_response_body(config)
-        self.server_header = config.get("server_header", "Apache/2.4.51")
+        self.server_header = config.get("server_header", _DEFAULT_SERVER_HEADER)
         self.log_requests = config.get("log_requests", True)
         raw_spoof = str(config.get("spoof_public_ip", "") or "").strip()
         self.spoof_ip = _validate_spoof_ip(raw_spoof, "http")
@@ -1009,7 +1005,7 @@ class HTTPService:
     def start(self) -> bool:
         if not self.enabled:
             return False
-        handler = _make_handler(
+        cfg = _build_handler_config(
             self.response_code, self.response_body,
             self.server_header, self.log_requests,
             spoof_ip=self.spoof_ip, delay_ms=self.delay_ms,
@@ -1021,20 +1017,21 @@ class HTTPService:
             websocket_sinkhole=self.websocket_sinkhole,
         )
         try:
-            self._server = _ThreadedServer((self.bind_ip, self.port), handler)
+            self._server = _ThreadedServer((self.bind_ip, self.port), FakeHTTPHandler)
+            self._server._handler_cfg = cfg
             self._thread = threading.Thread(
                 target=self._server.serve_forever,
                 kwargs={"poll_interval": 2.0},
                 daemon=True,
             )
             self._thread.start()
-            logger.info(f"HTTP service started on {self.bind_ip}:{self.port}")
+            logger.info("HTTP service started on %s:%s", self.bind_ip, self.port)
             return True
         except OSError as e:
-            logger.error(f"HTTP service failed to bind {self.bind_ip}:{self.port}: {e}")
+            logger.error("HTTP service failed to bind %s:%s: %s", self.bind_ip, self.port, e)
             return False
 
-    def stop(self):
+    def stop(self) -> None:
         if self._server:
             try:
                 self._server.socket.shutdown(socket.SHUT_RDWR)
@@ -1061,7 +1058,7 @@ class HTTPSService:
         self.key_file = config.get("key_file", "certs/server.key")
         self.response_code = int(config.get("response_code", 200))
         self.response_body = _load_response_body(config)
-        self.server_header = config.get("server_header", "Apache/2.4.51")
+        self.server_header = config.get("server_header", _DEFAULT_SERVER_HEADER)
         self.log_requests = config.get("log_requests", True)
         raw_spoof = str(config.get("spoof_public_ip", "") or "").strip()
         self.spoof_ip = _validate_spoof_ip(raw_spoof, "https")
@@ -1096,7 +1093,7 @@ class HTTPSService:
             | ssl.OP_SINGLE_ECDH_USE
         )
         ctx.set_ciphers(_SECURE_CIPHERS)
-        # Advertise h2 + http/1.1 via ALPN — matches real Apache 2.4.x ServerHello.
+        # Advertise h2 + http/1.1 via ALPN â€” matches real Apache 2.4.x ServerHello.
         # When h2 is negotiated the handler detects the connection preface and
         # sends GOAWAY(HTTP_1_1_REQUIRED) so the client retries on HTTP/1.1.
         ctx.set_alpn_protocols(["h2", "http/1.1"])
@@ -1116,7 +1113,7 @@ class HTTPSService:
             )
             return False
 
-        handler = _make_handler(
+        cfg = _build_handler_config(
             self.response_code, self.response_body,
             self.server_header, self.log_requests,
             spoof_ip=self.spoof_ip, delay_ms=self.delay_ms,
@@ -1128,7 +1125,8 @@ class HTTPSService:
             websocket_sinkhole=self.websocket_sinkhole,
         )
         try:
-            self._server = _ThreadedServer((self.bind_ip, self.port), handler)
+            self._server = _ThreadedServer((self.bind_ip, self.port), FakeHTTPHandler)
+            self._server._handler_cfg = cfg
             ssl_ctx = self._build_ssl_context()
             if self.dynamic_certs:
                 from utils.cert_utils import DynamicCertCache
@@ -1146,18 +1144,18 @@ class HTTPSService:
             )
             self._thread.start()
             logger.info(
-                f"HTTPS service started on {self.bind_ip}:{self.port} "
-                f"(TLS 1.2+ enforced)"
+                "HTTPS service started on %s:%s (TLS 1.2+ enforced)",
+                self.bind_ip, self.port,
             )
             return True
-        except OSError as e:
-            logger.error(f"HTTPS service failed to bind {self.bind_ip}:{self.port}: {e}")
-            return False
         except ssl.SSLError as e:
-            logger.error(f"HTTPS TLS setup error: {e}")
+            logger.error("HTTPS TLS setup error: %s", e)
+            return False
+        except OSError as e:
+            logger.error("HTTPS service failed to bind %s:%s: %s", self.bind_ip, self.port, e)
             return False
 
-    def stop(self):
+    def stop(self) -> None:
         if self._server:
             try:
                 self._server.socket.shutdown(socket.SHUT_RDWR)

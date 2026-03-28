@@ -10,20 +10,20 @@ import json
 import logging
 import os
 import threading
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+_BASE_DIR = Path(__file__).resolve().parent
+DEFAULT_CONFIG_PATH = str(_BASE_DIR / "config.json")
 
 
 class Config:
     """Manages NotTheNet configuration with load/save/get/set support."""
 
     # Path to the repo-shipped config.json (used as the canonical defaults).
-    _REPO_DEFAULT_PATH = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "config.json"
-    )
+    _REPO_DEFAULT_PATH = str(_BASE_DIR / "config.json")
 
     def __init__(self, config_path: str = DEFAULT_CONFIG_PATH):
         self.config_path = config_path
@@ -41,16 +41,16 @@ class Config:
         """Load configuration from a JSON file."""
         target = path or self.config_path
         try:
-            with open(target) as f:
+            with open(target, encoding="utf-8") as f:
                 self._data = json.load(f)
-            logger.debug(f"Config loaded from {target}")
+            logger.debug("Config loaded from %s", target)
             return True
         except FileNotFoundError:
-            logger.warning(f"Config file not found at {target}, using empty config.")
+            logger.warning("Config file not found at %s, using empty config.", target)
             self._data = {}
             return False
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse config file: {e}")
+            logger.error("Failed to parse config file: %s", e)
             self._data = {}
             return False
 
@@ -61,13 +61,13 @@ class Config:
             with self._write_lock:
                 snapshot = copy.deepcopy(self._data)
                 tmp = target + ".tmp"
-                with open(tmp, "w") as f:
+                with open(tmp, "w", encoding="utf-8") as f:
                     json.dump(snapshot, f, indent=2)
                 os.replace(tmp, target)  # atomic on POSIX; near-atomic on Windows
-            logger.debug(f"Config saved to {target}")
+            logger.debug("Config saved to %s", target)
             return True
         except Exception as e:
-            logger.error(f"Failed to save config: {e}")
+            logger.error("Failed to save config: %s", e)
             return False
 
     def get(self, section: str, key: str, fallback=None):
@@ -113,7 +113,7 @@ class Config:
             return  # nothing loaded — don't inject defaults into an empty config
 
         try:
-            with open(self._REPO_DEFAULT_PATH) as f:
+            with open(self._REPO_DEFAULT_PATH, encoding="utf-8") as f:
                 defaults = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             return  # nothing to merge from

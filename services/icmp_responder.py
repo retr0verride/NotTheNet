@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 _ICMP_ECHO_REQUEST = 8
 _MIN_IP_HDR        = 20
 _MIN_ICMP_HDR      = 8
-_LOG_INTERVAL      = 5.0  # seconds between repeated log entries for the same src→dst pair
+_LOG_INTERVAL      = 5.0  # seconds between repeated log entries for the same srcâ†’dst pair
 
 
 class ICMPResponder:
@@ -47,6 +47,7 @@ class ICMPResponder:
         self._sock: Optional[socket.socket] = None
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
+        self._lock = threading.Lock()
         self._last_logged: dict[tuple[str, str], float] = {}
 
     def start(self) -> bool:
@@ -74,7 +75,7 @@ class ICMPResponder:
         logger.info("ICMP echo responder started (raw socket, kernel replies)")
         return True
 
-    def stop(self):
+    def stop(self) -> None:
         self._stop.set()
         if self._sock:
             try:
@@ -86,7 +87,36 @@ class ICMPResponder:
             self._thread.join(timeout=2)
             self._thread = None
 
-    def _run(self):
+    @staticmethod
+    def _parse_echo_request(raw: bytes, addr: tuple) -> "tuple[str, str] | None":
+        """Validate IP+ICMP headers and extract (src_ip, dst_ip) or None."""
+        if len(raw) < _MIN_IP_HDR:
+            return None
+        ip_hdr_len = (raw[0] & 0x0F) * 4
+        if ip_hdr_len < _MIN_IP_HDR or len(raw) < ip_hdr_len + _MIN_ICMP_HDR:
+            return None
+        if raw[ip_hdr_len] != _ICMP_ECHO_REQUEST:
+            return None
+        src_ip = addr[0]
+        dst_ip = socket.inet_ntoa(raw[16:20])
+        return src_ip, dst_ip
+
+    def _should_log(self, key: tuple, now: float) -> bool:
+        """Rate-limit check: returns True if this key should be logged now."""
+        with self._lock:
+            if now - self._last_logged.get(key, 0.0) < _LOG_INTERVAL:
+                return False
+            self._last_logged[key] = now
+            if len(self._last_logged) > 500:
+                stale = [k for k, v in self._last_logged.items()
+                         if now - v >= _LOG_INTERVAL]
+                for k in stale:
+                    del self._last_logged[k]
+        return True
+
+    def _run(self) -> None:
+        assert self._sock is not None
+        jl = get_json_logger()
         while not self._stop.is_set():
             try:
                 raw, addr = self._sock.recvfrom(65535)
@@ -95,41 +125,19 @@ class ICMPResponder:
             except OSError:
                 break
 
-            # Validate IP header length before slicing
-            if len(raw) < _MIN_IP_HDR:
+            result = self._parse_echo_request(raw, addr)
+            if result is None:
                 continue
-            ip_hdr_len = (raw[0] & 0x0F) * 4
-            if ip_hdr_len < _MIN_IP_HDR or len(raw) < ip_hdr_len + _MIN_ICMP_HDR:
-                continue
+            src_ip, dst_ip = result
 
-            icmp = raw[ip_hdr_len:]
-            if icmp[0] != _ICMP_ECHO_REQUEST:
-                continue
-
-            src_ip = addr[0]
-            # Bytes 16-19 of the IP header are the destination address.
-            # After DNAT this will be redirect_ip, which is logged for visibility.
-            dst_ip = socket.inet_ntoa(raw[16:20])
-
-            # Rate-limit: log at most once per _LOG_INTERVAL seconds per src→dst pair
-            # so a continuous ping flood doesn't saturate the GUI log queue.
             now = time.monotonic()
-            key = (src_ip, dst_ip)
-            if now - self._last_logged.get(key, 0.0) < _LOG_INTERVAL:
+            if not self._should_log((src_ip, dst_ip), now):
                 continue
-            self._last_logged[key] = now
-            # Prune stale entries to cap dict growth under many unique sources.
-            if len(self._last_logged) > 500:
-                self._last_logged = {
-                    k: v for k, v in self._last_logged.items()
-                    if now - v < _LOG_INTERVAL
-                }
 
             logger.info(
-                "ICMP ping: %s → %s",
+                "ICMP ping: %s \u2192 %s",
                 sanitize_ip(src_ip),
                 sanitize_ip(dst_ip),
             )
-            jl = get_json_logger()
             if jl:
                 jl.log("icmp_ping", src_ip=src_ip, dst_ip=dst_ip)

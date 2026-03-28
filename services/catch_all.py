@@ -5,9 +5,9 @@ responds with a protocol-aware response to keep malware engaged and
 capture as much of its communication as possible.
 
 Protocol detection (first-byte inspection):
-  - HTTP  → proper HTTP/1.1 200 OK response
-  - TLS   → complete TLS handshake using existing certs, then HTTP 200
-  - Other → generic "200 OK" banner
+  - HTTP  â†’ proper HTTP/1.1 200 OK response
+  - TLS   â†’ complete TLS handshake using existing certs, then HTTP 200
+  - Other â†’ generic "200 OK" banner
 
 Security notes (OpenSSF):
 - Accepts at most MAX_CONNECTIONS simultaneous TCP connections
@@ -33,17 +33,17 @@ from utils.logging_utils import sanitize_ip, sanitize_log_string
 logger = logging.getLogger(__name__)
 
 MAX_CONNECTIONS = 200
-SESSION_TIMEOUT = 10   # seconds — max lifetime of a single catch-all session
+SESSION_TIMEOUT = 10   # seconds â€” max lifetime of a single catch-all session
 PEEK_TIMEOUT    = 0.5  # seconds to wait for initial bytes before sending banner
 LOG_PREVIEW     = 256  # max bytes logged per received chunk (sanitized)
 
-# HTTP request method prefixes — first 4 bytes of a plain-text HTTP request
+# HTTP request method prefixes â€” first 4 bytes of a plain-text HTTP request
 _HTTP_PREFIXES = (
     b"GET ", b"POST", b"PUT ", b"HEAD",
     b"OPTI", b"DELE", b"PATC", b"TRAC", b"CONN",
 )
 
-# Realistic-looking HTTP 200 response — satisfies malware that checks the body
+# Realistic-looking HTTP 200 response â€” satisfies malware that checks the body
 _HTTP_200 = (
     b"HTTP/1.1 200 OK\r\n"
     b"Server: Apache/2.4.57\r\n"
@@ -53,7 +53,7 @@ _HTTP_200 = (
     b"\r\n"
 )
 
-# For unknown protocols, echo nothing protocol-specific — just close.
+# For unknown protocols, echo nothing protocol-specific â€” just close.
 # Sending "200 OK" to a non-HTTP protocol is a detectable anomaly.
 _GENERIC_BANNER = b""
 
@@ -92,7 +92,7 @@ def _build_tls_context(cert_path: str, key_path: str) -> "Optional[ssl.SSLContex
         ctx.load_cert_chain(certfile=cert_path, keyfile=key_path)
         return ctx
     except Exception as e:
-        logger.error(f"Failed to build catch-all TLS context: {e}")
+        logger.error("Failed to build catch-all TLS context: %s", e)
         return None
 
 
@@ -103,10 +103,10 @@ def _try_tls_wrap_ctx(
     try:
         return ctx.wrap_socket(sock, server_side=True)
     except ssl.SSLError as e:
-        logger.debug(f"Catch-all TLS handshake failed: {e}")
+        logger.debug("Catch-all TLS handshake failed: %s", e)
         return None
     except OSError as e:
-        logger.debug(f"Catch-all TLS wrap OS error: {e}")
+        logger.debug("Catch-all TLS wrap OS error: %s", e)
         return None
 
 
@@ -142,13 +142,36 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
     key_path:  str = ""
     _tls_ctx: "Optional[ssl.SSLContext]" = None
 
+    def _upgrade_tls(
+        self, sock: socket.socket, safe_addr: str, src_port: int,
+    ) -> "Optional[socket.socket]":
+        """Attempt TLS handshake; return upgraded socket, original, or None."""
+        if self._tls_ctx is None:
+            logger.debug(
+                "Catch-all no TLS context for %s:%s; raw fallback",
+                safe_addr, src_port,
+            )
+            return sock
+        tls_sock = _try_tls_wrap_ctx(sock, self._tls_ctx)
+        if tls_sock:
+            logger.debug(
+                "Catch-all TLS handshake complete: %s:%s",
+                safe_addr, src_port,
+            )
+            return tls_sock
+        logger.debug(
+            "Catch-all TLS handshake failed for %s:%s; closing",
+            safe_addr, src_port,
+        )
+        return None
+
     def handle(self):
         safe_addr = sanitize_ip(self.client_address[0])
         src_port  = self.client_address[1]
         sock      = self.request
 
         try:
-            # ── 1. Peek at first bytes to detect protocol ──────────────────
+            # â”€â”€ 1. Peek at first bytes to detect protocol â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             sock.settimeout(PEEK_TIMEOUT)
             try:
                 peek = sock.recv(8, socket.MSG_PEEK)
@@ -157,33 +180,20 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
 
             protocol = _detect_protocol(peek)
 
-            # ── 2. Complete TLS handshake if the client is speaking TLS ────
+            # â”€â”€ 2. Complete TLS handshake if the client is speaking TLS â”€â”€â”€â”€
             if protocol == "tls":
-                if self._tls_ctx is not None:
-                    tls_sock = _try_tls_wrap_ctx(sock, self._tls_ctx)
-                    if tls_sock:
-                        sock = tls_sock
-                        logger.debug(
-                            f"Catch-all TLS handshake complete: {safe_addr}:{src_port}"
-                        )
-                    else:
-                        # Certs present but handshake failed — socket state unrecoverable
-                        logger.debug(
-                            f"Catch-all TLS handshake failed for {safe_addr}:{src_port}; closing"
-                        )
-                        return
-                else:
-                    logger.debug(
-                        f"Catch-all no TLS context for {safe_addr}:{src_port}; raw fallback"
-                    )
+                sock = self._upgrade_tls(sock, safe_addr, src_port)
+                if sock is None:
+                    return
 
             logger.info(
-                f"CATCH-ALL TCP from {safe_addr}:{src_port} [{protocol.upper()}]"
+                "CATCH-ALL TCP from %s:%s [%s]",
+                safe_addr, src_port, protocol.upper(),
             )
 
             sock.settimeout(SESSION_TIMEOUT)
 
-            # ── 3. Read the first request payload ─────────────────────────
+            # â”€â”€ 3. Read the first request payload â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             #    For plain sockets, MSG_PEEK left the data in the buffer so
             #    recv() here returns those same bytes plus whatever follows.
             #    For TLS sockets, recv() returns decrypted plaintext.
@@ -195,23 +205,25 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
                         first_data[:LOG_PREVIEW].decode("utf-8", errors="replace")
                     )
                     logger.debug(
-                        f"CATCH-ALL [{protocol.upper()}] {safe_addr}:{src_port} "
-                        f"— {min(len(first_data), LOG_PREVIEW)}B: {preview}"
+                        "CATCH-ALL [%s] %s:%s "
+                        "\u2014 %sB: %s",
+                        protocol.upper(), safe_addr, src_port,
+                        min(len(first_data), LOG_PREVIEW), preview,
                     )
             except Exception:
-                pass
+                logger.debug("Catch-all TCP initial recv failed", exc_info=True)
 
-            # ── 4. Send protocol-appropriate response ──────────────────────
+            # â”€â”€ 4. Send protocol-appropriate response â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             response = (
                 _HTTP_200 if protocol in ("http", "tls") else _GENERIC_BANNER
             )
             try:
                 sock.sendall(response)
             except Exception as e:
-                logger.debug(f"Catch-all send failed for {safe_addr}:{src_port}: {e}")
+                logger.debug("Catch-all send failed for %s:%s: %s", safe_addr, src_port, e)
                 return
 
-            # ── 5. Log to structured JSON events ───────────────────────────
+            # â”€â”€ 5. Log to structured JSON events â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             jl = get_json_logger()
             if jl:
                 jl.log(
@@ -222,7 +234,7 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
                     payload_bytes=len(first_data),
                 )
 
-            # ── 6. Keep reading to capture follow-on messages ──────────────
+            # â”€â”€ 6. Keep reading to capture follow-on messages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             try:
                 while True:
                     chunk = sock.recv(4096)
@@ -232,14 +244,19 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
                         chunk[:LOG_PREVIEW].decode("utf-8", errors="replace")
                     )
                     logger.debug(
-                        f"CATCH-ALL [{protocol.upper()}] {safe_addr}:{src_port} "
-                        f"follow-on {len(chunk)}B: {preview}"
+                        "CATCH-ALL [%s] %s:%s "
+                        "follow-on %sB: %s",
+                        protocol.upper(), safe_addr, src_port,
+                        len(chunk), preview,
                     )
             except Exception:
-                pass
-
-        except Exception as e:
-            logger.debug(f"Catch-all TCP {safe_addr}:{src_port} error: {e}")
+                logger.debug("Catch-all TCP follow-on drain failed", exc_info=True)
+        except Exception:
+            logger.debug(
+                "Catch-all TCP session error for %s:%s",
+                safe_addr, src_port,
+                exc_info=True,
+            )
 
 
 class CatchAllTCPService:
@@ -276,17 +293,18 @@ class CatchAllTCPService:
                 " (TLS ready)" if (
                     os.path.exists(self.cert_path)
                     and os.path.exists(self.key_path)
-                ) else " (no certs — TLS fallback disabled)"
+                ) else " (no certs â€” TLS fallback disabled)"
             )
             logger.info(
-                f"Catch-all TCP service started on {self.bind_ip}:{self.port}{tls_note}"
+                "Catch-all TCP service started on %s:%s%s",
+                self.bind_ip, self.port, tls_note,
             )
             return True
         except OSError as e:
-            logger.error(f"Catch-all TCP failed to bind: {e}")
+            logger.error("Catch-all TCP failed to bind: %s", e)
             return False
 
-    def stop(self):
+    def stop(self) -> None:
         if self._server:
             try:
                 self._server.socket.shutdown(socket.SHUT_RDWR)
@@ -321,13 +339,14 @@ class CatchAllUDPService:
             self._sock.bind((self.bind_ip, self.port))
             self._thread = threading.Thread(target=self._serve, daemon=True)
             self._thread.start()
-            logger.info(f"Catch-all UDP service started on {self.bind_ip}:{self.port}")
+            logger.info("Catch-all UDP service started on %s:%s", self.bind_ip, self.port)
             return True
         except OSError as e:
-            logger.error(f"Catch-all UDP failed to bind: {e}")
+            logger.error("Catch-all UDP failed to bind: %s", e)
             return False
 
-    def _serve(self):
+    def _serve(self) -> None:
+        assert self._sock is not None
         while not self._stop_event.is_set():
             ready = select.select([self._sock], [], [], 1.0)
             if not ready[0]:
@@ -335,18 +354,18 @@ class CatchAllUDPService:
             try:
                 data, addr = self._sock.recvfrom(4096)
                 safe_addr = sanitize_ip(addr[0])
-                logger.info(f"CATCH-ALL UDP from {safe_addr}:{addr[1]} ({len(data)} bytes)")
+                logger.info("CATCH-ALL UDP from %s:%s (%d bytes)", safe_addr, addr[1], len(data))
                 jl = get_json_logger()
                 if jl:
                     jl.log("catch_all_udp", src_ip=addr[0], src_port=addr[1],
                            data_len=len(data))
-                # Don't respond to unknown UDP — no real service echoes "OK".
+                # Don't respond to unknown UDP â€” no real service echoes "OK".
                 # Silently logging is more realistic than replying.
             except Exception as e:
                 if not self._stop_event.is_set():
-                    logger.debug(f"Catch-all UDP error: {e}")
+                    logger.debug("Catch-all UDP error: %s", e)
 
-    def stop(self):
+    def stop(self) -> None:
         self._stop_event.set()
         if self._sock:
             self._sock.close()

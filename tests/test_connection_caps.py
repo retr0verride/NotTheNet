@@ -103,7 +103,7 @@ class TestFTPConnectionCap(unittest.TestCase):
             data = b""
             try:
                 data = extra.recv(4096)    # EOF (empty bytes) = server closed it
-            except (socket.timeout, OSError):
+            except OSError:
                 pass
             finally:
                 extra.close()
@@ -179,7 +179,7 @@ class TestMailReuseServerConnectionCap(unittest.TestCase):
             data = b""
             try:
                 data = extra.recv(4096)
-            except (socket.timeout, OSError):
+            except OSError:
                 pass
             finally:
                 extra.close()
@@ -246,7 +246,7 @@ class TestSMTPConnectionCap(unittest.TestCase):
             data = b""
             try:
                 data = extra.recv(4096)
-            except (socket.timeout, OSError):
+            except OSError:
                 pass
             finally:
                 extra.close()

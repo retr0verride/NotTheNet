@@ -37,7 +37,7 @@ def drop_privileges(run_as_user: str = "nobody", run_as_group: str = "nogroup") 
     Returns:
         True if successfully dropped, False if already unprivileged or failed.
     """
-    if os.geteuid() != 0:
+    if not hasattr(os, "geteuid") or os.geteuid() != 0:
         logger.debug("Not running as root; privilege drop skipped.")
         return False
 
@@ -58,18 +58,18 @@ def drop_privileges(run_as_user: str = "nobody", run_as_group: str = "nogroup") 
         os.setgid(target_gid)
         os.setuid(target_uid)
         logger.info(
-            f"Privileges dropped to {run_as_user}:{run_as_group} "
-            f"(uid={target_uid}, gid={target_gid})"
+            "Privileges dropped to %s:%s (uid=%s, gid=%s)",
+            run_as_user, run_as_group, target_uid, target_gid,
         )
         return True
     except OSError as e:
-        logger.error(f"Failed to drop privileges: {e}", exc_info=True)
+        logger.error("Failed to drop privileges: %s", e, exc_info=True)
         return False
 
 
 def is_root() -> bool:
     """Return True if the current process is running as root."""
-    return os.geteuid() == 0
+    return hasattr(os, "geteuid") and os.geteuid() == 0
 
 
 def require_root_or_warn() -> bool:

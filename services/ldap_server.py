@@ -4,16 +4,16 @@ NotTheNet - Fake LDAP Server (TCP port 389)
 Why this matters:
     LDAP is the backbone of Active Directory.  Malware that targets
     enterprise environments probes LDAP to:
-      - BloodHound / SharpHound — AD enumeration (group memberships, DACLs)
-      - Mimikatz / Rubeus       — LDAP queries for kerberoastable SPNs
-      - Cobalt Strike           — ldap_query BOF for trusts and admin accounts
-      - RATs                    — credential harvesters using
+      - BloodHound / SharpHound â€” AD enumeration (group memberships, DACLs)
+      - Mimikatz / Rubeus       â€” LDAP queries for kerberoastable SPNs
+      - Cobalt Strike           â€” ldap_query BOF for trusts and admin accounts
+      - RATs                    â€” credential harvesters using
                                   DirectoryServices .NET with SimpleBind
 
     Key intelligence with SimpleBind:
       - The Bind DN (e.g. "CN=svc_backup,OU=Service Accounts,DC=corp,DC=local")
         reveals the targeted domain and account name
-      - The password arrives in PLAINTEXT inside the BindRequest — no hashing,
+      - The password arrives in PLAINTEXT inside the BindRequest â€” no hashing,
         no challenge-response.
 
     Protocol:
@@ -52,7 +52,7 @@ SESSION_TIMEOUT = 15
 _MAX_CONNECTIONS = 50
 
 
-# ── Minimal BER TLV parser ────────────────────────────────────────────────────
+# â”€â”€ Minimal BER TLV parser â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _ber_read(data: bytes, pos: int) -> tuple[int, int, bytes]:
     """
@@ -125,7 +125,7 @@ def _parse_bind_request(msg: bytes) -> tuple[int, str, str]:
         return message_id, "", ""
     dn = dn_bytes.decode("utf-8", errors="replace")
 
-    # authentication — CONTEXT [0] (0x80) for SimpleBind
+    # authentication â€” CONTEXT [0] (0x80) for SimpleBind
     if bpos >= len(bind_body):
         return message_id, dn, ""
 
@@ -149,7 +149,7 @@ def _ber_length(n: int) -> bytes:
 def _bind_response(message_id: int, result_code: int = 0) -> bytes:
     """
     Build an LDAP BindResponse.
-    result_code=0 → success, which causes the client to continue.
+    result_code=0 â†’ success, which causes the client to continue.
     """
     mid_bytes = message_id.to_bytes(
         max(1, (message_id.bit_length() + 7) // 8), "big"
@@ -180,12 +180,46 @@ class _LDAPSession(threading.Thread):
         self.addr = addr
         self._sem = sem
 
-    def run(self):
-        safe_addr = sanitize_ip(self.addr[0])
+    def _process_buffer(self, buf: bytes, safe_addr: str) -> bytes:
+        """Parse complete BER messages from buf, send responses. Return remaining bytes."""
         jl = get_json_logger()
+        while len(buf) >= 2:
+            if buf[0] != 0x30:
+                break
+            if buf[1] & 0x80:
+                n = buf[1] & 0x7F
+                if len(buf) < 2 + n:
+                    break
+                content_len = int.from_bytes(buf[2:2 + n], "big")
+                total_len = 2 + n + content_len
+            else:
+                content_len = buf[1]
+                total_len = 2 + content_len
+            if len(buf) < total_len:
+                break
+            msg_bytes = buf[:total_len]
+            buf = buf[total_len:]
+            message_id, dn, bind_credential = _parse_bind_request(msg_bytes)
+            logger.info(
+                "LDAP bind from %s: dn=%s pass=%s",
+                safe_addr,
+                sanitize_log_string(dn),
+                sanitize_log_string(bind_credential),
+            )
+            if jl:
+                jl.log(
+                    "ldap_bind",
+                    src_ip=self.addr[0],
+                    dn=dn,
+                    credential=bind_credential,
+                )
+            self.conn.sendall(_bind_response(message_id))
+        return buf
+
+    def run(self) -> None:
+        safe_addr = sanitize_ip(self.addr[0])
         try:
             self.conn.settimeout(SESSION_TIMEOUT)
-
             buf = b""
             while True:
                 chunk = self.conn.recv(4096)
@@ -194,49 +228,9 @@ class _LDAPSession(threading.Thread):
                 buf += chunk
                 if len(buf) > 65535:
                     break
-
-                # Parse as many complete BER messages as are in the buffer
-                while len(buf) >= 2:
-                    if buf[0] != 0x30:
-                        break
-
-                    # Determine total message length
-                    if buf[1] & 0x80:
-                        n = buf[1] & 0x7F
-                        if len(buf) < 2 + n:
-                            break  # need more data
-                        content_len = int.from_bytes(buf[2:2 + n], "big")
-                        total_len = 2 + n + content_len
-                    else:
-                        content_len = buf[1]
-                        total_len = 2 + content_len
-
-                    if len(buf) < total_len:
-                        break  # incomplete message; wait for more data
-
-                    msg_bytes = buf[:total_len]
-                    buf = buf[total_len:]
-
-                    message_id, dn, bind_credential = _parse_bind_request(msg_bytes)
-
-                    logger.info(
-                        "LDAP bind from %s: dn=%s pass=%s",
-                        safe_addr,
-                        sanitize_log_string(dn),
-                        sanitize_log_string(bind_credential),
-                    )
-                    if jl:
-                        jl.log(
-                            "ldap_bind",
-                            src_ip=self.addr[0],
-                            dn=dn,
-                            credential=bind_credential,
-                        )
-
-                    self.conn.sendall(_bind_response(message_id))
-
+                buf = self._process_buffer(buf, safe_addr)
         except OSError:
-            pass
+            logger.debug("LDAP session error", exc_info=True)
         finally:
             try:
                 self.conn.close()
@@ -278,7 +272,8 @@ class LDAPService:
             logger.error("LDAP failed to bind on port %s: %s", self.port, e)
             return False
 
-    def _serve(self):
+    def _serve(self) -> None:
+        assert self._sock is not None
         while not self._stop.is_set():
             try:
                 conn, addr = self._sock.accept()
@@ -292,7 +287,7 @@ class LDAPService:
                 continue
             _LDAPSession(conn, addr, sem=self._sem).start()
 
-    def stop(self):
+    def stop(self) -> None:
         self._stop.set()
         if self._sock:
             try:

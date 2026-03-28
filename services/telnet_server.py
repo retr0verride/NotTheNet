@@ -8,7 +8,7 @@ Why this matters:
     etc.), then awaits a shell prompt before executing downloaded payloads.
 
     Without a proper Telnet login sequence the bot drops the connection
-    immediately — none of its credential spray or payload execution is visible.
+    immediately â€” none of its credential spray or payload execution is visible.
 
     This server:
       - Sends realistic Telnet option negotiations (WILL ECHO, WILL SGA)
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 SESSION_TIMEOUT = 60  # seconds per session
 
-# ─── Telnet option bytes (RFC 854) ───────────────────────────────────────────
+# â”€â”€â”€ Telnet option bytes (RFC 854) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 IAC  = b"\xff"
 WILL = b"\xfb"
 WONT = b"\xfc"
@@ -49,8 +49,8 @@ ECHO = b"\x01"
 SGA  = b"\x03"   # Suppress Go Ahead
 
 # Server sends these immediately after connection:
-#   IAC WILL ECHO  → we echo characters (standard Telnet)
-#   IAC WILL SGA   → suppress go-ahead (standard Telnet)
+#   IAC WILL ECHO  â†’ we echo characters (standard Telnet)
+#   IAC WILL SGA   â†’ suppress go-ahead (standard Telnet)
 #   IAC DO SGA
 _NEGOTIATE = IAC + WILL + ECHO + IAC + WILL + SGA + IAC + DO + SGA
 
@@ -58,21 +58,21 @@ _NEGOTIATE = IAC + WILL + ECHO + IAC + WILL + SGA + IAC + DO + SGA
 _ECHO_OFF = IAC + WILL + ECHO
 _ECHO_ON  = IAC + WONT + ECHO
 
-# ─── Fake shell command responses ────────────────────────────────────────────
+# â”€â”€â”€ Fake shell command responses â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _SHELL_RESPONSES: dict[str, Optional[bytes]] = {
     "id":       b"uid=0(root) gid=0(root)\r\n",
     "whoami":   b"root\r\n",
     "uname -a": b"Linux router 4.19.0-18-mips #1 SMP Mon Mar 16 06:00:00 UTC 2020 mips GNU/Linux\r\n",
     "uname":    b"Linux\r\n",
     "hostname": b"router\r\n",
-    "pwd":      b"/root\r\n",  # nosec B105 — shell command key, not a credential
+    "pwd":      b"/root\r\n",  # nosec B105 â€” shell command key, not a credential
     "ls":       b"bin  dev  etc  lib  proc  root  tmp  usr  var\r\n",
     "ls -la":   b"total 0\r\ndrwxr-xr-x 12 root root 0 Jan  1 00:00 .\r\n",
     "cat /proc/cpuinfo": b"processor\t: 0\r\ncpu model\t: MIPS 24Kc\r\n",
     "free":     b"             total       used       free\r\nMem:         62976      41280      21696\r\n",
     "ps":       b"PID   USER     COMMAND\r\n    1 root     init\r\n",
     "ps aux":   b"PID   USER     COMMAND\r\n    1 root     init\r\n",
-    "exit":     None,  # special — close session
+    "exit":     None,  # special â€” close session
     "quit":     None,
     "logout":   None,
 }
@@ -83,11 +83,11 @@ def _shell_response(cmd: str) -> Optional[bytes]:
     stripped = cmd.strip()
     if stripped in _SHELL_RESPONSES:
         return _SHELL_RESPONSES[stripped]
-    # wget / curl / tftp — acknowledge but do nothing (no real download)
+    # wget / curl / tftp â€” acknowledge but do nothing (no real download)
     lower = stripped.lower()
     if lower.startswith(("wget ", "curl ", "tftp ")):
         return b"connecting...\r\n"
-    # cd — always succeed
+    # cd â€” always succeed
     if lower.startswith("cd "):
         return b""
     # empty line
@@ -114,7 +114,7 @@ class _TelnetSession(threading.Thread):
         self.prompt = prompt.encode()
         self._sem = sem
 
-    # ── I/O helpers ──────────────────────────────────────────────────────────
+    # â”€â”€ I/O helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _send(self, data: bytes) -> bool:
         try:
@@ -123,8 +123,27 @@ class _TelnetSession(threading.Thread):
         except OSError:
             return False
 
+    def _consume_iac(self) -> None:
+        """Read and discard a Telnet IAC command sequence."""
+        try:
+            verb = self.conn.recv(1)
+            if verb and verb[0] in (0xFB, 0xFC, 0xFD, 0xFE):
+                self.conn.recv(1)  # WILL/WONT/DO/DONT: skip option byte
+        except OSError:
+            pass
+
+    def _consume_cr(self) -> bytes:
+        """After receiving CR, consume LF or NUL; return leftover byte."""
+        try:
+            nxt = self.conn.recv(1)
+            if nxt in (b"\n", b"\x00", b""):
+                return b""
+            return nxt
+        except OSError:
+            return b""
+
     def _recv_line(self, max_bytes: int = 256) -> Optional[bytes]:
-        """Read bytes until \\r\\n or \\n, stripping IAC sub-sequences."""
+        """Read bytes until CRLF or LF, stripping IAC sub-sequences."""
         buf = b""
         while True:
             try:
@@ -133,36 +152,77 @@ class _TelnetSession(threading.Thread):
                 return None
             if not ch:
                 return None
-            # Strip Telnet IAC command sequences that may arrive mid-stream
             if ch == b"\xff":
-                try:
-                    verb = self.conn.recv(1)
-                    if verb and verb[0] in (0xFB, 0xFC, 0xFD, 0xFE):
-                        self.conn.recv(1)  # WILL/WONT/DO/DONT: skip the option byte
-                    # else: 2-byte command (NOP, BRK, GA, etc.) — verb already consumed
-                except OSError:
-                    pass
+                self._consume_iac()
                 continue
             if ch in (b"\r", b"\n"):
-                # Eat the paired \n after \r if present
                 if ch == b"\r":
-                    try:
-                        nxt = self.conn.recv(1)
-                        if nxt not in (b"\n", b"\x00"):
-                            buf += nxt
-                    except OSError:
-                        pass
+                    buf += self._consume_cr()
                 break
             if len(buf) < max_bytes:
                 buf += ch
         return buf
+    # â”€â”€ Session main â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-    # ── Session main ─────────────────────────────────────────────────────────
+    def _do_login(self, safe_addr: str) -> Optional[tuple[str, str]]:
+        """Run login: / Password: sequence. Returns (username, password) or None."""
+        self._send(b"\r\nlogin: ")
+        raw_user = self._recv_line()
+        if raw_user is None:
+            return None
+        username = raw_user.decode("utf-8", errors="replace").strip()
 
-    def run(self):
-        safe_addr = sanitize_ip(self.addr[0])
-        logger.info(f"Telnet connection from {safe_addr}")
+        self._send(_ECHO_OFF)
+        self._send(b"Password: ")
+        raw_pass = self._recv_line()
+        if raw_pass is None:
+            return None
+        password = raw_pass.decode("utf-8", errors="replace").strip()
+        self._send(_ECHO_ON)
+        self._send(b"\r\n")
+
+        safe_user = sanitize_log_string(username)
+        logger.info(
+            f"Telnet credentials [{safe_addr}] user={safe_user} pass=[captured]"
+        )
         jl = get_json_logger()
+        if jl:
+            jl.log(  # lgtm[py/clear-text-logging-sensitive-data]
+                "telnet_auth",
+                src_ip=self.addr[0],
+                username=username,
+                password=password,
+            )
+        return username, password
+
+    def _shell_loop(self, safe_addr: str) -> None:
+        """Read commands in a loop and send canned responses."""
+        jl = get_json_logger()
+        while True:
+            if not self._send(self.prompt):
+                break
+            raw = self._recv_line()
+            if raw is None:
+                break
+            cmd = raw.decode("utf-8", errors="replace").strip()
+            if not cmd:
+                continue
+
+            safe_cmd = sanitize_log_string(cmd)
+            logger.info("Telnet cmd [%s] %s", safe_addr, safe_cmd)
+            if jl:
+                jl.log("telnet_command", src_ip=self.addr[0], command=cmd)
+
+            resp = _shell_response(cmd)
+            if resp is None:  # exit / quit / logout
+                self._send(b"\r\n")
+                break
+            if resp:
+                self._send(resp)
+
+    def run(self) -> None:
+        safe_addr = sanitize_ip(self.addr[0])
+        logger.info("Telnet connection from %s", safe_addr)
 
         try:
             self.conn.settimeout(SESSION_TIMEOUT)
@@ -173,61 +233,18 @@ class _TelnetSession(threading.Thread):
                 self._send(self.banner.encode() + b"\r\n")
 
             # Login sequence
-            self._send(b"\r\nlogin: ")
-            raw_user = self._recv_line()
-            if raw_user is None:
+            creds = self._do_login(safe_addr)
+            if creds is None:
                 return
-            username = raw_user.decode("utf-8", errors="replace").strip()
 
-            self._send(_ECHO_OFF)
-            self._send(b"Password: ")
-            raw_pass = self._recv_line()
-            if raw_pass is None:
-                return
-            password = raw_pass.decode("utf-8", errors="replace").strip()
-            self._send(_ECHO_ON)
-            self._send(b"\r\n")
-
-            safe_user = sanitize_log_string(username)
-            logger.info(
-                f"Telnet credentials [{safe_addr}] user={safe_user} pass=[captured]"
-            )
-            if jl:
-                jl.log(  # lgtm[py/clear-text-logging-sensitive-data]
-                    "telnet_auth",
-                    src_ip=self.addr[0],
-                    username=username,
-                    password=password,
-                )
-
-            # Drop a brief pause then accept login unconditionally
+            # Brief pause then accept login unconditionally
             self._send(b"\r\n")
 
             # Shell loop
-            while True:
-                if not self._send(self.prompt):
-                    break
-                raw = self._recv_line()
-                if raw is None:
-                    break
-                cmd = raw.decode("utf-8", errors="replace").strip()
-                if not cmd:
-                    continue
-
-                safe_cmd = sanitize_log_string(cmd)
-                logger.info(f"Telnet cmd [{safe_addr}] {safe_cmd}")
-                if jl:
-                    jl.log("telnet_command", src_ip=self.addr[0], command=cmd)
-
-                resp = _shell_response(cmd)
-                if resp is None:  # exit / quit / logout
-                    self._send(b"\r\n")
-                    break
-                if resp:
-                    self._send(resp)
+            self._shell_loop(safe_addr)
 
         except OSError:
-            pass
+            logger.debug("Telnet session error", exc_info=True)
         finally:
             if self._sem is not None:
                 self._sem.release()
@@ -235,7 +252,7 @@ class _TelnetSession(threading.Thread):
                 self.conn.close()
             except OSError:
                 pass
-            logger.info(f"Telnet [{safe_addr}] disconnected")
+            logger.info("Telnet [%s] disconnected", safe_addr)
 
 
 class TelnetService:
@@ -266,13 +283,14 @@ class TelnetService:
                 target=self._serve, daemon=True, name="telnet-server"
             )
             self._thread.start()
-            logger.info(f"Telnet service started on {self.bind_ip}:{self.port}")
+            logger.info("Telnet service started on %s:%s", self.bind_ip, self.port)
             return True
         except OSError as e:
-            logger.error(f"Telnet failed to bind: {e}")
+            logger.error("Telnet failed to bind: %s", e)
             return False
 
-    def _serve(self):
+    def _serve(self) -> None:
+        assert self._sock is not None
         while not self._stop.is_set():
             try:
                 conn, addr = self._sock.accept()
@@ -286,7 +304,7 @@ class TelnetService:
                 continue
             _TelnetSession(conn, addr, self.banner, self.prompt, sem=self._sem).start()
 
-    def stop(self):
+    def stop(self) -> None:
         self._stop.set()
         if self._sock:
             try:

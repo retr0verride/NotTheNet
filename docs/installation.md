@@ -125,18 +125,31 @@ All Python dependencies are embedded in the installer — no `pip` or `apt` inte
 - A Windows machine with internet access (to build the bundle)
 - A USB drive or any way to transfer a ~6 MB file to Kali
 
-### Step 1 — Build the bundle on Windows
+### Step 1 — Build and deploy the bundle on Windows
 
 From the `NotTheNet` project folder on your Windows machine:
 
 ```powershell
-# Build notthenet-bundle.sh AND create NotTheNet-bundle.zip in one step
-.\make-bundle.ps1 -Zip
+# Full workflow: bump version, run checks, build bundle, copy to USB
+.\ship.ps1
+
+# Skip lint/type checks (e.g. after a quick config change)
+.\ship.ps1 -SkipPredeploy
+
+# Force a specific drive letter instead of auto-detecting USB
+.\ship.ps1 -Drive E:\
 ```
 
-This downloads all required Python wheels, bakes them into a self-contained bash installer, and packages the whole project into `U:\NotTheNet-bundle.zip`.
+`ship.ps1` auto-detects the connected USB drive (first removable `DriveType=2` disk via WMI). It will fail with a clear message if no USB is present. Use `-Drive` to override.
 
-> **No `-Zip`?** Run `make-bundle.ps1` alone to generate only `notthenet-bundle.sh`, then zip/copy it manually.
+If you only want the zip without copying to USB:
+
+```powershell
+.\make-bundle.ps1 -Zip
+# Output: NotTheNet-bundle.zip in the project root
+```
+
+> **What gets bundled:** All Python wheels for Kali (dnslib, cryptography, cffi, pycparser) are embedded as base64 in `notthenet-bundle.sh`. No internet access is needed on Kali.
 
 ### Step 2 — Transfer to Kali
 

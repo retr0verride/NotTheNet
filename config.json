@@ -21,8 +21,14 @@
     "resolve_to": "10.10.10.1",
     "ttl": 300,
     "handle_ptr": true,
-    "custom_records": {},
-    "nxdomain_entropy_threshold": 3.2,
+    "custom_records": {
+      "gx7ekbenv2riucmf.onion": "10.10.10.1",
+      "cwwnhwhlz52maqm7.onion": "10.10.10.1",
+      "57g7spgrzlojinas.onion": "10.10.10.1",
+      "xxlvbrloxvriy2c5.onion": "10.10.10.1",
+      "76jdd2ir2embyv47.onion": "10.10.10.1"
+    },
+    "nxdomain_entropy_threshold": 4.0,
     "nxdomain_label_min_length": 8,
     "public_response_ips": [
       "142.250.80.1",
@@ -32,6 +38,9 @@
       "13.225.103.100",
       "104.21.62.1",
       "52.84.12.100"
+    ],
+    "kill_switch_domains": [
+      "iuqerfsodp9ifjaposdfjhgosurijfaewrwergwea.com"
     ]
   },
   "http": {
@@ -45,7 +54,28 @@
     "response_delay_ms": 50,
     "response_delay_jitter_ms": 30,
     "dynamic_responses": true,
-    "dynamic_response_rules": [],
+    "dynamic_response_rules": [
+      {
+        "pattern": "(?i)/tor/status-vote/current/consensus",
+        "mime": "text/plain",
+        "body": "network-status-version 3\nvalid-after 2026-03-27 00:00:00\nfresh-until 2026-03-27 01:00:00\nvalid-until 2026-03-27 03:00:00\n"
+      },
+      {
+        "pattern": "(?i)/tor/server/authority",
+        "mime": "text/plain",
+        "body": "router FakeDirAuth 10.10.10.1 9001 0 0\nplatform Tor 0.4.8.9\nbandwidth 1073741824 1073741824 1073741824\n"
+      },
+      {
+        "pattern": "(?i)/tor/keys/",
+        "mime": "text/plain",
+        "body": "dir-key-certificate-version 3\n"
+      },
+      {
+        "pattern": "(?i)\\.onion",
+        "mime": "application/octet-stream",
+        "body": "{\"status\": \"ok\", \"msg_id\": 1, \"data\": \"AAAA\"}"
+      }
+    ],
     "doh_sinkhole": true,
     "doh_redirect_ip": "10.10.10.1",
     "websocket_sinkhole": true
@@ -63,7 +93,28 @@
     "response_delay_ms": 50,
     "response_delay_jitter_ms": 30,
     "dynamic_responses": true,
-    "dynamic_response_rules": [],
+    "dynamic_response_rules": [
+      {
+        "pattern": "(?i)/tor/status-vote/current/consensus",
+        "mime": "text/plain",
+        "body": "network-status-version 3\nvalid-after 2026-03-27 00:00:00\nfresh-until 2026-03-27 01:00:00\nvalid-until 2026-03-27 03:00:00\n"
+      },
+      {
+        "pattern": "(?i)/tor/server/authority",
+        "mime": "text/plain",
+        "body": "router FakeDirAuth 10.10.10.1 9001 0 0\nplatform Tor 0.4.8.9\nbandwidth 1073741824 1073741824 1073741824\n"
+      },
+      {
+        "pattern": "(?i)/tor/keys/",
+        "mime": "text/plain",
+        "body": "dir-key-certificate-version 3\n"
+      },
+      {
+        "pattern": "(?i)\\.onion",
+        "mime": "application/octet-stream",
+        "body": "{\"status\": \"ok\", \"msg_id\": 1, \"data\": \"AAAA\"}"
+      }
+    ],
     "dynamic_certs": true,
     "doh_sinkhole": true,
     "doh_redirect_ip": "10.10.10.1",

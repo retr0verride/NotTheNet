@@ -91,7 +91,11 @@ Fake DNS server — resolves every query to `resolve_to`.
 | `resolve_to` | string | `"127.0.0.1"` | IP address returned for all A/AAAA queries. |
 | `ttl` | int | `300` | DNS TTL in seconds for synthesised records. |
 | `handle_ptr` | bool | `true` | When `true`, PTR (reverse DNS) queries return a synthetic ISP-style hostname derived from the queried IP (e.g. `static-192-168-1-100.res.example.net`). When `false`, PTR queries get no answer. |
-| `custom_records` | object | `{}` | Per-hostname overrides. Keys are lowercase hostnames; values are IP addresses. See [Custom DNS Records](#custom-dns-records). |
+| `custom_records` | object | `{}` | Per-hostname overrides. Keys are lowercase hostnames; values are IP addresses. These take priority over all other resolver logic. See [Custom DNS Records](#custom-dns-records). |
+| `nxdomain_entropy_threshold` | float | `3.2` | Shannon entropy threshold for DGA detection. Queries whose second-level domain has entropy **above** this value return NXDOMAIN. Set to `0` to disable. Useful to defeat malware that uses random-looking domains. **Raise to `4.0`** when analysing malware whose legitimate C2 hostnames are high-entropy (e.g. `.onion` addresses). |
+| `nxdomain_label_min_length` | int | `8` | Minimum character length of the second-level domain label before DGA entropy evaluation is applied. Labels shorter than this are never DGA-filtered. |
+| `public_response_ips` | array | `[]` | Pool of public-looking IP addresses to rotate through for A responses, instead of always returning `resolve_to`. Uses a stable hash of the queried name so the same domain always gets the same IP. Defeats sandbox-evasion heuristics that detect sinkholes by checking for RFC-1918 response IPs. |
+| `kill_switch_domains` | array | `[]` | Domains that always return NXDOMAIN, regardless of entropy. Subdomains also match. Use this to prevent malware from triggering its own kill switch — e.g. WannaCry exits if its kill-switch domain resolves. Adding it here ensures DNS fails and execution continues. |
 
 ### Example
 
@@ -105,7 +109,17 @@ Fake DNS server — resolves every query to `resolve_to`.
   "custom_records": {
     "update.microsoft.com": "127.0.0.1",
     "c2.malware.example": "10.0.0.5"
-  }
+  },
+  "nxdomain_entropy_threshold": 3.2,
+  "nxdomain_label_min_length": 8,
+  "public_response_ips": [
+    "142.250.80.1",
+    "104.244.42.1",
+    "151.101.1.140"
+  ],
+  "kill_switch_domains": [
+    "iuqerfsodp9ifjaposdfjhgosurijfaewrwergwea.com"
+  ]
 }
 ```
 
@@ -548,7 +562,7 @@ c2.evil-domain.xyz = 10.0.0.100
     "doh_sinkhole": true,
     "websocket_sinkhole": true,
     "dynamic_response_rules": [
-      { "pattern": "/update\\.php$", "mime": "application/octet-stream", "body": "TVqQ" }
+      { "pattern": "/update\\.php$", "mime": "application/octet-stream", "body": "" }
     ]
   },
   "https": {
@@ -559,6 +573,49 @@ c2.evil-domain.xyz = 10.0.0.100
   }
 }
 ```
+
+### WannaCry / Ransomware with embedded Tor client
+
+This config bypasses WannaCry's kill switch, resolves its hardcoded `.onion` C2 addresses to the sinkhole, and serves fake Tor directory responses to maximise PCAP coverage.
+
+```json
+{
+  "dns": {
+    "kill_switch_domains": [
+      "iuqerfsodp9ifjaposdfjhgosurijfaewrwergwea.com"
+    ],
+    "nxdomain_entropy_threshold": 4.0,
+    "custom_records": {
+      "gx7ekbenv2riucmf.onion": "10.10.10.1",
+      "cwwnhwhlz52maqm7.onion": "10.10.10.1",
+      "57g7spgrzlojinas.onion": "10.10.10.1",
+      "xxlvbrloxvriy2c5.onion": "10.10.10.1",
+      "76jdd2ir2embyv47.onion": "10.10.10.1"
+    }
+  },
+  "http": {
+    "dynamic_responses": true,
+    "dynamic_response_rules": [
+      { "pattern": "(?i)/tor/status-vote/current/consensus", "mime": "text/plain", "body": "network-status-version 3\nvalid-after 2026-01-01 00:00:00\n" },
+      { "pattern": "(?i)/tor/server/authority", "mime": "text/plain", "body": "router FakeDirAuth 10.10.10.1 9001 0 0\n" },
+      { "pattern": "(?i)/tor/keys/", "mime": "text/plain", "body": "dir-key-certificate-version 3\n" },
+      { "pattern": "(?i)\\.onion", "mime": "application/octet-stream", "body": "{\"status\": \"ok\"}" }
+    ]
+  },
+  "https": {
+    "dynamic_certs": true,
+    "dynamic_response_rules": [
+      { "pattern": "(?i)/tor/status-vote/current/consensus", "mime": "text/plain", "body": "network-status-version 3\nvalid-after 2026-01-01 00:00:00\n" },
+      { "pattern": "(?i)/tor/server/authority", "mime": "text/plain", "body": "router FakeDirAuth 10.10.10.1 9001 0 0\n" },
+      { "pattern": "(?i)/tor/keys/", "mime": "text/plain", "body": "dir-key-certificate-version 3\n" },
+      { "pattern": "(?i)\\.onion", "mime": "application/octet-stream", "body": "{\"status\": \"ok\"}" }
+    ]
+  },
+  "smb": { "enabled": true }
+}
+```
+
+> **Why `nxdomain_entropy_threshold: 4.0`?** WannaCry's `.onion` SLD labels have Shannon entropy of 3.3–3.9. The default threshold of 3.2 would DGA-filter them and return NXDOMAIN before the `custom_records` override could be applied. Raising the threshold to 4.0 ensures `custom_records` wins. Alternatively, set the threshold to `0` to disable DGA filtering entirely.
 
 ---
 
@@ -572,7 +629,7 @@ Each rule is an object with three keys:
 |-----|------|-------------|
 | `pattern` | string | Python regex matched against the full request path (e.g. `"/update\\.php$"`). |
 | `mime` | string | MIME type for the `Content-Type` header (e.g. `"application/octet-stream"`). |
-| `body` | string | Base64-encoded response body. Decoded before sending. |
+| `body` | string | Plain-text response body sent as-is. If omitted or empty, the built-in extension stub for the matched MIME type is used instead. |
 
 **Resolution order:** custom rules → extension map → fallback static response.
 
@@ -581,15 +638,46 @@ Each rule is an object with three keys:
   {
     "pattern": "\\.config$",
     "mime": "application/xml",
-    "body": "PD94bWwgdmVyc2lvbj0iMS4wIj8+Cjxjb25maWc+PC9jb25maWc+"
+    "body": "<?xml version=\"1.0\"?><config></config>"
   },
   {
     "pattern": "/gate\\.php",
     "mime": "text/plain",
-    "body": "T0s="
+    "body": "OK"
   }
 ]
 ```
+
+### Tor simulation rules
+
+When analysing ransomware or malware that uses an embedded Tor client (e.g. WannaCry), you can fake directory authority responses to maximise traffic capture:
+
+```json
+"dynamic_response_rules": [
+  {
+    "pattern": "(?i)/tor/status-vote/current/consensus",
+    "mime": "text/plain",
+    "body": "network-status-version 3\nvalid-after 2026-01-01 00:00:00\nfresh-until 2026-01-01 01:00:00\nvalid-until 2026-01-01 03:00:00\n"
+  },
+  {
+    "pattern": "(?i)/tor/server/authority",
+    "mime": "text/plain",
+    "body": "router FakeDirAuth 10.10.10.1 9001 0 0\nplatform Tor 0.4.8.9\nbandwidth 1073741824 1073741824 1073741824\n"
+  },
+  {
+    "pattern": "(?i)/tor/keys/",
+    "mime": "text/plain",
+    "body": "dir-key-certificate-version 3\n"
+  },
+  {
+    "pattern": "(?i)\\.onion",
+    "mime": "application/octet-stream",
+    "body": "{\"status\": \"ok\", \"msg_id\": 1}"
+  }
+]
+```
+
+> **Note:** The fake directory responses let you capture the full Tor bootstrap attempt and C2 bridge requests in your PCAP. The embedded Tor client will ultimately fail signature verification (expected), but all HTTP exchanges — including the ransom-key exchange attempt — will be visible.
 
 ---
 

@@ -1,11 +1,13 @@
 # ship.ps1 — Full release workflow for NotTheNet
-# Runs predeploy checks, generates offline bundle, creates minimal zip, copies both to D:\
+# Runs predeploy checks, generates offline bundle, creates minimal zip, copies to USB.
 #
 # Usage:  .\ship.ps1
 #         .\ship.ps1 -SkipPredeploy   (skip lint/type/test if you just bumped a hotfix)
+#         .\ship.ps1 -Drive F:\        (force a specific drive letter)
 
 param(
-    [switch]$SkipPredeploy
+    [switch]$SkipPredeploy,
+    [string]$Drive
 )
 
 $ErrorActionPreference = "Stop"
@@ -82,12 +84,37 @@ if (-not $SkipPredeploy) {
 Step "Building offline installer bundle"
 & .\make-bundle.ps1 -Zip
 if ($LASTEXITCODE -ne 0) { Fail "make-bundle.ps1 failed" }
-$bundleSrc = "U:\NotTheNet-bundle.zip"
-$bundleDst = "D:\NotTheNet_${ver}_bundle.zip"
+
+# Locate the zip make-bundle.ps1 produced (relative to CWD)
+$bundleSrc = Join-Path (Split-Path $PSScriptRoot -Parent) "NotTheNet-bundle.zip"
+if (-not (Test-Path $bundleSrc)) {
+    # Fallback: try the CWD parent (when run from repo root the zip lands one level up)
+    $bundleSrc = Join-Path (Split-Path (Get-Location) -Parent) "NotTheNet-bundle.zip"
+}
+if (-not (Test-Path $bundleSrc)) { Fail "Cannot find NotTheNet-bundle.zip" }
+
+# ── Detect USB drive ─────────────────────────────────────────────────────────
+if ($Drive) {
+    $usbRoot = $Drive.TrimEnd('\') + '\'
+    if (-not (Test-Path $usbRoot)) { Fail "Specified drive $usbRoot not found" }
+} else {
+    $usb = Get-CimInstance Win32_DiskDrive -Filter "InterfaceType='USB'" -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            Get-CimAssociatedInstance $_ -ResultClassName Win32_DiskPartition |
+                ForEach-Object { Get-CimAssociatedInstance $_ -ResultClassName Win32_LogicalDisk }
+        } |
+        Where-Object { $_.DriveType -eq 2 } |
+        Select-Object -First 1
+    if (-not $usb) { Fail "No USB drive detected. Plug one in or use -Drive <letter>:\" }
+    $usbRoot = $usb.DeviceID + '\'
+    Step "Detected USB drive: $usbRoot ($('{0:N1}' -f ($usb.FreeSpace/1GB)) GB free)"
+}
+
+$bundleDst = Join-Path $usbRoot "NotTheNet_${ver}_bundle.zip"
 Move-Item -Force $bundleSrc $bundleDst
 Pass "Bundle → $bundleDst ($( '{0:N1}' -f ((Get-Item $bundleDst).Length/1MB) ) MB)"
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 Write-Host ""
-Write-Host "NotTheNet $ver shipped to D:\" -ForegroundColor Green
+Write-Host "NotTheNet $ver shipped to $usbRoot" -ForegroundColor Green
 Write-Host "  Bundle: NotTheNet_${ver}_bundle.zip" -ForegroundColor Green

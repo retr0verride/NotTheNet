@@ -89,7 +89,7 @@ class TestIRCPingTimeout(unittest.TestCase):
                         if not chunk:
                             break
                         data += chunk
-                except (socket.timeout, OSError):
+                except OSError:
                     pass
 
         client.close()
@@ -148,9 +148,9 @@ class TestIRCPingTimeout(unittest.TestCase):
                 client.settimeout(3.0)
                 try:
                     while client.recv(4096):
-                        pass
-                except (socket.timeout, OSError):
-                    pass
+                        pass  # drain server responses
+                except OSError:
+                    pass  # server closed connection — expected
 
         client.close()
         t.join(timeout=3.0)

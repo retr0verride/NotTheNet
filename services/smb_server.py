@@ -3,10 +3,10 @@ NotTheNet - Fake SMB Server (TCP port 445)
 
 Why this matters:
     SMB is the most-exploited protocol for lateral movement:
-      - WannaCry / NotPetya  — EternalBlue (MS17-010, SMBv1 TRANS2 exploit)
-      - Emotet, Ryuk         — SMBv2 credential spray over port 445
-      - Impacket             — smbclient, psexec-style lateral movement
-      - REvil / BlackMatter  — scan 445 before encrypting network shares
+      - WannaCry / NotPetya  â€” EternalBlue (MS17-010, SMBv1 TRANS2 exploit)
+      - Emotet, Ryuk         â€” SMBv2 credential spray over port 445
+      - Impacket             â€” smbclient, psexec-style lateral movement
+      - REvil / BlackMatter  â€” scan 445 before encrypting network shares
 
     Key intelligence:
       - Dialect list reveals whether the client is probing for SMBv1
@@ -15,7 +15,7 @@ Why this matters:
         dialect set used by the NSA exploit: any list containing "NT LM 0.12"
 
     Protocol behaviour:
-      - SMBv1 negotiate: returns STATUS_NOT_SUPPORTED — no v1 session proceeds
+      - SMBv1 negotiate: returns STATUS_NOT_SUPPORTED â€” no v1 session proceeds
       - SMBv2 negotiate: returns STATUS_NOT_SUPPORTED packed in SMB2 header
       - Both cases still log the full dialect list for triage
 
@@ -83,57 +83,55 @@ class _SMBSession(threading.Thread):
         self.addr = addr
         self._sem = sem
 
-    def run(self):
+    def _read_smb_message(self) -> "bytes | None":
+        """Read a complete NetBIOS/SMB message. Returns data or None."""
+        nb_hdr = self.conn.recv(4)
+        if len(nb_hdr) < 4:
+            return None
+        if nb_hdr[0] not in (0x00, 0x81):
+            return None
+        msg_len = struct.unpack(">I", b"\x00" + nb_hdr[1:4])[0]
+        if msg_len == 0 or msg_len > 65535:
+            return None
+        data = b""
+        while len(data) < msg_len:
+            chunk = self.conn.recv(min(msg_len - len(data), 4096))
+            if not chunk:
+                break
+            data += chunk
+        return data if len(data) >= 4 else None
+
+    def _parse_negotiate(self, data: bytes) -> tuple:
+        """Parse SMB negotiate data. Returns (version, dialects, eternalblue, message_id)."""
+        magic = data[:4]
+        dialects: list[str] = []
+        eternalblue = False
+        message_id = 0
+        if magic == _SMB1_MAGIC:
+            version = "SMBv1"
+            if len(data) > 33:
+                for part in data[33:].split(b"\x02"):
+                    name = part.rstrip(b"\x00").decode("ascii", errors="replace").strip()
+                    if name:
+                        dialects.append(name)
+            eternalblue = any("NT LM 0.12" in d for d in dialects)
+        elif magic == _SMB2_MAGIC:
+            version = "SMBv2"
+            if len(data) >= 36:
+                message_id = struct.unpack("<Q", data[28:36])[0]
+        else:
+            version = "unknown"
+        return version, dialects, eternalblue, message_id
+
+    def run(self) -> None:
         safe_addr = sanitize_ip(self.addr[0])
         jl = get_json_logger()
         try:
             self.conn.settimeout(SESSION_TIMEOUT)
-
-            # ── 1. Read NetBIOS session header (4 bytes) ───────────────────
-            nb_hdr = self.conn.recv(4)
-            if len(nb_hdr) < 4:
+            data = self._read_smb_message()
+            if data is None:
                 return
-            nb_type = nb_hdr[0]
-            if nb_type not in (0x00, 0x81):  # 0x00 = Session Message, 0x81 = Session Request
-                return
-
-            msg_len = struct.unpack(">I", b"\x00" + nb_hdr[1:4])[0]
-            if msg_len == 0 or msg_len > 65535:
-                return
-
-            # ── 2. Read SMB message body ───────────────────────────────────
-            data = b""
-            while len(data) < msg_len:
-                chunk = self.conn.recv(min(msg_len - len(data), 4096))
-                if not chunk:
-                    break
-                data += chunk
-
-            if len(data) < 4:
-                return
-
-            magic = data[:4]
-            version = "unknown"
-            dialects: list[str] = []
-            eternalblue = False
-            message_id = 0
-
-            if magic == _SMB1_MAGIC:
-                version = "SMBv1"
-                # Dialect strings follow the 33-byte SMBv1 header+word-count:
-                # each entry is \x02 + null-terminated ASCII name.
-                if len(data) > 33:
-                    for part in data[33:].split(b"\x02"):
-                        name = part.rstrip(b"\x00").decode("ascii", errors="replace").strip()
-                        if name:
-                            dialects.append(name)
-                eternalblue = any("NT LM 0.12" in d for d in dialects)
-
-            elif magic == _SMB2_MAGIC:
-                version = "SMBv2"
-                # MessageId is at offset 28 in the 64-byte SMB2 header
-                if len(data) >= 36:
-                    message_id = struct.unpack("<Q", data[28:36])[0]
+            version, dialects, eternalblue, message_id = self._parse_negotiate(data)
 
             eb_flag = " [ETERNALBLUE-PROBE]" if eternalblue else ""
             logger.info(
@@ -148,13 +146,10 @@ class _SMBSession(threading.Thread):
                     dialects=dialects[:6],
                     eternalblue_probe=eternalblue,
                 )
-
-            # ── 3. Send error response to abort safely ─────────────────────
-            if magic == _SMB2_MAGIC:
+            if data[:4] == _SMB2_MAGIC:
                 self.conn.sendall(_smb2_error_response(message_id))
-
         except OSError:
-            pass
+            logger.debug("SMB session error", exc_info=True)
         finally:
             try:
                 self.conn.close()
@@ -196,7 +191,8 @@ class SMBService:
             logger.error("SMB failed to bind on port %s: %s", self.port, e)
             return False
 
-    def _serve(self):
+    def _serve(self) -> None:
+        assert self._sock is not None
         while not self._stop.is_set():
             try:
                 conn, addr = self._sock.accept()
@@ -210,7 +206,7 @@ class SMBService:
                 continue
             _SMBSession(conn, addr, sem=self._sem).start()
 
-    def stop(self):
+    def stop(self) -> None:
         self._stop.set()
         if self._sock:
             try:

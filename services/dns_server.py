@@ -3,8 +3,8 @@ NotTheNet - DNS Server
 Resolves every hostname to redirect_ip, fooling malware DNS lookups.
 
 Key differences from INetSim / FakeNet-NG:
-- Single threaded async UDP server — no socket leak on restart
-- Handles PTR (reverse DNS) cleanly — returns a synthetic hostname
+- Single threaded async UDP server â€” no socket leak on restart
+- Handles PTR (reverse DNS) cleanly â€” returns a synthetic hostname
 - Custom record overrides supported via config
 - All query names sanitized before logging (log injection prevention)
 - dnslib used for packet building (no manual DNS byte-packing bugs)
@@ -12,7 +12,7 @@ Key differences from INetSim / FakeNet-NG:
 Security notes (OpenSSF):
 - Max UDP packet size accepted: 512 bytes (RFC 1035), extended to 4096 with EDNS
 - Truncated / malformed packets are silently dropped, never crash the server
-- Query name length validated (≤ 253 chars per RFC 1035)
+- Query name length validated (â‰¤ 253 chars per RFC 1035)
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 def _shannon_entropy(label: str) -> float:
-    """Shannon entropy (bits/char) of a string — used for DGA detection."""
+    """Shannon entropy (bits/char) of a string â€” used for DGA detection."""
     if not label:
         return 0.0
     counts = Counter(label.lower())
@@ -53,6 +53,8 @@ class _FakeResolver:
     Custom records can override specific names.
     """
 
+    _QTYPE_HANDLERS: dict = {}  # populated after class body when dnslib is available
+
     def __init__(
         self,
         redirect_ip: str,
@@ -62,6 +64,7 @@ class _FakeResolver:
         nxdomain_entropy_threshold: float = 0.0,
         nxdomain_label_min_length: int = 12,
         public_response_ips: list | None = None,
+        kill_switch_domains: list | None = None,
     ):
         self.redirect_ip = redirect_ip
         self.custom_records = {k.lower().rstrip("."): v for k, v in custom_records.items()}
@@ -72,8 +75,15 @@ class _FakeResolver:
         # Pool of public-looking IPs to return in A responses.  iptables
         # REDIRECT rules catch them regardless of destination IP, so returning
         # a plausible public IP here is transparent to routing but prevents
-        # malware from flagging the "all domains → 10.x.x.x" pattern.
+        # malware from flagging the "all domains â†' 10.x.x.x" pattern.
         self._public_ips: list[str] = list(public_response_ips or [])
+        # Kill-switch domains: return NXDOMAIN so malware that checks for
+        # a "sinkholed" domain (expecting resolution) sees the domain as
+        # dead and continues executing.  Matches exact names and any
+        # subdomain (e.g. "example.com" also matches "www.example.com").
+        self._kill_switch_domains: frozenset[str] = frozenset(
+            d.lower().rstrip(".") for d in (kill_switch_domains or [])
+        )
 
     def resolve(self, request: DNSRecord, handler) -> DNSRecord:
         reply = request.reply()
@@ -81,13 +91,13 @@ class _FakeResolver:
             qname = str(request.q.qname).lower().rstrip(".")
             qtype = QTYPE[request.q.qtype]
 
-            # RFC 1035 §2.3.4: max 253 characters for a full domain name
+            # RFC 1035 Â§2.3.4: max 253 characters for a full domain name
             if len(qname) > 253:
                 reply.header.rcode = 1  # FORMERR
                 return reply
 
             safe_name = sanitize_hostname(qname)
-            logger.info(f"DNS query  type={qtype} name={safe_name}")
+            logger.info("DNS query  type=%s name=%s", qtype, safe_name)
 
             # Structured JSON logging
             jl = get_json_logger()
@@ -100,7 +110,7 @@ class _FakeResolver:
             if qname in self.custom_records:
                 override_ip = self.custom_records[qname]
                 reply.add_answer(RR(qname, QTYPE.A, ttl=self.ttl, rdata=A(override_ip)))
-                logger.debug(f"  -> custom override: {safe_name} -> {sanitize_ip(override_ip)}")
+                logger.debug("  -> custom override: %s -> %s", safe_name, sanitize_ip(override_ip))
                 return reply
 
             # --- Windows NCSI DNS probe ---
@@ -109,183 +119,184 @@ class _FakeResolver:
             # "Internet access" indicator from showing.
             if qname in ("dns.msftncsi.com.", "dns.msftncsi.com") and request.q.qtype == QTYPE.A:
                 reply.add_answer(RR(qname, QTYPE.A, ttl=self.ttl, rdata=A("131.107.255.255")))
-                logger.debug(f"  -> NCSI DNS probe: {safe_name} -> 131.107.255.255")
+                logger.debug("  -> NCSI DNS probe: %s -> 131.107.255.255", safe_name)
                 return reply
 
-            # --- PTR (reverse lookup) ---
-            if request.q.qtype == QTYPE.PTR:
-                if self.handle_ptr:
-                    # Synthesize a plausible ISP-style hostname from the IP so
-                    # malware that checks reverse-DNS doesn't see "notthenet".
-                    # PTR qname is like "100.1.168.192.in-addr.arpa".
-                    ptr_label = qname
-                    for suffix in (".in-addr.arpa.", ".in-addr.arpa"):
-                        if ptr_label.endswith(suffix):
-                            ptr_label = ptr_label[: -len(suffix)]
-                            break
-                    octets = ptr_label.split(".")
-                    try:
-                        ip_hyphen = "-".join(reversed(octets))
-                        ptr_host = f"static-{ip_hyphen}.res.example.net."
-                    except Exception:
-                        ptr_host = "host.example.net."
-                    reply.add_answer(
-                        RR(qname, QTYPE.PTR, ttl=self.ttl,
-                           rdata=PTR(ptr_host))
-                    )
-                    logger.debug(f"  -> PTR: {safe_name} -> {ptr_host}")
-                return reply
+            # Dispatch to per-qtype handler.
+            handler = self._QTYPE_HANDLERS.get(request.q.qtype)
+            if handler:
+                return handler(self, reply, qname, safe_name, request)
 
-            # --- AAAA (IPv6) ---
-            # Return NOERROR with an empty answer section — signals "no IPv6
-            # for this domain" per RFC 4074 §2.  The resolver falls back to
-            # an A query, which we handle correctly above.
-            # (Previously returned an A-typed RR inside an AAAA response,
-            # which is a protocol error DNS clients silently discard.)
-            if request.q.qtype == QTYPE.AAAA:
-                logger.debug(f"  -> AAAA: {safe_name} -> (empty, client falls back to A)")
-                return reply
+            # Unknown / unsupported query types â€” NOERROR with empty answer.
+            logger.debug("  -> empty NOERROR for qtype=%s: %s", request.q.qtype, safe_name)
 
-            # --- MX (mail exchanger) ---
-            # Malware that exfiltrates via SMTP often resolves MX before
-            # connecting to the mail server. Without a proper MX response
-            # the mailer library silently gives up.
-            if request.q.qtype == QTYPE.MX:
-                mail_host = f"mail.{qname}"
-                reply.add_answer(
-                    RR(qname, QTYPE.MX, ttl=self.ttl, rdata=MX(mail_host, 10))
-                )
-                # Additional record so the client can resolve the mail host
-                reply.add_ar(
-                    RR(mail_host, QTYPE.A, ttl=self.ttl, rdata=A(self.redirect_ip))
-                )
-                logger.debug(f"  -> MX: {safe_name} -> {mail_host} -> {sanitize_ip(self.redirect_ip)}")
-                return reply
-
-            # --- TXT ---
-            # DNS TXT queries are used for SPF checks by mail libraries,
-            # and by malware that uses TXT-based C2 channels (config
-            # delivery, command passing, domain generation checks).
-            if request.q.qtype == QTYPE.TXT:
-                reply.add_answer(
-                    RR(qname, QTYPE.TXT, ttl=self.ttl, rdata=TXT(b"v=spf1 +all"))
-                )
-                logger.debug(f"  -> TXT: {safe_name}")
-                return reply
-
-            # --- NS (name server) ---
-            if request.q.qtype == QTYPE.NS:
-                ns_host = f"ns1.{qname}"
-                reply.add_answer(
-                    RR(qname, QTYPE.NS, ttl=self.ttl, rdata=NS(ns_host))
-                )
-                reply.add_ar(
-                    RR(ns_host, QTYPE.A, ttl=self.ttl, rdata=A(self.redirect_ip))
-                )
-                logger.debug(f"  -> NS: {safe_name} -> {ns_host}")
-                return reply
-
-            # --- SOA ---
-            if request.q.qtype == QTYPE.SOA:
-                reply.add_answer(
-                    RR(qname, QTYPE.SOA, ttl=self.ttl, rdata=SOA(
-                        f"ns1.{qname}",
-                        f"hostmaster.{qname}",
-                        (2026030500, 3600, 900, 604800, 300),
-                    ))
-                )
-                logger.debug(f"  -> SOA: {safe_name}")
-                return reply
-
-            # --- CNAME ---
-            # Return an A record directly; following CNAME chains is
-            # handled by resolvers, not the authoritative server.
-            if request.q.qtype == QTYPE.CNAME:
-                reply.add_answer(
-                    RR(qname, QTYPE.A, ttl=self.ttl, rdata=A(self.redirect_ip))
-                )
-                logger.debug(f"  -> CNAME(as A): {safe_name} -> {sanitize_ip(self.redirect_ip)}")
-                return reply
-
-            # --- SRV (service location) ---
-            if request.q.qtype == QTYPE.SRV:
-                srv_host = f"srv.{qname}"
-                reply.add_answer(
-                    RR(qname, QTYPE.SRV, ttl=self.ttl,
-                       rdata=SRV(0, 0, 443, srv_host))
-                )
-                reply.add_ar(
-                    RR(srv_host, QTYPE.A, ttl=self.ttl, rdata=A(self.redirect_ip))
-                )
-                logger.debug(f"  -> SRV: {safe_name} -> {srv_host}")
-                return reply
-
-            # --- CAA (certificate authority authorization) ---
-            if request.q.qtype == QTYPE.CAA:
-                reply.add_answer(
-                    RR(qname, QTYPE.CAA, ttl=self.ttl,
-                       rdata=CAA(0, "issue", "letsencrypt.org"))
-                )
-                logger.debug(f"  -> CAA: {safe_name}")
-                return reply
-
-            # --- A ---
-            if request.q.qtype == QTYPE.A:
-                # FCrDNS: if the query is for a synthesized PTR hostname
-                # (static-A-B-C-D.res.example.net), return the IP embedded in
-                # the hostname so forward-confirmed reverse DNS checks pass.
-                _fcrdns_m = re.match(
-                    r'^static-(\d+)-(\d+)-(\d+)-(\d+)\.res\.example\.net$',
-                    qname,
-                )
-                if _fcrdns_m:
-                    response_ip = ".".join(_fcrdns_m.groups())
-                    reply.add_answer(
-                        RR(qname, QTYPE.A, ttl=self.ttl, rdata=A(response_ip))
-                    )
-                    logger.debug(f"  -> FCrDNS A: {safe_name} -> {sanitize_ip(response_ip)}")
-                    return reply
-
-                # DGA detection: return NXDOMAIN for high-entropy labels that
-                # look like machine-generated canary domains.  Malware queries
-                # a random-looking domain before detonating; if it resolves,
-                # the malware knows DNS is being sinkholed and bails out.
-                if self.nxdomain_entropy_threshold > 0.0:
-                    parts = qname.split(".")
-                    sld = parts[-2] if len(parts) >= 2 else qname
-                    entropy = _shannon_entropy(sld)  # compute once
-                    if (
-                        len(sld) >= self.nxdomain_label_min_length
-                        and entropy >= self.nxdomain_entropy_threshold
-                    ):
-                        reply.header.rcode = 3  # NXDOMAIN
-                        logger.debug(
-                            f"  -> NXDOMAIN (DGA entropy={entropy:.2f}): {safe_name}"
-                        )
-                        return reply
-                # Choose a response IP.  When a public IP pool is configured,
-                # return a deterministic public-looking IP per domain so
-                # subsequent queries are consistent (DNS caching).  iptables
-                # REDIRECT rules will intercept the traffic regardless.
-                if self._public_ips:
-                    response_ip = self._public_ips[hash(qname) % len(self._public_ips)]
-                else:
-                    response_ip = self.redirect_ip
-                reply.add_answer(
-                    RR(qname, QTYPE.A, ttl=self.ttl, rdata=A(response_ip))
-                )
-                logger.debug(f"  -> A: {safe_name} -> {sanitize_ip(response_ip)}")
-                return reply
-
-            # --- Unknown / unsupported query types ---
-            # Return NOERROR with empty answer (no records of this type).
-            logger.debug(f"  -> empty NOERROR for qtype={request.q.qtype}: {safe_name}")
 
         except Exception as e:
-            logger.warning(f"DNS resolve error: {e}")
-            reply.header.rcode = 2  # SERVFAIL — never crash the server
+            logger.warning("DNS resolve error: %s", e)
+            reply.header.rcode = 2  # SERVFAIL â€” never crash the server
         return reply
 
+
+    # -- Per-qtype resolver handlers -------------------------------------------
+
+    def _resolve_ptr(self, reply, qname: str, safe_name: str, request):
+        if self.handle_ptr:
+            ptr_label = qname
+            for suffix in (".in-addr.arpa.", ".in-addr.arpa"):
+                if ptr_label.endswith(suffix):
+                    ptr_label = ptr_label[: -len(suffix)]
+                    break
+            octets = ptr_label.split(".")
+            try:
+                ip_hyphen = "-".join(reversed(octets))
+                ptr_host = f"static-{ip_hyphen}.res.example.net."
+            except Exception:
+                ptr_host = "host.example.net."
+            reply.add_answer(
+                RR(qname, QTYPE.PTR, ttl=self.ttl, rdata=PTR(ptr_host))
+            )
+            logger.debug("  -> PTR: %s -> %s", safe_name, ptr_host)
+        return reply
+
+    def _resolve_aaaa(self, reply, qname: str, safe_name: str, _request):
+        logger.debug("  -> AAAA: %s -> (empty, client falls back to A)", safe_name)
+        return reply
+
+    def _resolve_mx(self, reply, qname: str, safe_name: str, _request):
+        mail_host = f"mail.{qname}"
+        reply.add_answer(
+            RR(qname, QTYPE.MX, ttl=self.ttl, rdata=MX(mail_host, 10))
+        )
+        reply.add_ar(
+            RR(mail_host, QTYPE.A, ttl=self.ttl, rdata=A(self.redirect_ip))
+        )
+        logger.debug("  -> MX: %s -> %s -> %s", safe_name, mail_host, sanitize_ip(self.redirect_ip))
+        return reply
+
+    def _resolve_txt(self, reply, qname: str, safe_name: str, _request):
+        reply.add_answer(
+            RR(qname, QTYPE.TXT, ttl=self.ttl, rdata=TXT(b"v=spf1 +all"))
+        )
+        logger.debug("  -> TXT: %s", safe_name)
+        return reply
+
+    def _resolve_ns(self, reply, qname: str, safe_name: str, _request):
+        ns_host = f"ns1.{qname}"
+        reply.add_answer(
+            RR(qname, QTYPE.NS, ttl=self.ttl, rdata=NS(ns_host))
+        )
+        reply.add_ar(
+            RR(ns_host, QTYPE.A, ttl=self.ttl, rdata=A(self.redirect_ip))
+        )
+        logger.debug("  -> NS: %s -> %s", safe_name, ns_host)
+        return reply
+
+    def _resolve_soa(self, reply, qname: str, safe_name: str, _request):
+        reply.add_answer(
+            RR(qname, QTYPE.SOA, ttl=self.ttl, rdata=SOA(
+                f"ns1.{qname}",
+                f"hostmaster.{qname}",
+                (2026030500, 3600, 900, 604800, 300),
+            ))
+        )
+        logger.debug("  -> SOA: %s", safe_name)
+        return reply
+
+    def _resolve_cname(self, reply, qname: str, safe_name: str, _request):
+        reply.add_answer(
+            RR(qname, QTYPE.A, ttl=self.ttl, rdata=A(self.redirect_ip))
+        )
+        logger.debug("  -> CNAME(as A): %s -> %s", safe_name, sanitize_ip(self.redirect_ip))
+        return reply
+
+    def _resolve_srv(self, reply, qname: str, safe_name: str, _request):
+        srv_host = f"srv.{qname}"
+        reply.add_answer(
+            RR(qname, QTYPE.SRV, ttl=self.ttl,
+               rdata=SRV(0, 0, 443, srv_host))
+        )
+        reply.add_ar(
+            RR(srv_host, QTYPE.A, ttl=self.ttl, rdata=A(self.redirect_ip))
+        )
+        logger.debug("  -> SRV: %s -> %s", safe_name, srv_host)
+        return reply
+
+    def _resolve_caa(self, reply, qname: str, safe_name: str, _request):
+        reply.add_answer(
+            RR(qname, QTYPE.CAA, ttl=self.ttl,
+               rdata=CAA(0, "issue", "letsencrypt.org"))
+        )
+        logger.debug("  -> CAA: %s", safe_name)
+        return reply
+
+    def _resolve_a(self, reply, qname: str, safe_name: str, _request):
+        # FCrDNS: if the query is for a synthesized PTR hostname
+        # (static-A-B-C-D.res.example.net), return the embedded IP.
+        _fcrdns_m = re.match(
+            r'^static-(\d+)-(\d+)-(\d+)-(\d+)\.res\.example\.net$',
+            qname,
+        )
+        if _fcrdns_m:
+            response_ip = ".".join(_fcrdns_m.groups())
+            reply.add_answer(
+                RR(qname, QTYPE.A, ttl=self.ttl, rdata=A(response_ip))
+            )
+            logger.debug("  -> FCrDNS A: %s -> %s", safe_name, sanitize_ip(response_ip))
+            return reply
+
+        # Kill-switch domains: always NXDOMAIN.
+        if self._kill_switch_domains and (
+            qname in self._kill_switch_domains or any(
+                qname.endswith("." + d) for d in self._kill_switch_domains
+            )
+        ):
+            reply.header.rcode = 3  # NXDOMAIN
+            logger.info(
+                "  -> NXDOMAIN (kill-switch): %s", safe_name,
+            )
+            return reply
+
+        # DGA detection: NXDOMAIN for high-entropy labels.
+        if self.nxdomain_entropy_threshold > 0.0:
+            parts = qname.split(".")
+            sld = parts[-2] if len(parts) >= 2 else qname
+            entropy = _shannon_entropy(sld)
+            if (
+                len(sld) >= self.nxdomain_label_min_length
+                and entropy >= self.nxdomain_entropy_threshold
+            ):
+                reply.header.rcode = 3  # NXDOMAIN
+                logger.debug(
+                    "  -> NXDOMAIN (DGA entropy=%.2f): %s",
+                    entropy, safe_name,
+                )
+                return reply
+
+        # Choose a response IP from the public pool or redirect_ip.
+        if self._public_ips:
+            response_ip = self._public_ips[hash(qname) % len(self._public_ips)]
+        else:
+            response_ip = self.redirect_ip
+        reply.add_answer(
+            RR(qname, QTYPE.A, ttl=self.ttl, rdata=A(response_ip))
+        )
+        logger.debug("  -> A: %s -> %s", safe_name, sanitize_ip(response_ip))
+        return reply
+
+
+if _DNSLIB_AVAILABLE:
+    _FakeResolver._QTYPE_HANDLERS = {
+        QTYPE.PTR: _FakeResolver._resolve_ptr,
+        QTYPE.AAAA: _FakeResolver._resolve_aaaa,
+        QTYPE.MX: _FakeResolver._resolve_mx,
+        QTYPE.TXT: _FakeResolver._resolve_txt,
+        QTYPE.NS: _FakeResolver._resolve_ns,
+        QTYPE.SOA: _FakeResolver._resolve_soa,
+        QTYPE.CNAME: _FakeResolver._resolve_cname,
+        QTYPE.SRV: _FakeResolver._resolve_srv,
+        QTYPE.CAA: _FakeResolver._resolve_caa,
+        QTYPE.A: _FakeResolver._resolve_a,
+    }
 
 class DNSService:
     """Manages the fake DNS server lifecycle."""
@@ -307,6 +318,9 @@ class DNSService:
         self.public_response_ips: list[str] = list(
             config.get("public_response_ips", []) or []
         )
+        self.kill_switch_domains: list[str] = list(
+            config.get("kill_switch_domains", []) or []
+        )
         self._server_udp: DNSServer | None = None
         self._server_tcp: DNSServer | None = None
 
@@ -327,6 +341,7 @@ class DNSService:
             nxdomain_entropy_threshold=self.nxdomain_entropy_threshold,
             nxdomain_label_min_length=self.nxdomain_label_min_length,
             public_response_ips=self.public_response_ips or None,
+            kill_switch_domains=self.kill_switch_domains or None,
         )
         try:
             self._server_udp = DNSServer(
@@ -337,7 +352,7 @@ class DNSService:
             )
             # Launch threads manually instead of start_thread() so we can
             # pass poll_interval=2.0 to serve_forever(), reducing idle
-            # wakeups from 4/sec to 1/sec (2 servers × 0.5/sec each).
+            # wakeups from 4/sec to 1/sec (2 servers Ã— 0.5/sec each).
             for srv in (self._server_udp, self._server_tcp):
                 def _run(s=srv):
                     s.isRunning = True
@@ -351,16 +366,16 @@ class DNSService:
             )
             return True
         except OSError as e:
-            logger.error(f"DNS service failed to bind port {self.port}: {e}")
+            logger.error("DNS service failed to bind port %s: %s", self.port, e)
             return False
 
-    def stop(self):
+    def stop(self) -> None:
         for srv in (self._server_udp, self._server_tcp):
             if srv:
                 try:
                     srv.stop()
                 except Exception:
-                    pass
+                    logger.debug("Suppressed error", exc_info=True)
         self._server_udp = None
         self._server_tcp = None
         logger.info("DNS service stopped.")

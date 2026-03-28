@@ -317,8 +317,12 @@ sudo notthenet --nogui --config configs/ransomware.json &
 2. Set the victim VM's DNS server to your Kali IP.
 3. Set the victim VM's default gateway to your Kali IP (for gateway mode).
 4. In NotTheNet config: set `interface` to your VM network adapter (e.g. `virbr0`), `iptables_mode` to `"gateway"`, and `redirect_ip` to your Kali IP.
-5. Start NotTheNet.
-6. Execute the malware sample in the victim VM.
-7. Watch the live log for C2 callbacks, DNS lookups, email exfil attempts.
-8. Stop NotTheNet and review `logs/`.
-9. Revert the victim VM snapshot.
+5. **Check for kill-switch domains.** Many samples exit early if a specific domain resolves. Add known kill-switch domains to `dns.kill_switch_domains` so they return NXDOMAIN. Example (WannaCry): `"kill_switch_domains": ["iuqerfsodp9ifjaposdfjhgosurijfaewrwergwea.com"]`.
+6. **Check for high-entropy C2 domains.** If the sample uses `.onion` addresses or other high-entropy hostnames, either raise `dns.nxdomain_entropy_threshold` (e.g. to `4.0`) or add them explicitly to `dns.custom_records` pointing to your sinkhole IP.
+7. Start NotTheNet.
+8. Execute the malware sample in the victim VM.
+9. Watch the live log for C2 callbacks, DNS lookups, email exfil attempts.
+10. Stop NotTheNet and review `logs/`.
+11. Revert the victim VM snapshot.
+
+> See [Configuration → Example Configurations](configuration.md#wannacry--ransomware-with-embedded-tor-client) for a ready-made WannaCry config that bypasses the kill switch, maps `.onion` C2 addresses, and serves fake Tor directory responses.

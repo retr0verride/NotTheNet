@@ -72,7 +72,7 @@ All five stages must pass before submitting a PR.
 
 Write clear commit messages following [Conventional Commits](https://www.conventionalcommits.org/):
 
-```
+```text
 feat: add SOCKS5 proxy sinkhole
 fix: prevent race condition in DNS server shutdown
 docs: update configuration reference for new field
@@ -91,7 +91,7 @@ ci: add Python 3.13 to test matrix
 ## Test Policy
 
 | Rule | Detail |
-|------|--------|
+| ------ | -------- |
 | New features | Must include tests covering the primary behaviour |
 | Bug fixes | Must include a regression test that fails without the fix |
 | Refactors | Existing tests must continue to pass; add tests if coverage gaps are revealed |
@@ -107,6 +107,64 @@ All contributions are reviewed before merge. Reviewers check for:
 - Test coverage for new behaviour
 - Documentation updates if user-facing behaviour changed
 - Clean CI (all checks green)
+
+---
+
+## Architecture: Adding a New Service
+
+### ServiceProtocol
+
+Every service in `services/` implements the **`ServiceProtocol`** interface
+defined in `services/base.py`:
+
+```python
+class ServiceProtocol(Protocol):
+    name: str
+    port: int
+    running: bool
+    def start(self) -> None: ...
+    def stop(self) -> None: ...
+    def status(self) -> dict: ...
+```
+
+Your service class does **not** need to explicitly inherit from
+`ServiceProtocol`; Python's structural subtyping (duck typing) is sufficient.
+Just ensure you expose the three attributes and three methods above.
+
+### Step-by-step
+
+1. **Create** `services/my_service.py` with a class that satisfies
+   `ServiceProtocol`.
+   - **Every service must implement a `threading.BoundedSemaphore`** to cap
+     concurrent connections/transfers. Acquire the semaphore before spawning
+     a handler thread and release it in the handler's `finally` block. Use
+     `_MAX_CONNECTIONS = 50` as the default unless the protocol requires a
+     different cap. This prevents thread exhaustion under flood conditions.
+2. **Register** it in `service_manager.py`:
+   - Add an entry to `_SERVICE_REGISTRY` (maps config section → service class).
+   - Add the class to `_SERVICE_CLASSES` if it needs special start/stop
+     ordering.
+3. **Add a config section** in `config.json` with at least `enabled` and
+   `port`.
+4. **Add a GUI page** (optional):
+   - In `gui/views.py → DashboardMixin._build_pages()`, add a `_ServicePage`
+     with the appropriate fields and checks.
+   - Add a sidebar button in `_build_body()` under the appropriate section.
+5. **Write tests** in `tests/test_my_service.py`.
+6. **Run** `pytest tests/ -v` — all tests must pass.
+
+### GUI Package Layout
+
+The Tkinter GUI is split into a `gui/` package for maintainability:
+
+| Module | Purpose |
+| -------- | --------- |
+| `gui/widgets.py` | Constants, colours, reusable widget factories, tooltip |
+| `gui/dialogs.py` | `_GeneralPage`, `_JsonEventsPage`, `_ServicePage`, `_DNSPage` |
+| `gui/views.py` | `DashboardMixin` — all `_build_*` layout methods |
+| `gui/logic.py` | `ServiceControlMixin` — service lifecycle, log polling |
+| `gui/app.py` | `NotTheNetApp` class (combines both mixins) + `main()` |
+| `notthenet.py` | Thin entry point (~24 lines) |
 
 ---
 

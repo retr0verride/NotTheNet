@@ -7,7 +7,7 @@ detection, FCrDNS, NCSI overrides, Windows NCSI overrides, and the
 public IP pool all apply identically.
 
 Each DNS message is framed with a 2-byte big-endian length prefix,
-exactly as specified for DNS-over-TCP (RFC 1035 §4.2.2).
+exactly as specified for DNS-over-TCP (RFC 1035 Â§4.2.2).
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ except ImportError:
 
 
 class _FakeClientHandler:
-    """Minimal handler shim — provides attributes _FakeResolver.resolve() accesses."""
+    """Minimal handler shim â€” provides attributes _FakeResolver.resolve() accesses."""
 
     def __init__(self, addr: tuple):
         self.client_address = addr
@@ -57,7 +57,7 @@ class DoTService:
         self.bind_ip = config.get("bind_ip", "0.0.0.0")
         self.cert_file = config.get("cert_file", "certs/server.crt")
         self.key_file = config.get("key_file", "certs/server.key")
-        # Resolver settings — inherited from DNS config by service_manager
+        # Resolver settings â€” inherited from DNS config by service_manager
         self.redirect_ip = config.get("resolve_to", "127.0.0.1")
         self.ttl = int(config.get("ttl", 300))
         self.handle_ptr = bool(config.get("handle_ptr", True))
@@ -86,7 +86,7 @@ class DoTService:
             logger.error("DoT service cannot start: dnslib not installed.")
             return False
 
-        # Build TLS context — minimum TLSv1.2, ALPN "dot" per RFC 7858
+        # Build TLS context â€” minimum TLSv1.2, ALPN "dot" per RFC 7858
         try:
             self._ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             self._ssl_ctx.minimum_version = ssl.TLSVersion.TLSv1_2
@@ -94,7 +94,7 @@ class DoTService:
             self._ssl_ctx.load_cert_chain(
                 certfile=self.cert_file, keyfile=self.key_file
             )
-        except (ssl.SSLError, OSError) as e:
+        except OSError as e:
             logger.error("DoT TLS context setup failed: %s", e)
             return False
 
@@ -135,27 +135,31 @@ class DoTService:
         )
         return True
 
+    def _wrap_tls(self, client_sock: socket.socket, addr: tuple) -> "ssl.SSLSocket | None":
+        """TLS-wrap a newly accepted socket. Returns wrapped socket or None on failure."""
+        try:
+            return self._ssl_ctx.wrap_socket(client_sock, server_side=True)
+        except OSError as e:
+            logger.debug(
+                "DoT TLS handshake failed from %s: %s", sanitize_ip(addr[0]), e
+            )
+            try:
+                client_sock.close()
+            except OSError:
+                pass
+            return None
+
     def _accept_loop(self):
+        assert self._server_sock is not None
         while self.running:
             try:
                 client_sock, addr = self._server_sock.accept()
             except socket.timeout:
-                continue  # settimeout(1.0) fired — re-check self.running
+                continue
             except OSError:
-                break  # server socket was closed via stop()
-            # Perform TLS handshake before submitting to thread pool.
-            # Catch both ssl.SSLError and OSError (e.g. connection reset during
-            # handshake) — an unhandled exception here would kill the accept loop.
-            try:
-                tls_sock = self._ssl_ctx.wrap_socket(client_sock, server_side=True)
-            except (ssl.SSLError, OSError) as e:
-                logger.debug(
-                    "DoT TLS handshake failed from %s: %s", sanitize_ip(addr[0]), e
-                )
-                try:
-                    client_sock.close()
-                except OSError:
-                    pass
+                break
+            tls_sock = self._wrap_tls(client_sock, addr)
+            if tls_sock is None:
                 continue
             pool = self._pool
             if pool is not None:
@@ -171,7 +175,7 @@ class DoTService:
         try:
             sock.settimeout(10.0)
             while True:
-                # RFC 1035 §4.2.2: 2-byte big-endian message length prefix
+                # RFC 1035 Â§4.2.2: 2-byte big-endian message length prefix
                 length_bytes = self._recv_exact(sock, 2)
                 if not length_bytes:
                     break
@@ -185,11 +189,11 @@ class DoTService:
                 try:
                     request = DNSRecord.parse(data)
                 except Exception:
-                    break  # malformed DNS message — silently close
+                    break  # malformed DNS message â€” silently close
                 reply = self._resolver.resolve(request, handler)
                 reply_bytes = reply.pack()
                 sock.sendall(struct.pack("!H", len(reply_bytes)) + reply_bytes)
-        except (OSError, ssl.SSLError, TimeoutError):
+        except OSError:
             pass
         finally:
             try:
@@ -204,14 +208,14 @@ class DoTService:
         while len(buf) < n:
             try:
                 chunk = sock.recv(n - len(buf))
-            except (OSError, ssl.SSLError):
+            except OSError:
                 return b""
             if not chunk:
                 return b""
             buf += chunk
         return buf
 
-    def stop(self):
+    def stop(self) -> None:
         self.running = False
         # Close the socket first so any blocked accept() raises OSError
         # and the accept thread exits before we tear down the thread pool.

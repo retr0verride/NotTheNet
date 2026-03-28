@@ -133,7 +133,7 @@ def generate_self_signed_cert(
             try:
                 san_list.append(x509.IPAddress(ipaddress.ip_address(ip)))
             except ValueError:
-                logger.warning(f"Invalid SAN IP skipped: {ip}")
+                logger.warning("Invalid SAN IP skipped: %s", ip)
         for dns in san_dns:
             san_list.append(x509.DNSName(dns))
 
@@ -206,12 +206,12 @@ def generate_self_signed_cert(
             )
         os.chmod(key_path, stat.S_IRUSR | stat.S_IWUSR)  # 0o600
 
-        logger.info(f"Certificate written to {cert_path}")
-        logger.info(f"Private key written to {key_path} (mode 0o600)")
+        logger.info("Certificate written to %s", cert_path)
+        logger.info("Private key written to %s (mode 0o600)", key_path)
         return True
 
     except Exception as e:
-        logger.error(f"Certificate generation failed: {e}", exc_info=True)
+        logger.error("Certificate generation failed: %s", e, exc_info=True)
         return False
 
 
@@ -255,7 +255,7 @@ def generate_ca_cert(
     if key_bits < 2048:
         key_bits = 2048
 
-    logger.info(f"Generating Root CA: CN={common_name}, {key_bits}-bit RSA")
+    logger.info("Generating Root CA: CN=%s, %d-bit RSA", common_name, key_bits)
 
     try:
         key = rsa.generate_private_key(
@@ -315,11 +315,11 @@ def generate_ca_cert(
             )
         os.chmod(ca_key_path, stat.S_IRUSR | stat.S_IWUSR)
 
-        logger.info(f"Root CA cert written to {ca_cert_path}")
-        logger.info(f"Root CA key  written to {ca_key_path} (mode 0o600)")
+        logger.info("Root CA cert written to %s", ca_cert_path)
+        logger.info("Root CA key  written to %s (mode 0o600)", ca_key_path)
         return True
     except Exception as e:
-        logger.error(f"CA certificate generation failed: {e}", exc_info=True)
+        logger.error("CA certificate generation failed: %s", e, exc_info=True)
         return False
 
 
@@ -553,7 +553,7 @@ class DynamicCertCache:
         try:
             ctx = self._build_ctx_for_hostname(hostname)
         except Exception as e:
-            logger.warning(f"TLS  Failed to forge cert for {hostname}: {e}")
+            logger.warning("TLS  Failed to forge cert for %s: %s", hostname, e)
             return None  # Fall back to default cert
 
         with self._lock:

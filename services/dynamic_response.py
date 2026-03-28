@@ -24,6 +24,12 @@ import threading
 
 logger = logging.getLogger(__name__)
 
+# ─── Common MIME type constants ───────────────────────────────────────────────
+_MIME_PE     = "application/x-dosexec"
+_MIME_TEXT   = "text/plain"
+_MIME_OCTET  = "application/octet-stream"
+_MIME_HTML   = "text/html; charset=utf-8"
+
 # ─── Minimal file stubs ──────────────────────────────────────────────────────
 # Each stub is the smallest valid (or plausible) header for its format.
 # Malware typically checks the first few bytes (magic number) and Content-Type
@@ -297,14 +303,14 @@ def _build_extension_map() -> dict[str, tuple[str, bytes]]:
 
         entries = {
             # Windows executables / DLLs
-            ".exe":  ("application/x-dosexec", pe),
-            ".dll":  ("application/x-dosexec", pe),
-            ".sys":  ("application/x-dosexec", pe),
-            ".scr":  ("application/x-dosexec", pe),
-            ".cpl":  ("application/x-dosexec", pe),
-            ".ocx":  ("application/x-dosexec", pe),
-            ".drv":  ("application/x-dosexec", pe),
-            ".com":  ("application/x-dosexec", pe),
+            ".exe":  (_MIME_PE, pe),
+            ".dll":  (_MIME_PE, pe),
+            ".sys":  (_MIME_PE, pe),
+            ".scr":  (_MIME_PE, pe),
+            ".cpl":  (_MIME_PE, pe),
+            ".ocx":  (_MIME_PE, pe),
+            ".drv":  (_MIME_PE, pe),
+            ".com":  (_MIME_PE, pe),
             # Linux executables
             ".so":   ("application/x-sharedlib", elf_),
             ".elf":  ("application/x-executable", elf_),
@@ -336,40 +342,40 @@ def _build_extension_map() -> dict[str, tuple[str, bytes]]:
             ".tar":  ("application/x-tar", b"\x00" * 512),
             ".cab":  ("application/vnd.ms-cab-compressed", b"MSCF\x00\x00\x00\x00"),
             # Web
-            ".html": ("text/html; charset=utf-8", b"<html><body><h1>OK</h1></body></html>\n"),
-            ".htm":  ("text/html; charset=utf-8", b"<html><body><h1>OK</h1></body></html>\n"),
+            ".html": (_MIME_HTML, b"<html><body><h1>OK</h1></body></html>\n"),
+            ".htm":  (_MIME_HTML, b"<html><body><h1>OK</h1></body></html>\n"),
             ".xml":  ("application/xml", xml),
             ".json": ("application/json", json_),
             ".js":   ("application/javascript", js),
             ".mjs":  ("application/javascript", js),
             ".css":  ("text/css", css),
-            ".txt":  ("text/plain", txt),
+            ".txt":  (_MIME_TEXT, txt),
             ".csv":  ("text/csv", b"a,b,c\n"),
             ".wasm": ("application/wasm", b"\x00asm\x01\x00\x00\x00"),
             # Scripting / config
-            ".ps1":  ("text/plain", b"# \n"),
-            ".bat":  ("text/plain", b"@echo off\r\n"),
-            ".cmd":  ("text/plain", b"@echo off\r\n"),
-            ".sh":   ("text/plain", b"#!/bin/sh\n"),
+            ".ps1":  (_MIME_TEXT, b"# \n"),
+            ".bat":  (_MIME_TEXT, b"@echo off\r\n"),
+            ".cmd":  (_MIME_TEXT, b"@echo off\r\n"),
+            ".sh":   (_MIME_TEXT, b"#!/bin/sh\n"),
             ".py":   ("text/x-python", b"# \n"),
-            ".rb":   ("text/plain", b"# \n"),
-            ".pl":   ("text/plain", b"#!/usr/bin/perl\n"),
-            ".vbs":  ("text/plain", b"' \n"),
-            ".ini":  ("text/plain", b"[default]\n"),
-            ".cfg":  ("text/plain", b"[default]\n"),
-            ".conf": ("text/plain", b"# \n"),
+            ".rb":   (_MIME_TEXT, b"# \n"),
+            ".pl":   (_MIME_TEXT, b"#!/usr/bin/perl\n"),
+            ".vbs":  (_MIME_TEXT, b"' \n"),
+            ".ini":  (_MIME_TEXT, b"[default]\n"),
+            ".cfg":  (_MIME_TEXT, b"[default]\n"),
+            ".conf": (_MIME_TEXT, b"# \n"),
             ".yaml": ("text/yaml", b"---\n"),
             ".yml":  ("text/yaml", b"---\n"),
-            ".toml": ("text/plain", b"# \n"),
+            ".toml": (_MIME_TEXT, b"# \n"),
             # Flash / Java
             ".swf":  ("application/x-shockwave-flash", swf),
             ".class": ("application/java-vm", cls),
             # Binary / data
-            ".bin":  ("application/octet-stream", pe),
-            ".dat":  ("application/octet-stream", b"\x00" * 256),
-            ".raw":  ("application/octet-stream", b"\x00" * 256),
+            ".bin":  (_MIME_OCTET, pe),
+            ".dat":  (_MIME_OCTET, b"\x00" * 256),
+            ".raw":  (_MIME_OCTET, b"\x00" * 256),
             ".iso":  ("application/x-iso9660-image", b"\x00" * 32768 + b"\x01CD001"),
-            ".img":  ("application/octet-stream", b"\x00" * 512),
+            ".img":  (_MIME_OCTET, b"\x00" * 512),
             # Fonts
             ".woff":  ("font/woff", b"wOFF"),
             ".woff2": ("font/woff2", b"wOF2"),
@@ -408,14 +414,14 @@ def compile_custom_rules(rules: list[dict]) -> list[_CompiledRule]:
     compiled = []
     for rule in rules:
         raw = rule.get("pattern", "")
-        mime = rule.get("mime", "application/octet-stream")
+        mime = rule.get("mime", _MIME_OCTET)
         body_str = rule.get("body", "")
         try:
             pat = re.compile(raw, re.IGNORECASE)
             body = body_str.encode("utf-8", errors="replace") if body_str else b""
             compiled.append(_CompiledRule(pat, mime, body))
         except re.error as exc:
-            logger.warning(f"Invalid dynamic_response rule regex '{raw}': {exc}")
+            logger.warning("Invalid dynamic_response rule regex '%s': %s", raw, exc)
     return compiled
 
 
@@ -423,7 +429,7 @@ def resolve_dynamic_response(
     path: str,
     custom_rules: list[_CompiledRule] | None = None,
     fallback_body: bytes | None = None,
-    fallback_mime: str = "text/html; charset=utf-8",
+    fallback_mime: str = _MIME_HTML,
 ) -> tuple[str, bytes]:
     """
     Determine the Content-Type and response body for a given request path.
@@ -452,7 +458,7 @@ def resolve_dynamic_response(
         ext = clean_path[dot_pos:].lower()
         if ext in ext_map:
             mime, body = ext_map[ext]
-            logger.debug(f"Dynamic response: {ext} -> {mime} ({len(body)} bytes)")
+            logger.debug("Dynamic response: %s -> %s (%d bytes)", ext, mime, len(body))
             return mime, body
 
     # 3. Fallback to original static response

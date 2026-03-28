@@ -140,6 +140,8 @@ ip addr show
 
 ### 2.5 Install NotTheNet
 
+**Internet-connected Kali:**
+
 ```bash
 cd ~
 git clone https://github.com/retr0verride/NotTheNet
@@ -147,6 +149,21 @@ cd NotTheNet
 
 sudo bash notthenet-install.sh
 ```
+
+**Air-gapped Kali (USB bundle from Windows):**
+
+```bash
+# On Windows — build and copy to USB in one step:
+.\ship.ps1          # auto-detects USB drive
+.\ship.ps1 -Drive E:\   # or force a letter
+
+# On Kali — unzip and install from USB:
+unzip /media/usb/NotTheNet_*_bundle.zip
+cd NotTheNet
+sudo bash notthenet-bundle.sh
+```
+
+See [Offline / USB Install](installation.md#offline--usb-install) for full details.
 
 The installer creates a virtualenv, installs Python dependencies, generates TLS certificates, installs the desktop launcher, and sets up polkit rules so you can launch with GUI elevation.
 

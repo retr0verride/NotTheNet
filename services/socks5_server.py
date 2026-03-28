@@ -3,21 +3,21 @@ NotTheNet - Fake SOCKS5 Proxy Server (port 1080)
 
 Why this matters:
     A large proportion of modern malware does NOT connect directly to its C2.
-    Instead, it routes all C2 traffic through a SOCKS5 proxy — typically another
+    Instead, it routes all C2 traffic through a SOCKS5 proxy â€” typically another
     infected host or a rented proxy service.  Families that do this include:
 
-      SystemBC     — uses SOCKS5 exclusively for all C2 tunnelling
-      QakBot       — SOCKS5 proxy module embedded in the loader
-      Cobalt Strike — systemwide SOCKS5 proxy for post-exploit tunnelling
-      Emotet        — proxy module chains infections together
-      DarkComet/RATs — proxied C2 to hide operator's real IP
+      SystemBC     â€” uses SOCKS5 exclusively for all C2 tunnelling
+      QakBot       â€” SOCKS5 proxy module embedded in the loader
+      Cobalt Strike â€” systemwide SOCKS5 proxy for post-exploit tunnelling
+      Emotet        â€” proxy module chains infections together
+      DarkComet/RATs â€” proxied C2 to hide operator's real IP
 
     Key intelligence captured here:
       - The *real* destination host:port the malware is trying to reach
         (visible inside the SOCKS5 CONNECT request, even if the outer DNS
         query is fake).  This gives you the true C2 address.
       - The protocol the malware speaks after the proxy is established
-        (HTTP beacon, TLS, custom binary — all logged).
+        (HTTP beacon, TLS, custom binary â€” all logged).
 
     This server:
       1. Completes the SOCKS5 RFC 1928 handshake (no-auth)
@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 SESSION_TIMEOUT = 30   # seconds
 LOG_PREVIEW     = 256  # max bytes logged per tunnel chunk (sanitized)
 
-# ─── SOCKS5 constants (RFC 1928) ─────────────────────────────────────────────
+# â”€â”€â”€ SOCKS5 constants (RFC 1928) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _VER    = 0x05
 _CMD_CONNECT  = 0x01
 _CMD_BIND     = 0x02
@@ -67,7 +67,7 @@ _REP_REFUSED  = 0x05
 _CONNECT_OK   = struct.pack("!BBBBIH", _VER, _REP_OK, 0, _ATYP_IPV4, 0, 0)
 _CONNECT_FAIL = struct.pack("!BBBBIH", _VER, _REP_REFUSED, 0, _ATYP_IPV4, 0, 0)
 
-# ─── Protocol detection / response (mirrors catch_all.py logic) ──────────────
+# â”€â”€â”€ Protocol detection / response (mirrors catch_all.py logic) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _HTTP_PREFIXES = (b"GET ", b"POST", b"PUT ", b"HEAD", b"OPTI", b"DELE", b"PATC")
 
 _HTTP_200 = (
@@ -109,7 +109,7 @@ class _Socks5Session(threading.Thread):
         self.key_path  = key_path
         self._sem      = sem
 
-    # ── I/O helpers ──────────────────────────────────────────────────────────
+    # â”€â”€ I/O helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _recv_exact(self, n: int) -> Optional[bytes]:
         """Read exactly n bytes, returning None on EOF/error."""
@@ -130,11 +130,11 @@ class _Socks5Session(threading.Thread):
         except OSError:
             pass
 
-    # ── SOCKS5 handshake ──────────────────────────────────────────────────────
+    # â”€â”€ SOCKS5 handshake â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _handshake(self) -> bool:
         """
-        SOCKS5 method negotiation (RFC 1928 §3).
+        SOCKS5 method negotiation (RFC 1928 Â§3).
         Returns True if the client is SOCKS5 and we agreed on no-auth (0x00).
         """
         header = self._recv_exact(2)
@@ -148,9 +148,25 @@ class _Socks5Session(threading.Thread):
         self._send(bytes([_VER, 0x00]))
         return True
 
+    def _read_address(self, atyp: int) -> Optional[str]:
+        """Parse destination address based on address type."""
+        if atyp == _ATYP_IPV4:
+            raw = self._recv_exact(4)
+            return socket.inet_ntoa(raw) if raw else None
+        if atyp == _ATYP_DOMAIN:
+            length_byte = self._recv_exact(1)
+            if not length_byte:
+                return None
+            raw = self._recv_exact(length_byte[0])
+            return raw.decode("utf-8", errors="replace") if raw else None
+        if atyp == _ATYP_IPV6:
+            raw = self._recv_exact(16)
+            return socket.inet_ntop(socket.AF_INET6, raw) if raw else None
+        return None
+
     def _read_connect(self) -> Optional[tuple[str, int]]:
         """
-        Read a SOCKS5 CONNECT request (RFC 1928 §4).
+        Read a SOCKS5 CONNECT request (RFC 1928 Â§4).
         Returns (destination_host, destination_port) or None on error.
         BIND and UDP ASSOCIATE are rejected (SSRF/amplification vectors).
         """
@@ -158,45 +174,45 @@ class _Socks5Session(threading.Thread):
         if not req or req[0] != _VER:
             return None
 
-        cmd  = req[1]
-        atyp = req[3]
-
-        if cmd != _CMD_CONNECT:
-            # BIND and UDP ASSOCIATE refused
+        if req[1] != _CMD_CONNECT:
             self._send(_CONNECT_FAIL)
             return None
 
-        if atyp == _ATYP_IPV4:
-            raw = self._recv_exact(4)
-            if not raw:
-                return None
-            host = socket.inet_ntoa(raw)
-
-        elif atyp == _ATYP_DOMAIN:
-            length_byte = self._recv_exact(1)
-            if not length_byte:
-                return None
-            raw = self._recv_exact(length_byte[0])
-            if not raw:
-                return None
-            host = raw.decode("utf-8", errors="replace")
-
-        elif atyp == _ATYP_IPV6:
-            raw = self._recv_exact(16)
-            if not raw:
-                return None
-            host = socket.inet_ntop(socket.AF_INET6, raw)
-
-        else:
+        host = self._read_address(req[3])
+        if host is None:
             return None
 
         port_raw = self._recv_exact(2)
         if not port_raw:
             return None
-        port = struct.unpack("!H", port_raw)[0]
-        return host, port
+        return host, struct.unpack("!H", port_raw)[0]
+    # â”€â”€ Tunnel snooping â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-    # ── Tunnel snooping ───────────────────────────────────────────────────────
+    def _try_tls_wrap(
+        self, sock: socket.socket, safe_addr: str,
+        destination: str, dest_port: int,
+    ) -> socket.socket:
+        """Attempt TLS wrap on the tunnel socket; return (possibly wrapped) socket."""
+        if not (
+            self.cert_path
+            and self.key_path
+            and os.path.exists(self.cert_path)
+            and os.path.exists(self.key_path)
+        ):
+            return sock
+        try:
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+            ctx.load_cert_chain(certfile=self.cert_path, keyfile=self.key_path)
+            wrapped = ctx.wrap_socket(sock, server_side=True)
+            logger.debug(
+                "SOCKS5 TLS tunnel handshake complete: %s -> %s:%d",
+                safe_addr, destination, dest_port,
+            )
+            return wrapped
+        except ssl.SSLError as e:
+            logger.debug("SOCKS5 TLS wrap failed %s: %s", safe_addr, e)
+            raise  # socket unrecoverable after partial handshake
 
     def _snoop_tunnel(self, destination: str, dest_port: int, safe_addr: str):
         """
@@ -207,7 +223,6 @@ class _Socks5Session(threading.Thread):
         sock = self.conn
         sock.settimeout(0.5)
 
-        # Peek at first bytes to detect protocol
         try:
             peek = sock.recv(8, socket.MSG_PEEK)
         except OSError:
@@ -215,33 +230,15 @@ class _Socks5Session(threading.Thread):
 
         protocol = _detect_protocol(peek)
 
-        # If TLS ClientHello → wrap the tunnel connection
         if protocol == "tls":
-            if (
-                self.cert_path
-                and self.key_path
-                and os.path.exists(self.cert_path)
-                and os.path.exists(self.key_path)
-            ):
-                try:
-                    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-                    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-                    ctx.load_cert_chain(
-                        certfile=self.cert_path, keyfile=self.key_path
-                    )
-                    sock = ctx.wrap_socket(sock, server_side=True)
-                    logger.debug(
-                        f"SOCKS5 TLS tunnel handshake complete: {safe_addr} "
-                        f"→ {destination}:{dest_port}"
-                    )
-                except ssl.SSLError as e:
-                    logger.debug(f"SOCKS5 TLS wrap failed {safe_addr}: {e}")
-                    return   # socket state is unrecoverable after partial handshake
-            self.conn = sock  # keep reference so close() works
+            try:
+                sock = self._try_tls_wrap(sock, safe_addr, destination, dest_port)
+            except ssl.SSLError:
+                return
+            self.conn = sock
 
         sock.settimeout(SESSION_TIMEOUT)
 
-        # Read first payload
         first_data = b""
         try:
             first_data = sock.recv(4096)
@@ -253,18 +250,17 @@ class _Socks5Session(threading.Thread):
                 first_data[:LOG_PREVIEW].decode("utf-8", errors="replace")
             )
             logger.debug(
-                f"SOCKS5 [{protocol.upper()}] tunnel {safe_addr} "
-                f"→ {destination}:{dest_port}  {len(first_data)}B: {preview}"
+                "SOCKS5 [%s] tunnel %s -> %s:%d  %dB: %s",
+                protocol.upper(), safe_addr, destination, dest_port,
+                len(first_data), preview,
             )
 
-        # Respond
         response = _HTTP_200 if protocol in ("http", "tls") else _GENERIC_BANNER
         try:
             sock.sendall(response)
         except OSError:
             return
 
-        # Drain follow-on messages
         try:
             while True:
                 chunk = sock.recv(4096)
@@ -274,22 +270,22 @@ class _Socks5Session(threading.Thread):
                     chunk[:LOG_PREVIEW].decode("utf-8", errors="replace")
                 )
                 logger.debug(
-                    f"SOCKS5 [{protocol.upper()}] follow-on {safe_addr} "
-                    f"→ {destination}:{dest_port}  {len(chunk)}B: {preview}"
+                    "SOCKS5 [%s] follow-on %s -> %s:%d  %dB: %s",
+                    protocol.upper(), safe_addr, destination, dest_port,
+                    len(chunk), preview,
                 )
         except OSError:
             pass
+    # â”€â”€ Thread main â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-    # ── Thread main ───────────────────────────────────────────────────────────
-
-    def run(self):
+    def run(self) -> None:
         safe_addr = sanitize_ip(self.addr[0])
         jl = get_json_logger()
         try:
             self.conn.settimeout(SESSION_TIMEOUT)
 
             if not self._handshake():
-                logger.debug(f"SOCKS5 bad handshake from {safe_addr}")
+                logger.debug("SOCKS5 bad handshake from %s", safe_addr)
                 return
 
             result = self._read_connect()
@@ -299,7 +295,7 @@ class _Socks5Session(threading.Thread):
             destination, dest_port = result
             safe_dest = sanitize_log_string(destination)
             logger.info(
-                f"SOCKS5 CONNECT [{safe_addr}] → {safe_dest}:{dest_port}"
+                "SOCKS5 CONNECT [%s] → %s:%d", safe_addr, safe_dest, dest_port
             )
             if jl:
                 jl.log(
@@ -316,7 +312,7 @@ class _Socks5Session(threading.Thread):
             self._snoop_tunnel(destination, dest_port, safe_addr)
 
         except OSError:
-            pass
+            logger.debug("SOCKS5 session error", exc_info=True)
         finally:
             if self._sem is not None:
                 self._sem.release()
@@ -324,11 +320,11 @@ class _Socks5Session(threading.Thread):
                 self.conn.close()
             except OSError:
                 pass
-            logger.debug(f"SOCKS5 [{safe_addr}] session ended")
+            logger.debug("SOCKS5 [%s] session ended", safe_addr)
 
 
 class Socks5Service:
-    """Fake SOCKS5 proxy server — captures tunnelled C2 destinations."""
+    """Fake SOCKS5 proxy server â€” captures tunnelled C2 destinations."""
 
     def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
         self.enabled   = config.get("enabled", True)
@@ -355,13 +351,14 @@ class Socks5Service:
                 target=self._serve, daemon=True, name="socks5-server"
             )
             self._thread.start()
-            logger.info(f"SOCKS5 proxy service started on {self.bind_ip}:{self.port}")
+            logger.info("SOCKS5 proxy service started on %s:%s", self.bind_ip, self.port)
             return True
         except OSError as e:
-            logger.error(f"SOCKS5 failed to bind: {e}")
+            logger.error("SOCKS5 failed to bind: %s", e)
             return False
 
-    def _serve(self):
+    def _serve(self) -> None:
+        assert self._sock is not None
         while not self._stop.is_set():
             try:
                 conn, addr = self._sock.accept()
@@ -380,7 +377,7 @@ class Socks5Service:
                 sem=self._sem,
             ).start()
 
-    def stop(self):
+    def stop(self) -> None:
         self._stop.set()
         if self._sock:
             try:
