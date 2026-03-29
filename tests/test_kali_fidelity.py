@@ -20,7 +20,6 @@ import socket
 import ssl
 import struct
 import sys
-import textwrap
 import time
 
 # ── Defaults ────────────────────────────────────────────────────────────────
@@ -485,12 +484,12 @@ def test_mysql(host: str, port: int, r: FidelityResults) -> None:
             return
 
         # Packet header: 3-byte length + 1-byte sequence
-        pkt_len = struct.unpack("<I", data[:3] + b"\x00")[0]
+        struct.unpack("<I", data[:3] + b"\x00")[0]
         seq = data[3]
         proto = data[4]
 
         if seq == 0:
-            r.ok(f"Sequence ID=0 (initial greeting)")
+            r.ok("Sequence ID=0 (initial greeting)")
         else:
             r.warn(f"Unexpected sequence ID: {seq}")
 

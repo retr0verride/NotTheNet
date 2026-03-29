@@ -6,7 +6,7 @@ Orchestrates all fake network services and iptables rules.
 import logging
 import threading
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Optional
 
 from config import Config
 from network.iptables_manager import IPTablesManager

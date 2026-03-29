@@ -72,6 +72,18 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "notthenet.py" = ["E501"]  # decorative section separators and ASCII-art banner strings
 "notthenet-install.sh" = []  # shell, not Python
+# Service files: long lines are protocol-data byte strings that cannot be split
+"services/catch_all.py" = ["E501"]
+"services/http_server.py" = ["E501"]
+"services/irc_server.py" = ["E501"]
+"services/ldap_server.py" = ["E501"]
+"services/mssql_server.py" = ["E501"]
+"services/redis_server.py" = ["E501"]
+"services/socks5_server.py" = ["E501"]
+"services/telnet_server.py" = ["E501"]
+"services/tftp_server.py" = ["E501"]
+# GUI: long lines are embedded base64 icon data
+"gui/views.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.9"

@@ -8,19 +8,18 @@ import queue
 import sys
 import threading
 import tkinter as tk
-from typing import Optional
 
 from config import Config
 from gui.logic import ServiceControlMixin
 from gui.views import DashboardMixin, _print_logo
 from gui.widgets import (
-    APP_TITLE,
-    C_BG,
     _APP_ICON_B64,
     _BASE_H,
     _BASE_MIN_H,
     _BASE_MIN_W,
     _BASE_W,
+    APP_TITLE,
+    C_BG,
     _QueueHandler,
 )
 from service_manager import ServiceManager
@@ -33,7 +32,7 @@ class NotTheNetApp(DashboardMixin, ServiceControlMixin, tk.Tk):
     """Main application window combining layout (DashboardMixin) and
     runtime logic (ServiceControlMixin)."""
 
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(self, config_path: str | None = None):
         super().__init__()
         self.title(APP_TITLE)
         self.configure(bg=C_BG)
@@ -50,7 +49,7 @@ class NotTheNetApp(DashboardMixin, ServiceControlMixin, tk.Tk):
         self._cfg = Config(config_path or "config.json")
         self._log_queue: queue.Queue = queue.Queue(maxsize=2000)
         self._log_line_count: int = 0
-        self._manager: Optional[ServiceManager] = None
+        self._manager: ServiceManager | None = None
         self._svc_vars: dict = {}
         self._pages: dict = {}
         self._start_time = None

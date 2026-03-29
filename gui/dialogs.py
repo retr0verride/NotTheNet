@@ -8,9 +8,11 @@ import os
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from gui.widgets import (
+    _JSON_LOG_PATH,
+    _STY_JSONLOG_TV,
     C_ACCENT,
     C_BORDER,
     C_DIM,
@@ -23,16 +25,12 @@ from gui.widgets import (
     C_SURFACE,
     C_TEXT,
     PAD,
-    _EVT_BUTTON1,
-    _EVT_CONFIGURE,
-    _JSON_LOG_PATH,
-    _STY_JSONLOG_TV,
-    _InfoPanel,
     _check,
     _combo,
     _entry,
     _f,
     _hover_bind,
+    _InfoPanel,
     _open_path_external,
     _row,
     _section_frame,
@@ -202,7 +200,7 @@ class _JsonEventsPage(tk.Frame):
         self._filter_var = tk.StringVar(value="ALL")
         self._event_types: set = set()
         self._tree_count: int = 0
-        self._auto_export_path: Optional[str] = None
+        self._auto_export_path: str | None = None
         self._auto_exported_count: int = 0
         self._build()
 

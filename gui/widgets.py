@@ -8,9 +8,7 @@ import queue
 import subprocess
 import sys
 import tkinter as tk
-from tkinter import scrolledtext, ttk
-from tkinter import font as _tkfont
-from typing import Optional
+from tkinter import ttk
 
 logger = logging.getLogger(__name__)
 
@@ -142,8 +140,8 @@ class _Tooltip:
     def __init__(self, widget: tk.Widget, text: str):
         self._widget = widget
         self._text = text
-        self._tw: Optional[tk.Toplevel] = None
-        self._job: Optional[str] = None
+        self._tw: tk.Toplevel | None = None
+        self._job: str | None = None
         widget.bind("<Enter>",    self._on_enter, add="+")
         widget.bind("<Leave>",    self._on_leave, add="+")
         widget.bind("<Button>",   self._on_leave, add="+")

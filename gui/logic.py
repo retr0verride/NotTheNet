@@ -26,7 +26,6 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from tkinter import scrolledtext
-    from typing import Optional
 
     from config import Config
 
@@ -41,9 +40,9 @@ if TYPE_CHECKING:
         _status_label: tk.Label
         _cfg: Config
         _pages: dict
-        _manager: Optional[ServiceManager]
-        _start_time: Optional[float]
-        _timer_job: Optional[str]
+        _manager: ServiceManager | None
+        _start_time: float | None
+        _timer_job: str | None
         _svc_vars: dict
         _log_queue: queue.Queue
         _log_line_count: int

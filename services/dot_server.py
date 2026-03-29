@@ -135,7 +135,7 @@ class DoTService:
         )
         return True
 
-    def _wrap_tls(self, client_sock: socket.socket, addr: tuple) -> "ssl.SSLSocket | None":
+    def _wrap_tls(self, client_sock: socket.socket, addr: tuple) -> ssl.SSLSocket | None:
         """TLS-wrap a newly accepted socket. Returns wrapped socket or None on failure."""
         try:
             return self._ssl_ctx.wrap_socket(client_sock, server_side=True)

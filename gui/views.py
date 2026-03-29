@@ -5,34 +5,12 @@ from __future__ import annotations
 import math
 import os
 import tkinter as tk
-from tkinter import scrolledtext, ttk
 from tkinter import font as _tkfont
+from tkinter import scrolledtext, ttk
 from typing import TYPE_CHECKING
 
 from gui.dialogs import _DNSPage, _GeneralPage, _JsonEventsPage, _ServicePage
 from gui.widgets import (
-    APP_TITLE,
-    APP_VERSION,
-    C_ACCENT,
-    C_ACCENT2,
-    C_BG,
-    C_BORDER,
-    C_DIM,
-    C_ENTRY_BG,
-    C_ENTRY_FG,
-    C_GREEN,
-    C_HOVER,
-    C_LOG_BG,
-    C_ORANGE,
-    C_PANEL,
-    C_RED,
-    C_SELECTED,
-    C_SUBTLE,
-    C_SURFACE,
-    C_TEXT,
-    LOG_MAX_LINES,
-    PAD,
-    _APP_ICON_B64,
     _BASE_H,
     _BASE_MIN_H,
     _BASE_MIN_W,
@@ -52,11 +30,29 @@ from gui.widgets import (
     _ZOOM_MAX,
     _ZOOM_MIN,
     _ZOOM_STEP,
+    APP_VERSION,
+    C_ACCENT,
+    C_ACCENT2,
+    C_BG,
+    C_BORDER,
+    C_DIM,
+    C_ENTRY_BG,
+    C_ENTRY_FG,
+    C_GREEN,
+    C_HOVER,
+    C_LOG_BG,
+    C_ORANGE,
+    C_PANEL,
+    C_RED,
+    C_SELECTED,
+    C_SUBTLE,
+    C_SURFACE,
+    C_TEXT,
+    PAD,
     _f,
     _hover_bind,
     tooltip,
 )
-
 
 # ---------------------------------------------------------------------------
 # Globe canvas icon
@@ -112,7 +108,6 @@ class _GlobeCanvas(tk.Canvas):
 
 if TYPE_CHECKING:
     import queue
-    from typing import Optional
 
     from config import Config
     from service_manager import ServiceManager
@@ -126,9 +121,9 @@ if TYPE_CHECKING:
         _pages: dict
         _log_queue: queue.Queue
         _log_line_count: int
-        _manager: Optional[ServiceManager]
-        _start_time: Optional[float]
-        _timer_job: Optional[str]
+        _manager: ServiceManager | None
+        _start_time: float | None
+        _timer_job: str | None
         _log_level_filter: set[str]
         _log_filter_btns: dict
         _log_widget: scrolledtext.ScrolledText

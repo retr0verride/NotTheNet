@@ -9,11 +9,7 @@ shared by the majority of services.
 from __future__ import annotations
 
 import logging
-import socket
-import threading
-from typing import Optional, Protocol, runtime_checkable
-
-from utils.logging_utils import sanitize_ip
+from typing import Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
