@@ -9,6 +9,7 @@ on:
     branches: [main, dev]
   pull_request:
     branches: [main]
+  workflow_dispatch:
   schedule:
     # Weekly scan on Mondays at 08:00 UTC
     - cron: "0 8 * * 1"
