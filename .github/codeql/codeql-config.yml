@@ -1,0 +1,7 @@
+name: "NotTheNet CodeQL config"
+
+# tools/ is developer load-testing tooling, not production code.
+# It intentionally uses ssl.CERT_NONE to connect to NotTheNet's own
+# self-signed sinkhole certificates — suppressing is correct here.
+paths-ignore:
+  - tools/
