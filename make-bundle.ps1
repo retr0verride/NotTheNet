@@ -58,8 +58,8 @@ try {
         @{ pyver = "311"; abi = "cp311"; plat = "manylinux_2_17_x86_64" }
     )
     foreach ($t in $targets) {
-        info "Downloading cryptography>=44.0.1 (cp$($t.pyver) / $($t.plat))..."
-        pip download "cryptography>=44.0.1" `
+        info "Downloading cryptography>=46.0.5 (cp$($t.pyver) / $($t.plat))..."
+        pip download "cryptography>=46.0.5" `
             --platform $t.plat `
             --python-version $t.pyver `
             --implementation cp `
