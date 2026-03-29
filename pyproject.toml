@@ -109,6 +109,7 @@ exclude_dirs = ["venv", ".venv", ".git", "tests"]
 skips = [
     "B101",   # assert_used — used as lightweight runtime guards (not test assertions)
     "B104",   # binding to 0.0.0.0 — intentional (fake internet by design)
+    "B105",   # hardcoded_password_string — FTP/protocol response strings, not credentials
     "B110",   # try/except/pass — intentional in socket I/O handlers
     "B324",   # hashlib use — not for crypto here
     "B404",   # subprocess import — used safely with shell=False throughout
