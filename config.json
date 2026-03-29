@@ -6,6 +6,7 @@
     "log_level": "INFO",
     "log_to_file": true,
     "auto_iptables": true,
+    "auto_evict_services": true,
     "interface": "eth0",
     "iptables_mode": "gateway",
     "spoof_public_ip": "98.6.112.145",

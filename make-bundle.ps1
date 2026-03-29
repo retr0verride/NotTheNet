@@ -65,6 +65,7 @@ try {
             --implementation cp `
             --abi $t.abi `
             --only-binary :all: `
+            --no-deps `
             --dest $tmpDir `
             --quiet 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) { $cryptoOk = $true; break }

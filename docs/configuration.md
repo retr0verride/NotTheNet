@@ -57,6 +57,7 @@ Global settings that apply to all services.
 | `tcp_fingerprint` | bool | `false` | Enable TCP/IP OS fingerprint spoofing on all listening sockets. Modifies low-level TCP parameters so responses appear to come from the configured OS. Linux only. |
 | `tcp_fingerprint_os` | string | `"windows"` | OS profile for TCP fingerprint spoofing. One of: `"windows"` (TTL=128, Win=65535), `"linux"` (TTL=64, Win=29200), `"macos"` (TTL=64, Win=65535), `"solaris"` (TTL=255, Win=49640). |
 | `spoof_ttl` | int | `54` | When non-zero, adds an `iptables -t mangle` POSTROUTING rule that sets the TTL of all outgoing packets to this value. Makes traffic look like it traversed ~10 internet hops rather than coming from a directly-connected host (default Linux TTL=64). Valid range: 1–255. Requires the `xt_TTL` kernel module (`modprobe xt_TTL`); silently skipped if unavailable. Set to `0` to disable. |
+| `auto_evict_services` | bool | `true` | When `true`, NotTheNet automatically stops conflicting system services (apache2, nginx, lighttpd, bind9, dnsmasq, systemd-resolved, exim4, postfix, smbd, nmbd, mariadb, mysql) before binding ports. Requires `systemctl` and root. Set to `false` to manage those services manually. |
 
 ### Example
 
@@ -69,6 +70,7 @@ Global settings that apply to all services.
   "log_level": "INFO",
   "log_to_file": true,
   "auto_iptables": true,
+  "auto_evict_services": true,
   "iptables_mode": "loopback",
   "json_logging": true,
   "json_log_file": "logs/events.jsonl",

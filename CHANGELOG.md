@@ -9,6 +9,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ---
 
+## [2026.03.29-2] — 2026-03-29
+
+### Added
+- **Service eviction: auto-stop conflicting system services on startup** — NotTheNet now calls `systemctl stop` on any system service that would prevent it from binding its ports before attempting to start. Covered services: `apache2`, `nginx`, `lighttpd` (ports 80/443), `bind9`, `dnsmasq`, `systemd-resolved` (port 53), `exim4`, `postfix` (port 25), `smbd`, `nmbd` (port 445), `mariadb`, `mysql` (port 3306). Controlled by new `auto_evict_services` config key (default: `true`). Silently skipped on non-systemd hosts.
+
+### Fixed
+- **make-bundle: cryptography download failed on Python 3.14 hosts** — `pip download cryptography` without `--no-deps` attempted to resolve `cffi` against the host Python version; on Python 3.14 only `cffi 2.0.0b1` is available but pip rejected it; added `--no-deps` to the cryptography download since cffi is already handled separately in the next step.
+
+---
+
 ## [2026.03.19-19] — 2026-03-19
 
 ### Fixed

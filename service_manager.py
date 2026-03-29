@@ -4,6 +4,8 @@ Orchestrates all fake network services and iptables rules.
 """
 
 import logging
+import shutil
+import subprocess
 import threading
 from dataclasses import dataclass
 from typing import Optional
@@ -96,6 +98,19 @@ _SERVICE_REGISTRY: list[ServiceSpec] = [
 # Names of services that require special config merging in start()
 _SPECIAL_SERVICES = frozenset({"dns", "dot", "http", "https"})
 
+# System services known to compete for ports NotTheNet needs on Kali / Debian.
+# systemd-resolved: binds 127.0.0.53:53 stub DNS listener
+# exim4 / postfix:  binds :25 (MTA shipped by default on many distros)
+# smbd / nmbd:      binds :445 / :139 (Samba file sharing)
+# mariadb / mysql:  binds :3306 (often installed for Metasploit/pen-test DBs)
+_CONFLICTING_SYSTEM_SERVICES = (
+    "apache2", "nginx", "lighttpd",
+    "bind9", "dnsmasq", "systemd-resolved",
+    "exim4", "postfix",
+    "smbd", "nmbd",
+    "mariadb", "mysql",
+)
+
 
 
 class ServiceManager:
@@ -115,6 +130,31 @@ class ServiceManager:
         """Validate configuration; return list of error strings."""
         errors = validate_config(self.config.as_dict())
         return errors
+
+    def _evict_conflicting_services(self) -> None:
+        """Stop system services that would prevent NotTheNet from binding its ports.
+
+        Checks apache2, nginx, lighttpd, bind9, and dnsmasq via systemctl.
+        Only runs when auto_evict_services is enabled in config.
+        """
+        if not shutil.which("systemctl"):
+            return
+        for svc in _CONFLICTING_SYSTEM_SERVICES:
+            try:
+                probe = subprocess.run(
+                    ["systemctl", "is-active", "--quiet", svc],
+                    timeout=5,
+                    check=False,
+                )
+                if probe.returncode == 0:
+                    logger.info("Stopping conflicting system service: %s", svc)
+                    subprocess.run(
+                        ["systemctl", "stop", svc],
+                        timeout=10,
+                        check=False,
+                    )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Could not check/stop %s: %s", svc, exc)
 
     def _check_port_conflicts(self):
         """Warn about duplicate port/proto assignments across enabled services."""
@@ -170,6 +210,8 @@ class ServiceManager:
             return False
 
         require_root_or_warn()
+        if self.config.get("general", "auto_evict_services"):
+            self._evict_conflicting_services()
         self._check_port_conflicts()
 
         self._setup_json_logging()

@@ -51,7 +51,9 @@ If you don't want to run as root, shift services to high ports and rely on iptab
 
 Another process is already using that port.
 
-**Fix — find and kill the conflicting process:**
+**Automatic fix:** NotTheNet automatically stops known conflicting services on startup when `auto_evict_services: true` (the default). Check the log for lines like `Stopping conflicting system service: apache2`.
+
+**Manual fix — find and kill the conflicting process:**
 ```bash
 # Find what's using port 53
 sudo ss -tulpn | grep ':53'
@@ -61,7 +63,7 @@ sudo lsof -i :53
 sudo systemctl stop systemd-resolved
 sudo systemctl disable systemd-resolved
 
-# Or change its port
+# Or change its stub listener port only
 sudo sed -i 's/^#DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf
 sudo systemctl restart systemd-resolved
 ```
@@ -70,6 +72,11 @@ sudo systemctl restart systemd-resolved
 ```bash
 sudo systemctl stop apache2
 sudo systemctl stop nginx
+```
+
+**To disable auto-eviction** (if you want to manage conflicting services manually):
+```json
+"general": { "auto_evict_services": false }
 ```
 
 ---
