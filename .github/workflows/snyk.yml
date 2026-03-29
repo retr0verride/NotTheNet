@@ -6,9 +6,9 @@ name: Snyk
 
 on:
   push:
-    branches: [master, dev]
+    branches: [main, dev]
   pull_request:
-    branches: [master]
+    branches: [main]
   schedule:
     # Weekly scan on Mondays at 08:00 UTC
     - cron: "0 8 * * 1"
