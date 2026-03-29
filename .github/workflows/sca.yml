@@ -68,7 +68,7 @@ jobs:
 
       - name: Upload Trivy SARIF to GitHub Code Scanning
         if: hashFiles('trivy-results.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-results.sarif
           category: trivy
