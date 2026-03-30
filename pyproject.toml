@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "notthenet"
-version = "2026.03.29-2"
+version = "2026.03.29-4"
 description = "Fake internet simulator for malware analysis — INetSim/FakeNet-NG alternative"
 readme = "README.md"
 license = "MIT"
@@ -50,6 +50,7 @@ include = ["services*", "network*", "utils*"]
 [tool.ruff]
 line-length = 120
 target-version = "py39"
+exclude = ["test_iptc.py"]
 
 [tool.ruff.lint]
 select = [
