@@ -68,6 +68,10 @@ if ($curVer -match '^(\d{4}\.\d{2}\.\d{2})-(\d+)$') {
 (Get-Content notthenet.py) -replace '^APP_VERSION\s*=\s*".*"', "APP_VERSION = `"$ver`"" |
     Set-Content notthenet.py
 
+# Patch gui/widgets.py
+(Get-Content gui/widgets.py) -replace '^APP_VERSION\s*=\s*".*"', "APP_VERSION = `"$ver`"" |
+    Set-Content gui/widgets.py
+
 Step "Shipping version $ver  (was $curVer)"
 
 # ── Predeploy checks ──────────────────────────────────────────────────────────
