@@ -90,6 +90,24 @@ try {
     }
     if (-not $cffiOk) { fatal "Could not download a cffi wheel for Linux x86_64." }
 
+    # setproctitle — binary wheel; needed for process masquerade feature
+    $sptOk = $false
+    foreach ($t in $targets) {
+        info "Downloading setproctitle (cp$($t.pyver) / $($t.plat))..."
+        pip download "setproctitle>=1.3" `
+            --platform $t.plat `
+            --python-version $t.pyver `
+            --implementation cp `
+            --abi $t.abi `
+            --only-binary :all: `
+            --no-deps `
+            --dest $tmpDir `
+            --quiet 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) { $sptOk = $true; break }
+        warn "  Not available for that target, trying next..."
+    }
+    if (-not $sptOk) { warn "Could not download setproctitle -- process masquerade will be unavailable." }
+
     $wheels = @(Get-ChildItem -Path $tmpDir -Filter "*.whl")
     if ($wheels.Count -eq 0) { fatal "No wheels found after download." }
     info "Bundling $($wheels.Count) wheel(s):"

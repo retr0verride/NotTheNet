@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "notthenet"
-version = "2026.03.29-4"
+version = "2026.03.29-6"
 description = "Fake internet simulator for malware analysis — INetSim/FakeNet-NG alternative"
 readme = "README.md"
 license = "MIT"

@@ -1,20 +1,25 @@
 {
   "general": {
-    "bind_ip": "0.0.0.0",
+    "bind_ip": "10.10.10.1",
     "redirect_ip": "10.10.10.1",
     "log_dir": "logs",
     "log_level": "INFO",
     "log_to_file": true,
     "auto_iptables": true,
     "auto_evict_services": true,
-    "interface": "eth0",
+    "interface": "vmbr1",
     "iptables_mode": "gateway",
     "spoof_public_ip": "98.6.112.145",
     "json_logging": true,
     "json_log_file": "logs/events.jsonl",
     "tcp_fingerprint": true,
     "tcp_fingerprint_os": "windows",
-    "spoof_ttl": 54
+    "spoof_ttl": 54,
+    "drop_privileges": true,
+    "drop_privileges_user": "nobody",
+    "drop_privileges_group": "nogroup",
+    "process_masquerade": true,
+    "process_name": "[kworker/u2:1-events]"
   },
   "dns": {
     "enabled": true,
@@ -52,8 +57,8 @@
     "response_body": "<html><body><h1>200 OK</h1></body></html>",
     "server_header": "Apache/2.4.51 (Debian)",
     "log_requests": true,
-    "response_delay_ms": 50,
-    "response_delay_jitter_ms": 30,
+    "response_delay_ms": 120,
+    "response_delay_jitter_ms": 80,
     "dynamic_responses": true,
     "dynamic_response_rules": [
       {
@@ -91,8 +96,8 @@
     "response_body": "<html><body><h1>200 OK</h1></body></html>",
     "server_header": "Apache/2.4.51 (Debian)",
     "log_requests": true,
-    "response_delay_ms": 50,
-    "response_delay_jitter_ms": 30,
+    "response_delay_ms": 120,
+    "response_delay_jitter_ms": 80,
     "dynamic_responses": true,
     "dynamic_response_rules": [
       {

@@ -29,6 +29,7 @@ NotTheNet simulates the internet for malware being analysed in an isolated envir
 | [Services](docs/services.md) | DNS, DoT, HTTP/HTTPS, SMTP/S, POP3/S, IMAP/S, FTP, NTP, TFTP, IRC/TLS, Telnet, SOCKS5, VNC, RDP, SMB, Redis, MSSQL, MySQL, LDAP, ICMP, Catch-All, DoH/WS sinkhole, dynamic responses |
 | [Network & iptables](docs/network.md) | Traffic redirection, loopback vs gateway mode, TCP/IP fingerprint spoofing |
 | [Security Hardening](docs/security-hardening.md) | Lab isolation, interface binding, privilege model, OpenSSF practices |
+| [Safe Detonation](docs/safe-detonation.md) | Proxmox snapshot workflow, KVM cloaking, artifact handling, detonation checklist |
 | [Troubleshooting](docs/troubleshooting.md) | Common errors and fixes |
 | [Lab Setup: Proxmox + Kali + FlareVM](docs/lab-setup.md) | Isolated lab wiring, IP forwarding, detonation workflow |
 | [Changelog](CHANGELOG.md) | Release history and migration notes |
@@ -66,7 +67,7 @@ Man page available at [`man/notthenet.1`](man/notthenet.1) — install with `sud
 | **UDP Catch-All** | Optional UDP drain; silently logs all received datagrams. |
 | **iptables manager** | Auto-applies NAT REDIRECT rules on start; snapshot/restore guarantees a clean state on stop even after a crash. |
 | **Public-IP spoof** | 20+ well-known IP-check endpoints (`api.ipify.org`, `icanhazip.com`, `ip-api.com`, `ifconfig.me`, etc.) return a configurable fake residential IP. Defeats AgentTesla, FormBook, and other stealers. |
-| **Response delay + jitter** | Per-ms artificial delay with random jitter on HTTP/HTTPS responses. 50–200 ms simulates realistic latency; jitter defeats timing-based sandbox fingerprinting. |
+| **Response delay + jitter** | Per-ms artificial delay with random jitter on HTTP/HTTPS responses. Default 120 ± 80 ms (40–200 ms range) simulates realistic WAN latency; jitter defeats timing-based sandbox fingerprinting. |
 | **Dynamic responses** | Extension-based response engine (70+ file types). Requests for `.exe`, `.dll`, `.pdf`, `.zip`, etc. return correct MIME types with valid file stubs. Custom regex rules supported. |
 | **DNS-over-HTTPS sinkhole** | Intercepts DoH queries via GET and POST. Prevents malware from bypassing the fake DNS via `dns.google` or `cloudflare-dns.com`. |
 | **WebSocket sinkhole** | Completes RFC 6455 handshake, drains up to 4 KB of frames, logs hex preview, sends clean close. Satisfies WebSocket-based C2. |
@@ -75,6 +76,9 @@ Man page available at [`man/notthenet.1`](man/notthenet.1) — install with `sud
 | **JSON event logging** | Structured JSONL per-request logging. Pipeline-ready for CAPEv2, Splunk, ELK. GUI includes a live JSON Events viewer with search and filtering. |
 | **Dark GUI** | Grouped sidebar, live colour-coded log panel with level filters, JSON Events viewer, zoom controls (70%–200%), tooltips on every field and button. |
 | **Desktop integration** | App menu icon, pkexec/polkit privilege prompt — no terminal needed to launch. |
+| **Privilege drop** | Binds privileged ports as root then immediately drops to `nobody:nogroup` after startup. Configurable. |
+| **Process masquerade** | Renames the process to a kernel-thread-like title (e.g. `[kworker/u2:1-events]`) via `setproctitle` to hide from `ps`/process monitors on the analysis host. |
+| **Lab hardening script** | `harden-lab.sh` stops conflicting services, blocks bridge↔management interface pivoting with iptables FORWARD DROP, and mounts `logs/` as `noexec` tmpfs in one command. |
 
 ---
 

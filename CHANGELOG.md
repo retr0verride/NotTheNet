@@ -9,6 +9,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ---
 
+## [2026.03.29-6] — 2026-03-29
+
+### Added
+- **Security: privilege drop after port binding** — `ServiceManager.start()` now calls `drop_privileges()` (defined but previously unused in `utils/privilege.py`) immediately after all ports are bound and iptables rules are applied. Root is held only for the privileged operations; the process then drops to `nobody:nogroup` (configurable via `general.drop_privileges_user` / `general.drop_privileges_group`). Controlled by new `general.drop_privileges` config key (default: `true`).
+- **Security: process masquerade via setproctitle** — after startup the process title is renamed to a kernel-thread-looking string (default `[kworker/u2:1-events]`) so it does not appear as `python3 notthenet.py` in process monitors on the analysis host. Controlled by `general.process_masquerade` and `general.process_name`. Requires the `setproctitle` package (now bundled in the offline installer).
+- **Security: lab hardening script (`harden-lab.sh`)** — new standalone bash script that stops all conflicting system services (including `systemd-resolved` DNSStubListener), applies iptables `FORWARD DROP` rules to block bridge ↔ management interface pivoting, and mounts `logs/` as `tmpfs` with `noexec,nosuid,nodev` flags to prevent accidental execution of captured malware artifacts. Idempotent — safe to re-run.
+- **Security: systemd unit (`assets/notthenet.service`)** — production-ready unit file with `ExecStartPre` steps mirroring `harden-lab.sh` (service eviction + tmpfs mount), `ProtectHome`, `ProtectSystem=strict`, `ReadWritePaths`, `PrivateTmp`, and a `CapabilityBoundingSet` scoped to only the capabilities NotTheNet needs.
+- **Docs: safe detonation guide (`docs/safe-detonation.md`)** — new guide covering Proxmox RAM-inclusive snapshots, network isolation verification, KVM cloaking (`kvm=off`, `hv_vendor_id`, SMBIOS spoofing via QEMU args), post-session artifact handling, and a quick-reference detonation flow card.
+- **make-bundle: bundle `setproctitle` wheel** — the offline bundle now downloads and embeds a `setproctitle` Linux wheel alongside `dnslib`, `cryptography`, and `cffi` so the process masquerade feature works on air-gapped Kali hosts.
+
+### Changed
+- **config.json: secure defaults** — `general.bind_ip` changed from `0.0.0.0` to `10.10.10.1` (isolated gateway IP); `general.interface` changed from `eth0` to `vmbr1` (Proxmox isolated bridge); HTTP/HTTPS `response_delay_ms` increased from `50` to `120` and `response_delay_jitter_ms` from `30` to `80` to produce realistic WAN-like latency (40–200 ms range) and better defeat timing-based sandbox fingerprinting.
+
+---
+
 ## [2026.03.29-2] — 2026-03-29
 
 ### Added

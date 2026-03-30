@@ -42,7 +42,7 @@ from services.tftp_server import TFTPService
 from services.vnc_server import VNCService
 from utils.cert_utils import ensure_certs
 from utils.json_logger import close_json_logger, init_json_logger
-from utils.privilege import require_root_or_warn
+from utils.privilege import drop_privileges, require_root_or_warn
 from utils.validators import validate_config
 
 logger = logging.getLogger(__name__)
@@ -225,6 +225,12 @@ class ServiceManager:
 
         self._apply_fingerprints()
 
+        # --- Process masquerade (hide from process lists) ---
+        self._apply_process_masquerade()
+
+        # --- Drop root after all privileged operations are done ---
+        self._maybe_drop_privileges()
+
         self._running = len(started) > 0
         logger.info("NotTheNet started: %s", ', '.join(started) if started else 'none')
         if failed:
@@ -319,6 +325,41 @@ class ServiceManager:
             self._services.update(started_svcs)
 
         return started, failed
+
+    def _apply_process_masquerade(self) -> None:
+        """Rename the process to a kernel-looking thread name to avoid detection."""
+        if not self.config.get("general", "process_masquerade"):
+            return
+        name = self.config.get("general", "process_name") or "[kworker/u2:1-events]"
+        try:
+            import setproctitle
+            setproctitle.setproctitle(name)
+            logger.info("Process title set to: %s", name)
+        except ImportError:
+            logger.warning(
+                "setproctitle not installed — process masquerade disabled. "
+                "Install with: pip install setproctitle"
+            )
+
+    def _maybe_drop_privileges(self) -> None:
+        """Drop root privileges after all ports are bound and iptables applied.
+
+        Controlled by general.drop_privileges (default: false).
+        WARNING: privilege drop is permanent — service restart requires a full
+        process relaunch.
+        """
+        if not self.config.get("general", "drop_privileges"):
+            logger.debug("Privilege drop disabled in config.")
+            return
+        user = self.config.get("general", "drop_privileges_user") or "nobody"
+        group = self.config.get("general", "drop_privileges_group") or "nogroup"
+        if drop_privileges(run_as_user=user, run_as_group=group):
+            logger.info(
+                "Root privileges dropped to %s:%s — restart will require relaunch.",
+                user, group,
+            )
+        else:
+            logger.warning("Privilege drop requested but failed or not applicable.")
 
     def _apply_fingerprints(self) -> None:
         """Apply TCP/IP OS fingerprint spoofing to server sockets."""
