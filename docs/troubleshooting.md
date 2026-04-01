@@ -560,7 +560,19 @@ Include the relevant portion of `debug.log` when opening a GitHub issue.
 
 **Symptom:** `json_logging` is enabled but no `.jsonl` file appears.
 
-1. Confirm `general.json_logging` is `true` in config
-2. Check `general.json_log_file` — the directory must exist and be writable (e.g. `logs/events.jsonl` requires `logs/` to exist)
-3. Check disk space — the logger stops writing at 500 MB
-4. Check the main log for errors from `json_logger` (set `log_level: DEBUG`)
+1. Confirm `general.json_logging` is `true` in config.
+2. Check the `logs/` directory exists and is writable. Each session creates a new file like `logs/events_2026-04-01_s1.jsonl` — the directory must exist before the first start.
+3. Check disk space — the logger stops writing at 500 MB.
+4. Check the main log for errors from `json_logger` (set `log_level: DEBUG`).
+
+## JSON export fails — Permission denied
+
+**Symptom:** Clicking **Export** or **Open File** in the JSON Events view shows "Permission denied" or "Cannot change to the directory".
+
+This happens when `general.drop_privileges` is `true` (the default) and the dropped user (`nobody`) cannot write to the chosen export destination.
+
+**Fix — export to the logs directory:** The export dialog opens directly in `logs/` where the dropped user already has write access (the service manager `chown`s it before dropping). Save the export file there.
+
+**Fix — export to another location:** If you need to save elsewhere, ensure the target directory is writable by the drop user before clicking Start, or add it to the pre-drop chown list in `service_manager._prepare_dirs_for_drop()`.
+
+**Fix — disable privilege drop:** Set `general.drop_privileges: false` if you want unrestricted filesystem access during the session (less secure but simpler for offline analysis hosts).

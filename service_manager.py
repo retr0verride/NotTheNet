@@ -4,6 +4,7 @@ Orchestrates all fake network services and iptables rules.
 """
 
 import logging
+import os
 import shutil
 import subprocess
 import threading
@@ -177,11 +178,46 @@ class ServiceManager:
                 else:
                     port_map[key] = spec.name
 
+    @staticmethod
+    def _session_log_path(log_dir: str) -> str:
+        """Return a session-labeled JSONL path like ``logs/events_2026-04-01_s1.jsonl``.
+
+        Scans *log_dir* for existing session files dated today and picks the
+        next available session number.
+        """
+        import glob
+        import re
+        from datetime import date
+
+        today = date.today().isoformat()  # e.g. "2026-04-01"
+        pattern = os.path.join(log_dir, f"events_{today}_s*.jsonl")
+        existing = glob.glob(pattern)
+
+        max_n = 0
+        num_re = re.compile(r"_s(\d+)\.jsonl$")
+        for path in existing:
+            m = num_re.search(os.path.basename(path))
+            if m:
+                max_n = max(max_n, int(m.group(1)))
+
+        return os.path.join(log_dir, f"events_{today}_s{max_n + 1}.jsonl")
+
     def _setup_json_logging(self) -> None:
-        """Initialise structured JSON event logger if enabled."""
+        """Initialise structured JSON event logger if enabled.
+
+        Each start creates a new session file labeled by date and session
+        number (e.g. ``logs/events_2026-04-01_s1.jsonl``).
+        """
         if not self.config.get("general", "json_logging"):
             return
-        json_path = self.config.get("general", "json_log_file") or "logs/events.jsonl"
+        log_dir = os.path.dirname(
+            os.path.abspath(
+                self.config.get("general", "json_log_file") or "logs/events.jsonl"
+            )
+        )
+        json_path = self._session_log_path(log_dir)
+        # Write back so the GUI picks up the active session path.
+        self.config.set("general", "json_log_file", json_path)
         jl = init_json_logger(json_path, enabled=True)
         if jl:
             logger.info("Structured JSON logging enabled → %s", json_path)
@@ -341,6 +377,57 @@ class ServiceManager:
                 "Install with: pip install setproctitle"
             )
 
+    def _prepare_dirs_for_drop(self, user: str, group: str) -> None:
+        """Chown log dirs and ensure parent traversal before privilege drop.
+
+        Without this, the dropped user (typically nobody) cannot write to
+        logs/ or traverse /home/kali/ to reach the project directory,
+        breaking JSON export, FTP/SMTP/TFTP file saves, and the GUI
+        'Open Logs' button.
+        """
+        import stat
+
+        try:
+            pw_entry = __import__("pwd").getpwnam(user)
+            gr_entry = __import__("grp").getgrnam(group)
+            uid, gid = pw_entry.pw_uid, gr_entry.gr_gid
+        except (KeyError, ImportError):
+            return
+
+        log_dir = os.path.abspath(
+            self.config.get("general", "log_dir") or "logs"
+        )
+        dirs_to_own = [log_dir]
+        for sub in ("emails", "ftp_uploads", "tftp_uploads"):
+            dirs_to_own.append(os.path.join(log_dir, sub))
+
+        for d in dirs_to_own:
+            try:
+                os.makedirs(d, exist_ok=True)
+            except OSError:
+                continue
+            try:
+                for dirpath, _dirnames, filenames in os.walk(d):
+                    os.chown(dirpath, uid, gid)  # type: ignore[attr-defined]
+                    for fname in filenames:
+                        os.chown(os.path.join(dirpath, fname), uid, gid)  # type: ignore[attr-defined]
+            except OSError as exc:
+                logger.warning("Could not chown %s: %s", d, exc)
+
+        # Add o+x on each parent directory so the dropped user can traverse
+        # from / down to the log directory (e.g. /home/kali/ is mode 700 on
+        # Kali which blocks nobody from reaching the project tree).
+        current = log_dir
+        while current and current != os.path.dirname(current):
+            try:
+                st = os.stat(current)
+                if not (st.st_mode & stat.S_IXOTH):
+                    os.chmod(current, st.st_mode | stat.S_IXOTH)
+                    logger.debug("Added o+x to %s for privilege-drop traversal", current)
+            except OSError:
+                break
+            current = os.path.dirname(current)
+
     def _maybe_drop_privileges(self) -> None:
         """Drop root privileges after all ports are bound and iptables applied.
 
@@ -353,6 +440,7 @@ class ServiceManager:
             return
         user = self.config.get("general", "drop_privileges_user") or "nobody"
         group = self.config.get("general", "drop_privileges_group") or "nogroup"
+        self._prepare_dirs_for_drop(user, group)
         if drop_privileges(run_as_user=user, run_as_group=group):
             logger.info(
                 "Root privileges dropped to %s:%s — restart will require relaunch.",

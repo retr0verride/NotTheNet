@@ -9,6 +9,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ---
 
+## [2026.03.30-3] — 2026-03-30
+
+### Added
+- **Session-labeled JSON event logs** — each Start now creates a new log file named `logs/events_YYYY-MM-DD_sN.jsonl` (N increments per session per day) instead of overwriting `logs/events.jsonl`. `ServiceManager._session_log_path()` scans for existing files and returns the next available path; the resolved path is written back to the in-memory config so the GUI `_JsonEventsPage` picks it up automatically. `_poll_file()` detects when the path changes between sessions and resets its file position to zero.
+
+### Fixed
+- **Privilege drop: permission denied on JSONL export** — after dropping to `nobody:nogroup`, all relative paths were broken because `drop_privileges()` called `os.chdir("/")`. The `chdir` call has been removed; instead, `ServiceManager._prepare_dirs_for_drop()` is called before the drop: it `chown`s `logs/`, `logs/emails/`, `logs/ftp_uploads/`, and `logs/tftp_uploads/` to the target uid/gid, and adds `o+x` on every parent directory up to `/` so the low-privilege process can still traverse the path. The GUI export dialog now opens directly in the log directory (`os.path.dirname(os.path.abspath(json_log_file))`) rather than `os.getcwd()`.
+
+---
+
 ## [2026.03.29-6] — 2026-03-29
 
 ### Added

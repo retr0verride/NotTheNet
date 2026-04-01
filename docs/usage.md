@@ -148,10 +148,10 @@ The log panel fills the lower portion of the window and is vertically resizable 
 
 1. **Configure** — click each service in the sidebar, adjust fields as needed.
 2. **Save** — hit **Save Config** to persist your settings.
-3. **Start** — click **▶ Start**. The log will show each service binding.
+3. **Start** — click **▶ Start**. The log will show each service binding. A new session-labeled JSON log file is created automatically (e.g. `logs/events_2026-04-01_s1.jsonl`).
 4. **Verify** — run the test commands below.
 5. **Detonate** — execute the malware sample in your isolated VM.
-6. **Review** — check the live log and `logs/` directory.
+6. **Review** — check the live log, the JSON Events viewer, and the `logs/` directory. Each session's events are in their own dated file.
 7. **Stop** — click **■ Stop** to cleanly restore iptables and shut down all services.
 
 ### Quick verification after Start

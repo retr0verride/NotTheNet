@@ -75,14 +75,30 @@ sudo iptables -A FORWARD -i eth0 -o virbr0 -j DROP
 
 ## Privilege Model
 
-NotTheNet currently runs as `root` for the full duration of the session. Root is required to:
+NotTheNet performs a **bind-then-drop** privilege model:
 
-- Bind privileged ports (53, 80, 443, 25, 110, 143, 21)
-- Apply and remove iptables NAT rules
+1. **Starts as root** — required to bind privileged ports (53, 80, 443, 25, 110, 143, 21) and apply iptables NAT rules.
+2. **Drops to `nobody:nogroup`** — immediately after all ports are bound and iptables rules are applied (`general.drop_privileges: true`, the default). Root is held only for the minimum duration needed.
 
-The code in `utils/privilege.py` includes a `drop_privileges()` helper (for a future bind-then-drop model), but it is not currently called because `os.setuid()` is permanent within a process — dropping privileges after bind would prevent services from being cleanly restarted without relaunching the whole process.
+Before dropping, the service manager:
+- `chown`s `logs/` and all subdirs (`emails/`, `ftp_uploads/`, `tftp_uploads/`) to the target user/group, so file saves (JSON events, emails, uploads) continue to work after the drop.
+- Adds `o+x` traversal permission on each parent directory in the path to the project root (e.g. `/home/kali/`) so the dropped process can still access config and cert files by relative path.
 
-> **Lab guidance:** Mitigate the root exposure by binding only to the isolated interface (`bind_ip` set to the isolated adapter IP, not `0.0.0.0`) and running the analysis host with no real internet route.
+Disable with:
+```json
+"general": { "drop_privileges": false }
+```
+
+Or drop to a custom account instead of `nobody`:
+```json
+"general": {
+  "drop_privileges": true,
+  "drop_privileges_user": "notthenet-svc",
+  "drop_privileges_group": "notthenet-svc"
+}
+```
+
+> **Note:** Privilege drop is permanent within a process — clicking Stop and Start again requires a full process relaunch (the GUI's Stop/Start cycle already does this).
 
 ### Desktop launch (pkexec)
 
@@ -159,7 +175,18 @@ All untrusted data (IP addresses, hostnames, HTTP paths, DNS query names, SMTP c
 
 ### Log file permissions
 
-Log directories are created with mode `0o700`. Log files inherit the umask of the running process. After privilege drop, logs are owned by `nobody`.
+Log directories are created with mode `0o700`. Before privilege drop, the service manager `chown`s `logs/` and its subdirectories to the drop target user (default `nobody`) so the dropped process retains write access. Log files inherit the umask of the running process.
+
+### Session-labeled JSON event logs
+
+When `general.json_logging` is enabled, each session writes to a new date/session-labeled file:
+
+```
+logs/events_2026-04-01_s1.jsonl   ← first session today
+logs/events_2026-04-01_s2.jsonl   ← second session today
+```
+
+The session number increments for each Start within the same calendar day. The active session path is written back to in-memory config at runtime — the GUI JSON Events viewer and export dialog always reference the current session.
 
 ### Rotating logs
 

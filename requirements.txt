@@ -13,6 +13,10 @@ dnslib==0.9.26
 # related advisories GHSA-6vqw-3v5j-54x4 / GHSA-h4gh-qq45-vh27 present in 42.x-43.x.
 cryptography>=46.0.6
 
+# Optional: process title masquerade (renames process to kernel-thread-like name)
+# Gracefully skipped if not installed, but recommended for stealth deployments.
+setproctitle>=1.3
+
 # Note: All other functionality uses Python stdlib only:
 #   http.server, ssl, socketserver, threading, tkinter, json, logging,
 #   ipaddress, subprocess, socket, select, uuid, email, re, os, sys

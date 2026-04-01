@@ -31,7 +31,7 @@ def _open_path_external(path: str) -> None:
 # ---------------------------------------------------------------------------
 
 APP_TITLE = "NotTheNet \u2014 Fake Internet Simulator"
-APP_VERSION = "2026.03.29-6"
+APP_VERSION = "2026.04.01-3"
 PAD = 8
 FIELD_WIDTH = 22
 LOG_MAX_LINES = 2000

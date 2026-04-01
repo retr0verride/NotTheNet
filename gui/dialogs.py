@@ -194,6 +194,7 @@ class _JsonEventsPage(tk.Frame):
         super().__init__(parent, bg=C_SURFACE)
         self.cfg = cfg
         self._file_pos = 0
+        self._last_path: str = ""
         self._all_rows: list = []
         self._poll_job = None
         self._search_var = tk.StringVar()
@@ -347,6 +348,10 @@ class _JsonEventsPage(tk.Frame):
     def _poll_file(self):
         """Incrementally read new lines appended since last poll."""
         path = self._get_log_path()
+        # Reset when the session log file changes (new Start cycle).
+        if path != self._last_path:
+            self._last_path = path
+            self._file_pos = 0
         try:
             with open(path, encoding="utf-8") as fh:
                 fh.seek(self._file_pos)
@@ -529,8 +534,10 @@ class _JsonEventsPage(tk.Frame):
             return
         from datetime import datetime as _dt
         ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+        log_dir = os.path.dirname(os.path.abspath(self._get_log_path()))
         dest = filedialog.asksaveasfilename(
             title="Export Events Log",
+            initialdir=log_dir,
             defaultextension=".jsonl",
             filetypes=[("JSON Lines", "*.jsonl"), ("All files", "*.*")],
             initialfile=f"events_export_{ts}.jsonl",

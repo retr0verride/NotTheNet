@@ -187,14 +187,17 @@ find_existing_install() {
 
 # ── Mode selection ────────────────────────────────────────────────────────────
 MODE=""
+SKIP_HARDEN=0
 for arg in "$@"; do
     case "$arg" in
-        --install) MODE="install" ;;
-        --update)  MODE="update"  ;;
+        --install)      MODE="install" ;;
+        --update)       MODE="update"  ;;
+        --skip-harden)  SKIP_HARDEN=1  ;;
         --help|-h)
-            echo "Usage: sudo bash notthenet-bundle.sh [--install|--update]"
-            echo "  --install  Fresh install to this directory (default)"
-            echo "  --update   Update an existing NotTheNet installation"
+            echo "Usage: sudo bash notthenet-bundle.sh [--install|--update] [--skip-harden]"
+            echo "  --install      Fresh install to this directory (default)"
+            echo "  --update       Update an existing NotTheNet installation"
+            echo "  --skip-harden  Skip lab hardening step"
             exit 0 ;;
     esac
 done
@@ -484,6 +487,23 @@ UNINSTALL_EOF
 else
     warn "Skipping /usr/local/bin launcher (not root)."
     info "Usage: sudo ${VENV_DIR}/bin/python ${SCRIPT_DIR}/notthenet.py"
+fi
+
+# ── Lab hardening ──────────────────────────────────────────────────────────────
+if [[ $EUID -eq 0 ]] && [[ "${SKIP_HARDEN:-0}" -eq 0 ]]; then
+    info "Running lab hardening (use --skip-harden to skip)..."
+    _harden_args=()
+    _cfg="${INSTALL_DIR:-$SCRIPT_DIR}/config.json"
+    if [[ -f "$_cfg" ]] && command -v python3 &>/dev/null; then
+        _bridge=$(python3 -c "import json; c=json.load(open('$_cfg')); print(c.get('general',{}).get('interface','vmbr1'))" 2>/dev/null || echo 'vmbr1')
+        _gw=$(python3 -c "import json; c=json.load(open('$_cfg')); print(c.get('general',{}).get('redirect_ip','10.10.10.1'))" 2>/dev/null || echo '10.10.10.1')
+        _harden_args+=("--bridge" "$_bridge" "--gateway-ip" "$_gw")
+    fi
+    bash "${INSTALL_DIR:-$SCRIPT_DIR}/harden-lab.sh" "${_harden_args[@]}" || warn "Hardening step failed — run manually: sudo bash harden-lab.sh"
+elif [[ "${SKIP_HARDEN:-0}" -eq 1 ]]; then
+    warn "Lab hardening skipped (--skip-harden). Run manually: sudo bash harden-lab.sh"
+else
+    warn "Not root — skipping lab hardening. Run manually: sudo bash harden-lab.sh"
 fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────

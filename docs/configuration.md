@@ -53,7 +53,12 @@ Global settings that apply to all services.
 | `iptables_mode` | string | `"loopback"` | How iptables rules are applied. `"loopback"` = OUTPUT chain (local-only). `"gateway"` = PREROUTING chain (intercept traffic from other hosts). See [Network & iptables](network.md). |
 | `spoof_public_ip` | string | `""` | When set, HTTP/HTTPS requests to well-known public-IP-check services (`api.ipify.org`, `icanhazip.com`, `checkip.amazonaws.com`, `ifconfig.me`, `httpbin.org`, and 15+ others) return this IP as plain text or JSON instead of the normal response body. Defeats malware that queries these services to detect sandbox environments. Leave blank to disable. Example: `"93.184.216.34"`. |
 | `json_logging` | bool | `false` | Enable structured JSON Lines event logging. Every intercepted request is written as a JSON object to the event log file — one line per event. Useful for automated pipelines (CAPEv2, Splunk, ELK). |
-| `json_log_file` | string | `"logs/events.jsonl"` | Path to the JSON Lines event log file. Relative paths resolve from the project root. File is size-capped at 500 MB. |
+| `json_log_file` | string | `"logs/events.jsonl"` | Template base path for the JSON Lines event log. **Each session automatically creates a new session-labeled file** in the same directory: `events_YYYY-MM-DD_s1.jsonl`, `events_YYYY-MM-DD_s2.jsonl`, etc. The active session path is written back to config at runtime so the GUI JSON Events viewer always tails the current session. File is size-capped at 500 MB. |
+| `drop_privileges` | bool | `true` | Drop from `root` to `drop_privileges_user`:`drop_privileges_group` after all ports are bound and iptables rules are applied. The `logs/` directory tree is `chown`'d to the target user before the drop so file saves, JSON exports, and the Open Logs button continue to work. |
+| `drop_privileges_user` | string | `"nobody"` | Username to drop to when `drop_privileges` is `true`. |
+| `drop_privileges_group` | string | `"nogroup"` | Group name to drop to when `drop_privileges` is `true`. |
+| `process_masquerade` | bool | `true` | After startup, rename the process title to a kernel-thread-like string (e.g. `[kworker/u2:1-events]`) so it does not appear as `python3 notthenet.py` in `ps` or process monitors on the analysis host. Requires the `setproctitle` package (bundled in the offline installer). |
+| `process_name` | string | `"[kworker/u2:1-events]"` | Process title used when `process_masquerade` is `true`. |
 | `tcp_fingerprint` | bool | `false` | Enable TCP/IP OS fingerprint spoofing on all listening sockets. Modifies low-level TCP parameters so responses appear to come from the configured OS. Linux only. |
 | `tcp_fingerprint_os` | string | `"windows"` | OS profile for TCP fingerprint spoofing. One of: `"windows"` (TTL=128, Win=65535), `"linux"` (TTL=64, Win=29200), `"macos"` (TTL=64, Win=65535), `"solaris"` (TTL=255, Win=49640). |
 | `spoof_ttl` | int | `54` | When non-zero, adds an `iptables -t mangle` POSTROUTING rule that sets the TTL of all outgoing packets to this value. Makes traffic look like it traversed ~10 internet hops rather than coming from a directly-connected host (default Linux TTL=64). Valid range: 1–255. Requires the `xt_TTL` kernel module (`modprobe xt_TTL`); silently skipped if unavailable. Set to `0` to disable. |
@@ -76,7 +81,12 @@ Global settings that apply to all services.
   "json_log_file": "logs/events.jsonl",
   "tcp_fingerprint": true,
   "tcp_fingerprint_os": "windows",
-  "spoof_ttl": 54
+  "spoof_ttl": 54,
+  "drop_privileges": true,
+  "drop_privileges_user": "nobody",
+  "drop_privileges_group": "nogroup",
+  "process_masquerade": true,
+  "process_name": "[kworker/u2:1-events]"
 }
 ```
 

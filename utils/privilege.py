@@ -42,8 +42,9 @@ def drop_privileges(run_as_user: str = "nobody", run_as_group: str = "nogroup") 
         return False
 
     try:
+        pw_entry = pwd.getpwnam(run_as_user)
+        target_uid = pw_entry.pw_uid
         target_gid = grp.getgrnam(run_as_group).gr_gid
-        target_uid = pwd.getpwnam(run_as_user).pw_uid
     except KeyError as e:
         logger.warning(
             f"Could not find user/group '{run_as_user}/{run_as_group}': {e}. "
@@ -57,6 +58,13 @@ def drop_privileges(run_as_user: str = "nobody", run_as_group: str = "nogroup") 
         # Set GID before UID (would lose permission to set GID after UID drop)
         os.setgid(target_gid)
         os.setuid(target_uid)
+        # Update HOME so Tkinter file dialogs don't try to navigate to the
+        # original user's home dir, which the dropped-to user cannot access.
+        new_home = pw_entry.pw_dir or "/"
+        os.environ["HOME"] = new_home if os.path.isdir(new_home) else "/"
+        # NOTE: do NOT chdir("/") here — the service manager ensures parent
+        # directories have o+x before we drop, so the CWD remains accessible
+        # and relative paths (logs/, config.json, certs/) continue to work.
         logger.info(
             "Privileges dropped to %s:%s (uid=%s, gid=%s)",
             run_as_user, run_as_group, target_uid, target_gid,

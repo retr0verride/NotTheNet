@@ -265,8 +265,10 @@ class ServiceControlMixin(_ControlHost):
             messagebox.showerror("Error", "Failed to save config \u2014 check log.")
 
     def _on_load(self):
+        initial = os.path.dirname(os.path.abspath(self._cfg.config_path)) or os.getcwd()
         path = filedialog.askopenfilename(
             title="Load Config",
+            initialdir=initial,
             filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")],
         )
         if path:

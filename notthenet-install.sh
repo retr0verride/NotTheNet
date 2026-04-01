@@ -28,6 +28,14 @@ info()  { echo -e "${GREEN}[*]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[!]${NC} $*"; }
 error() { echo -e "${RED}[!]${NC} $*" >&2; exit 1; }
 
+SKIP_HARDEN=0
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --skip-harden) SKIP_HARDEN=1; shift ;;
+        *) break ;;
+    esac
+done
+
 # ── Privilege check ──────────────────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
     warn "Not running as root. Some install steps may fail."
@@ -212,6 +220,23 @@ UNINSTALL_EOF
 else
     warn "Skipping /usr/local/bin launcher (not root)."
     info "Usage: sudo ${VENV_DIR}/bin/python ${SCRIPT_DIR}/notthenet.py"
+fi
+
+# ── Lab hardening ────────────────────────────────────────────────────────────
+if [[ $EUID -eq 0 ]] && [[ "$SKIP_HARDEN" -eq 0 ]]; then
+    info "Running lab hardening (use --skip-harden to skip)..."
+    # Read network settings from config.json if available
+    _harden_args=()
+    if [[ -f "${SCRIPT_DIR}/config.json" ]] && command -v python3 &>/dev/null; then
+        _bridge=$(python3 -c "import json,sys; c=json.load(open('${SCRIPT_DIR}/config.json')); print(c.get('general',{}).get('interface','vmbr1'))" 2>/dev/null || echo 'vmbr1')
+        _gw=$(python3 -c "import json,sys; c=json.load(open('${SCRIPT_DIR}/config.json')); print(c.get('general',{}).get('redirect_ip','10.10.10.1'))" 2>/dev/null || echo '10.10.10.1')
+        _harden_args+=("--bridge" "$_bridge" "--gateway-ip" "$_gw")
+    fi
+    bash "${SCRIPT_DIR}/harden-lab.sh" "${_harden_args[@]}" || warn "Hardening step failed — run manually: sudo bash harden-lab.sh"
+elif [[ "$SKIP_HARDEN" -eq 1 ]]; then
+    warn "Lab hardening skipped (--skip-harden). Run manually: sudo bash harden-lab.sh"
+else
+    warn "Not root — skipping lab hardening. Run manually: sudo bash harden-lab.sh"
 fi
 
 # ── Final message ─────────────────────────────────────────────────────────────

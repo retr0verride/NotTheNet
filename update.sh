@@ -8,6 +8,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+SKIP_HARDEN=0
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --skip-harden) SKIP_HARDEN=1; shift ;;
+        *) break ;;
+    esac
+done
+
 # ── 1. Stop NotTheNet if running ─────────────────────────────────────────────
 if pgrep -f "notthenet" >/dev/null 2>&1; then
     echo "[*] Stopping running NotTheNet process..."
@@ -151,3 +159,19 @@ VERSION=$("$PYTHON" -c "import notthenet; print(notthenet.APP_VERSION)" 2>/dev/n
 echo ""
 echo "[✓] NotTheNet updated to version: $VERSION"
 echo "    Start it with:  sudo notthenet"
+
+# ── Lab hardening ─────────────────────────────────────────────────────────────
+if [[ $EUID -eq 0 ]] && [[ "$SKIP_HARDEN" -eq 0 ]]; then
+    echo "[*] Re-applying lab hardening (use --skip-harden to skip)..."
+    _harden_args=()
+    if [[ -f "${SCRIPT_DIR}/config.json" ]] && command -v python3 &>/dev/null; then
+        _bridge=$(python3 -c "import json; c=json.load(open('${SCRIPT_DIR}/config.json')); print(c.get('general',{}).get('interface','vmbr1'))" 2>/dev/null || echo 'vmbr1')
+        _gw=$(python3 -c "import json; c=json.load(open('${SCRIPT_DIR}/config.json')); print(c.get('general',{}).get('redirect_ip','10.10.10.1'))" 2>/dev/null || echo '10.10.10.1')
+        _harden_args+=("--bridge" "$_bridge" "--gateway-ip" "$_gw")
+    fi
+    bash "${SCRIPT_DIR}/harden-lab.sh" "${_harden_args[@]}" || echo "[!] Hardening step failed — run manually: sudo bash harden-lab.sh"
+elif [[ "$SKIP_HARDEN" -eq 1 ]]; then
+    echo "[!] Lab hardening skipped (--skip-harden). Run manually: sudo bash harden-lab.sh"
+else
+    echo "[!] Not root — skipping lab hardening. Run manually: sudo bash harden-lab.sh"
+fi

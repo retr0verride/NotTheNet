@@ -6,11 +6,13 @@
 # Hardens the host by:
 #   1. Stopping all conflicting services (apache2, nginx, bind9, etc.)
 #   2. Creating iptables isolation rules (blocks bridge↔management pivoting)
-#   3. Mounting logs/ as tmpfs with noexec,nosuid,nodev
-#   4. Verifying network isolation
+#   3. Blocking lateral movement ports on the bridge (SMB/RDP/WMI/RPC/WinRM)
+#      so malware can spread between victim VMs but cannot attack Kali itself.
+#   4. Mounting logs/ as tmpfs with noexec,nosuid,nodev
+#   5. Verifying network isolation
 #
 # Usage:
-#   sudo bash harden-lab.sh --bridge vmbr1 --mgmt eth0 --gateway-ip 10.10.10.1
+#   sudo bash harden-lab.sh --bridge vmbr1 --mgmt eth0 --gateway-ip 10.10.10.1 [--victim-subnet 10.10.10.0/24]
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -18,23 +20,25 @@ set -euo pipefail
 BRIDGE_IF="${BRIDGE_IF:-vmbr1}"
 MGMT_IF="${MGMT_IF:-eth0}"
 GATEWAY_IP="${GATEWAY_IP:-10.10.10.1}"
+VICTIM_SUBNET="${VICTIM_SUBNET:-10.10.10.0/24}"
 LOG_DIR="${LOG_DIR:-$(dirname "$0")/logs}"
 SKIP_MOUNT="${SKIP_MOUNT:-0}"
 
 usage() {
-    echo "Usage: $0 [--bridge IFACE] [--mgmt IFACE] [--gateway-ip IP] [--log-dir PATH] [--skip-mount]"
+    echo "Usage: $0 [--bridge IFACE] [--mgmt IFACE] [--gateway-ip IP] [--victim-subnet CIDR] [--log-dir PATH] [--skip-mount]"
     exit 1
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --bridge)     BRIDGE_IF="$2";   shift 2 ;;
-        --mgmt)       MGMT_IF="$2";     shift 2 ;;
-        --gateway-ip) GATEWAY_IP="$2";  shift 2 ;;
-        --log-dir)    LOG_DIR="$2";     shift 2 ;;
-        --skip-mount) SKIP_MOUNT=1;     shift   ;;
-        -h|--help)    usage ;;
-        *)            echo "Unknown option: $1"; usage ;;
+        --bridge)         BRIDGE_IF="$2";     shift 2 ;;
+        --mgmt)           MGMT_IF="$2";       shift 2 ;;
+        --gateway-ip)     GATEWAY_IP="$2";    shift 2 ;;
+        --victim-subnet)  VICTIM_SUBNET="$2"; shift 2 ;;
+        --log-dir)        LOG_DIR="$2";       shift 2 ;;
+        --skip-mount)     SKIP_MOUNT=1;       shift   ;;
+        -h|--help)        usage ;;
+        *)                echo "Unknown option: $1"; usage ;;
     esac
 done
 
@@ -45,9 +49,10 @@ fi
 
 echo "═══════════════════════════════════════════════════════"
 echo "  NotTheNet Lab Hardening"
-echo "  Bridge:     $BRIDGE_IF"
-echo "  Management: $MGMT_IF"
-echo "  Gateway IP: $GATEWAY_IP"
+echo "  Bridge:        $BRIDGE_IF"
+echo "  Management:    $MGMT_IF"
+echo "  Gateway IP:    $GATEWAY_IP"
+echo "  Victim subnet: $VICTIM_SUBNET"
 echo "═══════════════════════════════════════════════════════"
 
 # ── 1. Stop conflicting services ──────────────────────────────────────────
@@ -87,7 +92,9 @@ echo "[2/4] Applying iptables isolation rules..."
 # Flush any existing NotTheNet hardening rules (idempotent re-run)
 iptables -D FORWARD -i "$BRIDGE_IF" -o "$MGMT_IF" -j DROP 2>/dev/null || true
 iptables -D FORWARD -i "$MGMT_IF" -o "$BRIDGE_IF" -j DROP 2>/dev/null || true
-iptables -D INPUT   -i "$MGMT_IF" -s 10.0.0.0/8 -j DROP   2>/dev/null || true
+iptables -D INPUT   -i "$MGMT_IF" -s 10.0.0.0/8 -m conntrack --ctstate NEW -j DROP 2>/dev/null || true
+# Legacy rule (no ctstate) — remove if present from older installs
+iptables -D INPUT   -i "$MGMT_IF" -s 10.0.0.0/8 -j DROP 2>/dev/null || true
 
 # Block ALL forwarding between bridge (victim network) and management NIC
 iptables -I FORWARD 1 -i "$BRIDGE_IF" -o "$MGMT_IF" -j DROP \
@@ -95,8 +102,10 @@ iptables -I FORWARD 1 -i "$BRIDGE_IF" -o "$MGMT_IF" -j DROP \
 iptables -I FORWARD 2 -i "$MGMT_IF" -o "$BRIDGE_IF" -j DROP \
     -m comment --comment "NOTTHENET_HARDEN: block pivot mgmt→bridge"
 
-# Also block any traffic from the analysis subnet reaching the mgmt interface INPUT
-iptables -A INPUT -i "$MGMT_IF" -s 10.0.0.0/8 -j DROP \
+# Block NEW inbound connections from the analysis subnet on the management NIC.
+# Uses conntrack ctstate NEW so that ESTABLISHED/RELATED traffic (e.g. ping
+# replies, SSH sessions initiated from Kali) is not dropped.
+iptables -A INPUT -i "$MGMT_IF" -s 10.0.0.0/8 -m conntrack --ctstate NEW -j DROP \
     -m comment --comment "NOTTHENET_HARDEN: block analysis subnet on mgmt"
 
 # Ensure IP forwarding is on for the bridge (so NAT redirect works)
@@ -104,11 +113,38 @@ echo 1 > /proc/sys/net/ipv4/ip_forward
 
 echo "  ✓ FORWARD $BRIDGE_IF ↔ $MGMT_IF: BLOCKED"
 echo "  ✓ INPUT from 10.0.0.0/8 on $MGMT_IF: BLOCKED"
+
+# ── Block lateral movement ports: victim subnet → Kali (vmbr1 INPUT) ─────
+# Victims can still reach NotTheNet fake-internet ports (53,80,443,25,…) but
+# cannot attack Kali via Windows exploitation channels.
+# Flush stale rules first (idempotent re-run).
+for _proto in tcp udp; do
+    for _port in 135 137 138 139 445 3389 5985 5986; do
+        iptables -D INPUT -i "$BRIDGE_IF" -s "$VICTIM_SUBNET" \
+            -p "$_proto" --dport "$_port" -j DROP 2>/dev/null || true
+    done
+done
+
+for _proto in tcp udp; do
+    for _port in 135 139 445 3389 5985 5986; do
+        iptables -A INPUT -i "$BRIDGE_IF" -s "$VICTIM_SUBNET" \
+            -p "$_proto" --dport "$_port" -j DROP \
+            -m comment --comment "NOTTHENET_HARDEN: block lateral movement → Kali"
+    done
+done
+# NetBIOS name/datagram (UDP only)
+for _port in 137 138; do
+    iptables -A INPUT -i "$BRIDGE_IF" -s "$VICTIM_SUBNET" \
+        -p udp --dport "$_port" -j DROP \
+        -m comment --comment "NOTTHENET_HARDEN: block lateral movement → Kali"
+done
+
+echo "  ✓ Lateral movement ports (SMB/RDP/WMI/WinRM) from $VICTIM_SUBNET: BLOCKED on $BRIDGE_IF"
 echo "  Done."
 
 # ── 3. Mount logs/ as tmpfs (noexec) ─────────────────────────────────────
 echo ""
-echo "[3/4] Securing logs directory..."
+echo "[3/5] Securing logs directory..."
 
 mkdir -p "$LOG_DIR"
 
@@ -133,7 +169,7 @@ echo "  Done."
 
 # ── 4. Verify isolation ──────────────────────────────────────────────────
 echo ""
-echo "[4/4] Verification..."
+echo "[4/5] Verify isolation..."
 
 # Check bridge interface exists
 if ip link show "$BRIDGE_IF" &>/dev/null; then
@@ -154,6 +190,9 @@ fi
 echo ""
 echo "  Active FORWARD rules:"
 iptables -L FORWARD -n --line-numbers 2>/dev/null | head -20
+echo ""
+echo "  Active INPUT rules (bridge):"
+iptables -L INPUT -n --line-numbers 2>/dev/null | grep -E "$BRIDGE_IF|NOTTHENET" | head -20
 echo ""
 echo "═══════════════════════════════════════════════════════"
 echo "  Hardening complete. Start NotTheNet with:"
