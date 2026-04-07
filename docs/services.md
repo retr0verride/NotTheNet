@@ -173,7 +173,7 @@ When `spoof_public_ip` is blank (the default) the normal response body is served
 
 ### Response Delay
 
-The `response_delay_ms` option (default `0`) inserts an artificial sleep before every HTTP response. Values of 50–200 ms simulate realistic network round-trip latency and defeat timing-based sandbox-detection techniques used by some malware families.
+The `response_delay_ms` option (default `120 ms`, with up to 80 ms random jitter) inserts an artificial sleep before every HTTP response. Values of 50–200 ms simulate realistic network round-trip latency and defeat timing-based sandbox-detection techniques used by some malware families.
 
 ### Dynamic Response Engine
 
@@ -745,7 +745,7 @@ ping 8.8.8.8
 # → replies arrive (kernel generates them after DNAT)
 
 # On the NotTheNet host:
-grep icmp logs/events.jsonl | tail -5
+grep icmp logs/events_*.jsonl | tail -5
 # → { "service": "icmp", "src": "10.0.0.5", "dst": "8.8.8.8", "icmp_seq": 1 }
 ```
 
@@ -775,7 +775,7 @@ The auth response is SHA1-hashed by the client, so the password is not directly 
 mysql -h 127.0.0.1 -u root -ppassword
 # (connects, receives MySQL 5.7 greeting)
 # Check logs for captured username + queries
-grep '"service":"mysql"' logs/events.jsonl
+grep '"service":"mysql"' logs/events_*.jsonl
 ```
 
 ---
@@ -808,7 +808,7 @@ s = socket.create_connection(('127.0.0.1', 1433))
 "
 # Or with Impacket:
 impacket-mssqlclient sa:Password1@127.0.0.1
-grep '"service":"mssql"' logs/events.jsonl
+grep '"service":"mssql"' logs/events_*.jsonl
 ```
 
 ---
@@ -835,7 +835,7 @@ The username from `mstshash` is captured without breaking any encryption.
 
 ```bash
 xfreerdp /v:127.0.0.1 /u:Administrator /p:Password1 /cert-ignore 2>/dev/null &
-grep '"service":"rdp"' logs/events.jsonl
+grep '"service":"rdp"' logs/events_*.jsonl
 # → { "service": "rdp", "src": "127.0.0.1", "username": "Administrator" }
 ```
 
@@ -865,7 +865,7 @@ When a client sends a Negotiate request containing `NT LM 0.12` (the SMBv1 diale
 
 ```bash
 smbclient -L //127.0.0.1 -N 2>/dev/null
-grep '"service":"smb"' logs/events.jsonl
+grep '"service":"smb"' logs/events_*.jsonl
 # → { "service": "smb", "dialect": "SMB2", "eternalblue_probe": false }
 ```
 
@@ -896,7 +896,7 @@ The challenge + response pair is sufficient for offline DES brute-force of short
 ```bash
 vncviewer 127.0.0.1:5900
 # (connection accepted; client version + DES response captured in logs)
-grep '"service":"vnc"' logs/events.jsonl
+grep '"service":"vnc"' logs/events_*.jsonl
 # → { "service": "vnc", "src": "…", "client_version": "RFB 003.008",
 #     "challenge_hex": "…", "response_hex": "…" }
 ```
@@ -939,7 +939,7 @@ redis-cli -h 127.0.0.1
 # OK (high_interest flag in log)
 127.0.0.1:6379> SLAVEOF 10.0.0.1 6379
 # OK (high_interest flag in log)
-grep '"service":"redis"' logs/events.jsonl
+grep '"service":"redis"' logs/events_*.jsonl
 ```
 
 ---
@@ -963,7 +963,7 @@ Fake LDAP server that captures login attempts:
 
 ```bash
 ldapsearch -H ldap://127.0.0.1 -D "CN=admin,DC=corp,DC=local" -w Password1 -b "DC=corp,DC=local"
-grep '"service":"ldap"' logs/events.jsonl
+grep '"service":"ldap"' logs/events_*.jsonl
 # → { "service": "ldap", "src": "…", "bind_dn": "CN=admin,DC=corp,DC=local",
 #     "password": "Password1" }
 ```

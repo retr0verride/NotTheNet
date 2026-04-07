@@ -57,7 +57,7 @@ cd NotTheNet
 bash build-deb.sh
 
 # Install the package (sudo = run as administrator)
-sudo dpkg -i notthenet_2026.02.24-2_all.deb
+sudo dpkg -i notthenet_2026.04.07-3_all.deb
 ```
 
 `build-deb.sh` requires only `dpkg` (always present on Debian/Kali) and `rsync`.

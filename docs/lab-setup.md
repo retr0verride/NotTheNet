@@ -29,6 +29,144 @@ Each VM has **one NIC**. During setup you switch that NIC to `vmbr0` for interne
 
 ---
 
+## Part 0 — Offline / Air-Gapped Setup
+
+> **Skip this section if your Kali VM has internet access** — the standard path through Parts 1–2 is faster.  
+> Use this section if you are building the lab on an **air-gapped** Proxmox host, or if policy prevents the Kali VM from ever reaching the internet — even during setup.
+
+This section covers: downloading the right Kali ISO, getting NotTheNet onto the air-gapped machine via a USB bundle ISO, and mounting it all from Proxmox.
+
+---
+
+### 0.1 Download the Kali offline ISO
+
+The Kali project publishes a fully-offline installer that includes every package on the disc — no internet needed during or after install.
+
+1. On a machine that **does** have internet, go to [https://www.kali.org/get-kali/#kali-installer-images](https://www.kali.org/get-kali/#kali-installer-images).
+2. Download the **"Installer" (not "Live")** image — choose `amd64` unless Proxmox is ARM. The offline installer ISO is named like `kali-linux-YYYY.N-installer-amd64.iso` (~4 GB).
+3. Verify the SHA256: the hash is listed next to each download on the Kali site.
+
+> **Do not use the "Live" ISO for this.** The Live ISO boots from RAM and does not install a persistent system. The "Installer" ISO runs the Debian-style installer and gives you a real installed Kali.
+
+---
+
+### 0.2 Build the NotTheNet bundle on Windows
+
+On your Windows machine (the one with internet):
+
+```powershell
+cd U:\NotTheNet
+.\make-bundle.ps1 -Zip
+```
+
+This produces `dist\NotTheNet_<version>_bundle.zip` containing all Python dependencies (pre-downloaded wheels), the scripts, and the offline installer. No internet needed on the target machine.
+
+> `make-bundle.ps1` requires Python 3.10+ and pip in PATH. It pip-downloads all wheels declared in `requirements.txt` into the bundle before zipping.
+
+---
+
+### 0.3 Create a bundle ISO
+
+Proxmox cannot directly mount a `.zip` as a virtual CD drive, so wrap the bundle in an ISO:
+
+**On Windows (using `oscdimg` from the Windows ADK, or `mkisofs` via WSL):**
+
+```powershell
+# Option A — Windows ADK (oscdimg):
+# Download ADK from https://learn.microsoft.com/en-us/windows-hardware/get-started/adk-install
+# Install, choose only "Deployment Tools" component
+
+$src = "dist"
+$iso = "dist\notthenet-bundle.iso"
+& "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg\oscdimg.exe" `
+    -n -m -o "$src" "$iso"
+```
+
+```bash
+# Option B — WSL / Linux:
+mkisofs -o dist/notthenet-bundle.iso dist/
+```
+
+The result is a `notthenet-bundle.iso` you can upload to Proxmox alongside the Kali ISO.
+
+---
+
+### 0.4 Upload ISOs to Proxmox
+
+In the Proxmox web UI:
+
+1. **Datacenter → _your node_ → local → ISO Images → Upload**
+2. Upload `kali-linux-*-installer-amd64.iso`
+3. Upload `notthenet-bundle.iso`
+
+Both should appear in the ISO list once uploaded.
+
+---
+
+### 0.5 Create the Kali VM with both ISOs
+
+Follow [Part 1 (Proxmox Network Setup)](#part-1--proxmox-network-setup) and [Part 2.1 (Create the VM)](#21-create-the-vm) normally, **but**:
+
+- Set the primary CD/DVD drive to the Kali installer ISO.
+- Add a **second CD/DVD drive** for the bundle:
+  - Proxmox → **kali-notthenet → Hardware → Add → CD/DVD Drive**
+  - Bus: `IDE`, Device: `1`
+  - Select `notthenet-bundle.iso`
+
+> Having two CD drives lets Kali install from one ISO and read the bundle from the other without needing network access for either.
+
+**Network tab:** `net0` → `vmbr1` **only** — the VM never needs internet. Do **not** attach `vmbr0`.
+
+---
+
+### 0.6 Install Kali from ISO
+
+Boot the VM. The Kali installer starts automatically.
+
+Key installer choices for an air-gapped install:
+
+| Installer screen | Setting |
+|-----------------|---------|
+| Software selection | Accept defaults (uses the offline packages on the disc) |
+| Network mirror | **"No"** — do not configure a network mirror |
+| Proxy | Leave blank |
+
+Complete the install normally. When done, the VM will reboot into Kali.
+
+---
+
+### 0.7 Install NotTheNet from the bundle ISO
+
+After Kali boots, the second CD drive (bundle ISO) is available. Mount and install:
+
+```bash
+# Find the CD drive device (usually /dev/sr0 or /dev/sr1)
+lsblk -o NAME,TYPE,FSTYPE,LABEL | grep -i iso
+
+# Mount the bundle ISO (example using /dev/sr1 — adjust if needed)
+sudo mkdir -p /mnt/bundle
+sudo mount /dev/sr1 /mnt/bundle
+
+# The bundle zip is at the root of the ISO
+ls /mnt/bundle/
+# → NotTheNet_<version>_bundle.zip  (and possibly other files)
+
+# Extract and install
+cp /mnt/bundle/NotTheNet_*_bundle.zip /tmp/
+cd /tmp
+unzip NotTheNet_*_bundle.zip
+cd NotTheNet
+sudo bash notthenet-bundle.sh
+
+sudo umount /mnt/bundle
+```
+
+The bundle installer creates the virtualenv, installs all bundled wheels, generates TLS certificates, installs the desktop launcher, and sets up polkit rules — identical to the online install, but entirely offline.
+
+After this step, continue from [Part 2.3 (Configure the lab interface)](#23-configure-the-lab-interface) — you can skip the NIC-switch steps since this VM is already on `vmbr1`.
+
+---
+
 ## Part 1 — Proxmox Network Setup
 
 ### 1.1 Create the isolated lab bridge
@@ -435,7 +573,7 @@ If `json_logging` is enabled, check that events are being recorded:
 
 On Kali:
 ```bash
-tail -f logs/events.jsonl
+tail -f logs/events_$(date +%Y-%m-%d)_s*.jsonl
 ```
 Expected: JSON objects appear in real time as FlareVM generates traffic. Each object has `timestamp`, `event`, `src_ip`, and service-specific fields.
 

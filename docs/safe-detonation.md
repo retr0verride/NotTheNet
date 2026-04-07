@@ -78,7 +78,7 @@ In the GUI, every enabled service should show a green dot in the sidebar.
 - **Watch the live log:** In the GUI, or tail the JSON event log in a terminal:
   ```bash
   # Shows new log entries as they appear, formatted for readability:
-  tail -f logs/events.jsonl | python -m json.tool
+  tail -f logs/events_$(date +%Y-%m-%d)_s*.jsonl | python -m json.tool
   ```
 - **Do NOT connect to the victim VM from the management network** (e.g. via RDP or VNC) during detonation — this creates cross-network traffic that may confuse the malware or reveal your real IP.
 - Instead, use **Proxmox's built-in noVNC console** (accessible from the Proxmox web UI) to watch the victim.
@@ -102,7 +102,7 @@ cd /opt/NotTheNet
 
 # Compress and password-protect before transferring anywhere.
 # The password "infected" is a standard convention in malware research.
-zip -P infected -r artifacts.zip logs/emails/ logs/ftp_uploads/ logs/events.jsonl
+zip -P infected -r artifacts.zip logs/emails/ logs/ftp_uploads/ logs/events_*.jsonl
 
 # Check what's in the zip without extracting:
 unzip -l artifacts.zip
@@ -141,7 +141,7 @@ If you mounted `logs/` as tmpfs (RAM disk), they are automatically cleared on re
 rm -rf logs/emails/* logs/ftp_uploads/*
 
 # Clear the event log:
-> logs/events.jsonl
+rm -f logs/events_$(date +%Y-%m-%d)_s*.jsonl
 ```
 
 ---
@@ -203,7 +203,7 @@ reg query "HKLM\SOFTWARE\VMware, Inc.\VMware Tools" 2>nul
 │  2. sudo bash harden-lab.sh --bridge vmbr1 --mgmt eth0 │
 │  3. sudo python notthenet.py --nogui                    │
 │  4. Start victim VM → deploy sample                     │
-│  5. Monitor logs/events.jsonl                           │
+│  5. Monitor logs/events_$(date +%Y-%m-%d)_s*.jsonl         │
 │  6. Stop NotTheNet                                      │
 │  7. zip -P infected artifacts.zip logs/emails/ ...      │
 │  8. qm rollback <VMID> pre-det                         │

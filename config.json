@@ -1,7 +1,7 @@
 {
   "general": {
-    "bind_ip": "10.10.10.1",
-    "redirect_ip": "10.10.10.1",
+    "bind_ip": "10.0.0.1",
+    "redirect_ip": "10.0.0.1",
     "log_dir": "logs",
     "log_level": "INFO",
     "log_to_file": true,
@@ -25,15 +25,15 @@
   "dns": {
     "enabled": true,
     "port": 53,
-    "resolve_to": "10.10.10.1",
+    "resolve_to": "10.0.0.1",
     "ttl": 300,
     "handle_ptr": true,
     "custom_records": {
-      "gx7ekbenv2riucmf.onion": "10.10.10.1",
-      "cwwnhwhlz52maqm7.onion": "10.10.10.1",
-      "57g7spgrzlojinas.onion": "10.10.10.1",
-      "xxlvbrloxvriy2c5.onion": "10.10.10.1",
-      "76jdd2ir2embyv47.onion": "10.10.10.1"
+      "gx7ekbenv2riucmf.onion": "10.0.0.1",
+      "cwwnhwhlz52maqm7.onion": "10.0.0.1",
+      "57g7spgrzlojinas.onion": "10.0.0.1",
+      "xxlvbrloxvriy2c5.onion": "10.0.0.1",
+      "76jdd2ir2embyv47.onion": "10.0.0.1"
     },
     "nxdomain_entropy_threshold": 4.0,
     "nxdomain_label_min_length": 8,
@@ -70,7 +70,7 @@
       {
         "pattern": "(?i)/tor/server/authority",
         "mime": "text/plain",
-        "body": "router FakeDirAuth 10.10.10.1 9001 0 0\nplatform Tor 0.4.8.9\nbandwidth 1073741824 1073741824 1073741824\n"
+        "body": "router FakeDirAuth 10.0.0.1 9001 0 0\nplatform Tor 0.4.8.9\nbandwidth 1073741824 1073741824 1073741824\n"
       },
       {
         "pattern": "(?i)/tor/keys/",
@@ -84,7 +84,7 @@
       }
     ],
     "doh_sinkhole": true,
-    "doh_redirect_ip": "10.10.10.1",
+    "doh_redirect_ip": "10.0.0.1",
     "websocket_sinkhole": true
   },
   "https": {
@@ -109,7 +109,7 @@
       {
         "pattern": "(?i)/tor/server/authority",
         "mime": "text/plain",
-        "body": "router FakeDirAuth 10.10.10.1 9001 0 0\nplatform Tor 0.4.8.9\nbandwidth 1073741824 1073741824 1073741824\n"
+        "body": "router FakeDirAuth 10.0.0.1 9001 0 0\nplatform Tor 0.4.8.9\nbandwidth 1073741824 1073741824 1073741824\n"
       },
       {
         "pattern": "(?i)/tor/keys/",
@@ -124,7 +124,7 @@
     ],
     "dynamic_certs": true,
     "doh_sinkhole": true,
-    "doh_redirect_ip": "10.10.10.1",
+    "doh_redirect_ip": "10.0.0.1",
     "websocket_sinkhole": true
   },
   "smtp": {
