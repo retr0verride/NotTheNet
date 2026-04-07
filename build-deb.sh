@@ -7,13 +7,13 @@
 #
 # Usage:
 #   bash build-deb.sh
-#   sudo dpkg -i notthenet_2026.02.24-2_all.deb
+#   sudo dpkg -i notthenet_2026.04.07-3_all.deb
 # ============================================================================
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VERSION="2026.03.16-1"
+VERSION="2026.04.07-3"
 PKG="notthenet"
 ARCH="all"
 DEB_NAME="${PKG}_${VERSION}_${ARCH}.deb"
