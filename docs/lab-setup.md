@@ -10,26 +10,19 @@ This walkthrough is step-by-step. You don't need to be an expert — each step e
 
 Here is a diagram of how the lab is laid out. The two VMs (Kali and FlareVM) share an isolated virtual network that has no connection to the real internet.
 
-```
-┌─────────────────────────────────────────────────────┐
-│                   Proxmox Host                      │
-│                                                     │
-│  ┌──────────────────┐      ┌──────────────────────┐ │
-│  │   Kali Linux VM  │      │     FlareVM (Win)    │ │
-│  │                  │      │                      │ │
-│  │  NotTheNet       │      │  Malware sample      │ │
-│  │  10.0.0.1        │◄─────│  10.0.0.50           │ │
-│  │                  │      │  GW: 10.0.0.1        │ │
-│  │  eth0 → vmbr1    │      │  DNS: 10.0.0.1       │ │
-│  │  (single NIC)    │      │  eth0 → vmbr1        │ │
-│  └──────────────────┘      └──────────────────────┘ │
-│                │                     │               │
-│          ┌─────┴─────────────────────┘               │
-│          │      vmbr1 (isolated — no gateway)         │
-│                                                     │
-│          vmbr0 ← internet (used during setup only,  │
-│                  by switching the NIC bridge)        │
-└─────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    subgraph Proxmox["Proxmox Host"]
+        subgraph Kali["Kali Linux VM"]
+            NTN["NotTheNet\n10.0.0.1\neth0 → vmbr1\n(single NIC)"]
+        end
+        subgraph FVM["FlareVM (Win)"]
+            MAL["Malware sample\n10.0.0.50\nGW: 10.0.0.1\nDNS: 10.0.0.1\neth0 → vmbr1"]
+        end
+        MAL -- "all traffic intercepted" --> NTN
+        Kali & FVM --- vmbr1["vmbr1\nisolated — no gateway"]
+        vmbr0["vmbr0 ← internet\nused during setup only\n(switch NIC bridge to connect)"]
+    end
 ```
 
 Each VM has **one NIC**. During setup you switch that NIC to `vmbr0` for internet access, then switch it back to `vmbr1` for analysis. When both VMs are on `vmbr1`, FlareVM has **no route to the real internet** — only to NotTheNet on Kali.
