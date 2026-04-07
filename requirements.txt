@@ -13,9 +13,16 @@ dnslib==0.9.26 \
 # TLS certificate generation (used by cert_utils.py)
 # >=46.0.6 required: fixes CVE-2024-12797 (OpenSSL RSA key recovery, HIGH) and
 # related advisories GHSA-6vqw-3v5j-54x4 / GHSA-h4gh-qq45-vh27 present in 42.x-43.x.
-# Hashes: manylinux_2_17_x86_64 (Kali target) + win_amd64 (dev).
+# Hashes: all x86_64 Linux manylinux variants (2.17/2.28/2.34, cp38-abi3 + cp311-abi3)
+# to cover ubuntu-latest (glibc 2.39 → prefers manylinux_2_34) and Kali (manylinux_2_17).
+# Python 3.9/3.10 use cp38-abi3 wheels; Python 3.11-3.14 use cp311-abi3 wheels.
 cryptography==46.0.6 \
     --hash=sha256:9a693028b9cbe51b5a1136232ee8f2bc242e4e19d456ded3fa7c86e43c713b4a \
+    --hash=sha256:22259338084d6ae497a19bae5d4c66b7ca1387d3264d1c2c0e72d9e9b6a77b97 \
+    --hash=sha256:d4e4aadb7fc1f88687f47ca20bb7227981b03afaae6927029da08096853b738 \
+    --hash=sha256:ed3775295fb91f70b4027aeba878d79b3e55c0b3e97eaa4de71f8f23af2eb77 \
+    --hash=sha256:063b67749f338ca9c5a0b7fe438a52c25f9526b851e24e6c9310e719aad3b4d \
+    --hash=sha256:341359d6c9e68834e204ceaf25936dffafea3829ab80e9503860dcc4f4dac58 \
     --hash=sha256:6739d56300662c468fddb0e5e291f9b4d084bead381667b9e654c7dd81705124
 
 # Optional: process title masquerade (renames process to kernel-thread-like name)
