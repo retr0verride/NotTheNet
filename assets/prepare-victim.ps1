@@ -18,7 +18,7 @@ function Info($msg) { Write-Host "  [--] $msg" -ForegroundColor Cyan }
 
 Write-Host ""
 Write-Host "════════════════════════════════════════════════════" -ForegroundColor Cyan
-Write-Host "  NotTheNet — Prepare Victim VM" -ForegroundColor Cyan
+Write-Host "  NotTheNet - Prepare Victim VM" -ForegroundColor Cyan
 Write-Host "════════════════════════════════════════════════════" -ForegroundColor Cyan
 Write-Host ""
 
@@ -85,12 +85,12 @@ try {
         $rules | Set-NetFirewallRule -Enabled True
         Pass "WMI firewall rules enabled ($($rules.Count) rules)"
     } else {
-        Info "No WMI firewall rule group found (firewall is off — OK)"
+        Info "No WMI firewall rule group found (firewall is off -- OK)"
     }
 } catch {
     netsh advfirewall firewall set rule group="Windows Management Instrumentation (WMI)" new enable=yes 2>$null
     if ($LASTEXITCODE -eq 0) { Pass "WMI firewall rules enabled (netsh)" }
-    else { Info "Could not set WMI rules (firewall is off — OK)" }
+    else { Info "Could not set WMI rules (firewall is off -- OK)" }
 }
 
 # ── Done ─────────────────────────────────────────────────────────────────────
