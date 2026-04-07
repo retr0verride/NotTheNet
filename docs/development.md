@@ -43,11 +43,7 @@ VS Code will detect the `.venv` automatically. If prompted, select it as the Pyt
 bash predeploy.sh
 ```
 
-This runs ruff (lint), mypy (type check), bandit (security scan), pytest (86 tests), and builds the package.
-
----
-
-## Windows (dev only)
+This runs ruff (lint), mypy (type check), bandit (security scan), pytest (250 tests), and builds the package.
 
 NotTheNet **runs on Kali Linux only**. The Windows workflow is for developers who write and test code on a Windows host before pushing.
 
@@ -73,7 +69,7 @@ code .
 .\predeploy.ps1
 ```
 
-This runs ruff (lint), mypy (type check), bandit (security scan), pytest (86 tests), and builds the package.
+This runs ruff (lint), mypy (type check), bandit (security scan), pytest (250 tests), and builds the package.
 
 ---
 
@@ -94,6 +90,15 @@ pytest tests/ -v
 | `tests/test_config.py` | `Config` load, get/set, save, reset, deep-copy isolation |
 | `tests/test_logging_utils.py` | CWE-117 log injection prevention; `sanitize_log_string`, `sanitize_ip`, `sanitize_hostname` |
 | `tests/test_validators.py` | `validate_ip`, `validate_port`, `validate_hostname`, `validate_bind_ip`, `sanitize_path`, `validate_http_method`, `validate_config` |
+| `tests/test_connection_caps.py` | FTP and mail server connection-cap enforcement (socket-level) |
+| `tests/test_irc_session_timeout.py` | IRC PING/PONG lifecycle, session timeout |
+| `tests/test_json_logger_flush.py` | Periodic flush, concurrent write safety, size cap |
+| `tests/test_dns_server.py` | DNS resolver: A/PTR/MX/TXT/NS/SOA/SRV/CAA, DGA entropy, kill-switch, NCSI, FCrDNS |
+| `tests/test_http_server.py` | IP-check spoofing, NCSI, captive portal, PKI stubs, handler config, response loading |
+| `tests/test_catch_all.py` | Protocol detection, TLS context, TCP/UDP lifecycle, connection handling |
+| `tests/test_iptables_manager.py` | Snapshot paths, interface validation, rule building, TTL validation, mode config |
+| `tests/test_service_manager.py` | ServiceManager lifecycle, log purge, session paths, port conflicts, config validation |
+| `tests/test_cert_utils.py` | Self-signed certs, CA generation, per-domain forging, DynamicCertCache, key permissions |
 
 ---
 

@@ -20,7 +20,6 @@ import logging
 import os
 import shutil
 import subprocess
-import tempfile
 from typing import Optional
 
 from utils.logging_utils import sanitize_log_string
@@ -29,8 +28,13 @@ from utils.validators import validate_port
 logger = logging.getLogger(__name__)
 
 _RULE_COMMENT = "NOTTHENET"
-_IPTABLES_SAVE_FILE = os.path.join(tempfile.gettempdir(), "notthenet_iptables_save.rules")
-_MANGLE_SAVE_FILE = os.path.join(tempfile.gettempdir(), "notthenet_mangle_save.rules")
+
+# Store snapshots in the project's logs/ directory instead of /tmp/ to prevent
+# symlink races on shared systems (CWE-59).  The logs/ directory is app-owned
+# and already exists by the time iptables rules are applied.
+_SNAPSHOT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
+_IPTABLES_SAVE_FILE = os.path.join(_SNAPSHOT_DIR, ".iptables_save.rules")
+_MANGLE_SAVE_FILE = os.path.join(_SNAPSHOT_DIR, ".mangle_save.rules")
 
 
 def _run(args: list[str]) -> tuple[int, str, str]:
@@ -216,7 +220,10 @@ class IPTablesManager:
                 ifaces_raw = f.read()
             return iface in ifaces_raw
         except Exception:
-            return True  # /proc not available, assume valid
+            # Fail-closed: if we can't verify the interface exists, reject it.
+            # A security tool should not apply iptables rules to a potentially
+            # non-existent interface.
+            return False
 
     def _add_rule(self, rule: list[str]) -> bool:
         """Add an iptables rule and track it for removal."""
@@ -477,27 +484,36 @@ class IPTablesManager:
 
     def remove_rules(self):
         """Stop: restore the nat table to its pre-start state."""
+        escalated = False
         if os.geteuid() != 0:
-            logger.warning("Cannot remove iptables rules: not root.")
-            return
+            from utils.privilege import restore_privileges
+            escalated = restore_privileges()
+            if not escalated:
+                logger.warning("Cannot remove iptables rules: not root and cannot restore privileges.")
+                return
 
-        if self._saved and _restore_nat_snapshot():
-            self._rules_applied.clear()
-        else:
-            logger.warning(
-                "No nat snapshot available; flushing entire nat table as fallback."
-            )
-            _run(["iptables", "-t", "nat", "-F"])
-            self._rules_applied.clear()
-            logger.info("nat table flushed.")
+        try:
+            if self._saved and _restore_nat_snapshot():
+                self._rules_applied.clear()
+            else:
+                logger.warning(
+                    "No nat snapshot available; flushing entire nat table as fallback."
+                )
+                _run(["iptables", "-t", "nat", "-F"])
+                self._rules_applied.clear()
+                logger.info("nat table flushed.")
 
-        # Restore ip_forward
-        if self._prev_ip_forward is not None:
-            if _write_ip_forward(self._prev_ip_forward):
-                logger.info("ip_forward restored to %s.", self._prev_ip_forward)
-            self._prev_ip_forward = None
+            # Restore ip_forward
+            if self._prev_ip_forward is not None:
+                if _write_ip_forward(self._prev_ip_forward):
+                    logger.info("ip_forward restored to %s.", self._prev_ip_forward)
+                self._prev_ip_forward = None
 
-        self._remove_auxiliary_rules()
+            self._remove_auxiliary_rules()
+        finally:
+            if escalated:
+                from utils.privilege import re_drop_privileges
+                re_drop_privileges()
 
     @staticmethod
     def list_notthenet_rules() -> list[str]:

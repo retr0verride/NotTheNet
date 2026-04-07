@@ -5,7 +5,8 @@
   <a href="https://github.com/retr0verride/NotTheNet/actions/workflows/codeql.yml"><img src="https://github.com/retr0verride/NotTheNet/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
   <a href="https://github.com/retr0verride/NotTheNet/actions/workflows/sca.yml"><img src="https://github.com/retr0verride/NotTheNet/actions/workflows/sca.yml/badge.svg" alt="SCA"></a>
   <a href="https://github.com/retr0verride/NotTheNet/actions/workflows/snyk.yml"><img src="https://github.com/retr0verride/NotTheNet/actions/workflows/snyk.yml/badge.svg" alt="Snyk"></a>
-  <a href="https://www.bestpractices.dev/projects/12084"><img src="https://img.shields.io/cii/summary/12084?label=openssf%20best%20practices" alt="OpenSSF Best Practices"></a>
+  <a href="https://www.bestpractices.dev/projects/12084"><img src="https://www.bestpractices.dev/projects/12084/badge" alt="OpenSSF Best Practices"></a>
+  <a href="https://securityscorecards.dev/viewer/?uri=github.com/retr0verride/NotTheNet"><img src="https://api.securityscorecards.dev/projects/github.com/retr0verride/NotTheNet/badge" alt="OpenSSF Scorecard"></a>
   <a href="https://github.com/retr0verride/NotTheNet/releases/latest"><img src="https://img.shields.io/github/v/release/retr0verride/NotTheNet" alt="Latest Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/retr0verride/NotTheNet" alt="License"></a>
   <img src="https://img.shields.io/badge/python-3.9%2B-blue" alt="Python 3.9+">
@@ -54,6 +55,7 @@ sudo bash notthenet-bundle.sh
 - **Privilege drop** — binds ports as root then drops to `nobody:nogroup`; `logs/` is chown'd before the drop so exports keep working
 - **Process masquerade** — process title set to `[kworker/u2:1-events]` to hide from `ps`
 - **Dark GUI** — live colour-coded log, JSON Events viewer with search/filter, zoom controls, per-field tooltips
+- **Preflight checks** — local readiness audit + remote victim validation/fixes via WMI/SMB before detonation
 - **Lab hardening script** — `harden-lab.sh` stops conflicting services, blocks bridge↔management pivoting, mounts `logs/` as noexec tmpfs
 
 ---
@@ -72,6 +74,7 @@ sudo bash notthenet-bundle.sh
 ```bash
 sudo notthenet                                    # GUI
 sudo notthenet --nogui                            # headless / pipeline
+sudo notthenet --preflight                        # local preflight report (no GUI)
 sudo notthenet --config /path/to/mylab.json       # custom config
 sudo notthenet --nogui --loglevel DEBUG           # verbose
 ```
@@ -100,7 +103,7 @@ Man page: [`man/notthenet.1`](man/notthenet.1) — installed automatically by `n
 ## Testing
 
 ```bash
-pytest tests/ -v    # 86 tests — pure Python, no root, no network required
+pytest tests/ -v    # 253 tests — pure Python, no root, no network required
 ```
 
 ---

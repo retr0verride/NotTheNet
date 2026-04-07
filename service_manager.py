@@ -43,7 +43,7 @@ from services.tftp_server import TFTPService
 from services.vnc_server import VNCService
 from utils.cert_utils import ensure_certs
 from utils.json_logger import close_json_logger, init_json_logger
-from utils.privilege import drop_privileges, require_root_or_warn
+from utils.privilege import drop_privileges, require_root_or_warn, restore_privileges
 from utils.validators import validate_config
 
 logger = logging.getLogger(__name__)
@@ -179,6 +179,22 @@ class ServiceManager:
                     port_map[key] = spec.name
 
     @staticmethod
+    def _purge_old_logs(log_dir: str, max_age_days: int = 14) -> None:
+        """Delete JSONL session logs older than *max_age_days*."""
+        import glob
+        from datetime import date, timedelta
+
+        cutoff = date.today() - timedelta(days=max_age_days)
+        for path in glob.glob(os.path.join(log_dir, "events_*_s*.jsonl")):
+            try:
+                mtime = os.path.getmtime(path)
+                if date.fromtimestamp(mtime) < cutoff:
+                    os.remove(path)
+                    logger.info("Purged old log: %s", path)
+            except OSError as e:
+                logger.debug("Could not purge %s: %s", path, e)
+
+    @staticmethod
     def _session_log_path(log_dir: str) -> str:
         """Return a session-labeled JSONL path like ``logs/events_2026-04-01_s1.jsonl``.
 
@@ -215,6 +231,7 @@ class ServiceManager:
                 self.config.get("general", "json_log_file") or "logs/events.jsonl"
             )
         )
+        self._purge_old_logs(log_dir)
         json_path = self._session_log_path(log_dir)
         # Write back so the GUI picks up the active session path.
         self.config.set("general", "json_log_file", json_path)
@@ -245,6 +262,7 @@ class ServiceManager:
                 logger.error("Config error: %s", e)
             return False
 
+        restore_privileges()  # Restore root if previously dropped (Stop → Start cycle)
         require_root_or_warn()
         if self.config.get("general", "auto_evict_services"):
             self._evict_conflicting_services()
@@ -385,8 +403,6 @@ class ServiceManager:
         breaking JSON export, FTP/SMTP/TFTP file saves, and the GUI
         'Open Logs' button.
         """
-        import stat
-
         try:
             pw_entry = __import__("pwd").getpwnam(user)
             gr_entry = __import__("grp").getgrnam(group)
@@ -397,6 +413,23 @@ class ServiceManager:
         log_dir = os.path.abspath(
             self.config.get("general", "log_dir") or "logs"
         )
+        self._chown_log_dirs(log_dir, uid, gid)
+        self._ensure_parent_traversal(log_dir)
+
+        # Chown certs/ so the dropped user can read ca.key for dynamic TLS forgery
+        certs_dir = os.path.abspath("certs")
+        if os.path.isdir(certs_dir):
+            try:
+                for dirpath, _dirnames, filenames in os.walk(certs_dir):
+                    os.chown(dirpath, uid, gid)  # type: ignore[attr-defined]
+                    for fname in filenames:
+                        os.chown(os.path.join(dirpath, fname), uid, gid)  # type: ignore[attr-defined]
+            except OSError as exc:
+                logger.warning("Could not chown certs/: %s", exc)
+
+    @staticmethod
+    def _chown_log_dirs(log_dir: str, uid: int, gid: int) -> None:
+        """Create log subdirectories and chown them to the drop target."""
         dirs_to_own = [log_dir]
         for sub in ("emails", "ftp_uploads", "tftp_uploads"):
             dirs_to_own.append(os.path.join(log_dir, sub))
@@ -414,9 +447,11 @@ class ServiceManager:
             except OSError as exc:
                 logger.warning("Could not chown %s: %s", d, exc)
 
-        # Add o+x on each parent directory so the dropped user can traverse
-        # from / down to the log directory (e.g. /home/kali/ is mode 700 on
-        # Kali which blocks nobody from reaching the project tree).
+    @staticmethod
+    def _ensure_parent_traversal(log_dir: str) -> None:
+        """Add o+x on parent directories so the dropped user can traverse them."""
+        import stat
+
         current = log_dir
         while current and current != os.path.dirname(current):
             try:
@@ -499,6 +534,7 @@ class ServiceManager:
 
     def stop(self):
         """Stop all services and remove iptables rules."""
+        restore_privileges()  # Need root to remove iptables rules
         with self._lock:
             items = list(self._services.items())
             self._services.clear()

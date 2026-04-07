@@ -46,6 +46,11 @@ ProtectHome=true
 ProtectSystem=strict
 ReadWritePaths=/opt/NotTheNet/logs /opt/NotTheNet/certs
 PrivateTmp=true
+# NoNewPrivileges=no is required because the service drops from root to
+# nobody:nogroup via seteuid/setegid after binding privileged ports.  The
+# kernel blocks seteuid() when NoNewPrivileges=yes is in effect; CAP_SETUID
+# and CAP_SETGID in the bounding set let the process switch effective IDs
+# while preventing it from gaining any *additional* capabilities.
 NoNewPrivileges=no
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_NET_RAW CAP_NET_ADMIN CAP_SETUID CAP_SETGID
 

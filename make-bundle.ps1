@@ -554,8 +554,8 @@ fi
     Write-Host "    .\make-bundle.ps1 -Zip"
 
     # ── Optional zip ─────────────────────────────────────────────────────────
+    $projectRoot = (Resolve-Path ".").Path
     if ($Zip) {
-        $projectRoot = (Resolve-Path ".").Path
         $zipPath     = if ($ZipOutput) { [System.IO.Path]::GetFullPath($ZipOutput) } else { (Resolve-Path "..").Path.TrimEnd('\') + "\NotTheNet-bundle.zip" }
         $excludeDirs = @('.venv','.mypy_cache','.pytest_cache','.ruff_cache',
                          '__pycache__','build','dist','notthenet.egg-info','.git')

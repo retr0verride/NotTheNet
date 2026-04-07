@@ -1,13 +1,11 @@
 # ship.ps1 — Full release workflow for NotTheNet
-# Runs predeploy checks, generates offline bundle, creates minimal zip, copies to USB.
+# Runs predeploy checks, generates offline bundle installer + zip.
 #
 # Usage:  .\ship.ps1
 #         .\ship.ps1 -SkipPredeploy   (skip lint/type/test if you just bumped a hotfix)
-#         .\ship.ps1 -Drive F:\        (force a specific drive letter)
 
 param(
-    [switch]$SkipPredeploy,
-    [string]$Drive
+    [switch]$SkipPredeploy
 )
 
 $ErrorActionPreference = "Stop"
@@ -97,28 +95,23 @@ if (-not (Test-Path $bundleSrc)) {
 }
 if (-not (Test-Path $bundleSrc)) { Fail "Cannot find NotTheNet-bundle.zip" }
 
-# ── Detect USB drive ─────────────────────────────────────────────────────────
-if ($Drive) {
-    $usbRoot = $Drive.TrimEnd('\') + '\'
-    if (-not (Test-Path $usbRoot)) { Fail "Specified drive $usbRoot not found" }
-} else {
-    $usb = Get-CimInstance Win32_DiskDrive -Filter "InterfaceType='USB'" -ErrorAction SilentlyContinue |
-        ForEach-Object {
-            Get-CimAssociatedInstance $_ -ResultClassName Win32_DiskPartition |
-                ForEach-Object { Get-CimAssociatedInstance $_ -ResultClassName Win32_LogicalDisk }
-        } |
-        Where-Object { $_.DriveType -eq 2 } |
-        Select-Object -First 1
-    if (-not $usb) { Fail "No USB drive detected. Plug one in or use -Drive <letter>:\" }
-    $usbRoot = $usb.DeviceID + '\'
-    Step "Detected USB drive: $usbRoot ($('{0:N1}' -f ($usb.FreeSpace/1GB)) GB free)"
+# ── Move artifacts to dist/ ──────────────────────────────────────────────────
+$distDir = Join-Path (Get-Location) "dist"
+if (-not (Test-Path $distDir)) { New-Item -ItemType Directory -Path $distDir | Out-Null }
+
+# Remove any previous bundle zips before writing the new one
+Get-ChildItem -Path $distDir -Filter "NotTheNet_*_bundle.zip" | ForEach-Object {
+    Remove-Item -Force $_.FullName
+    Write-Host "    Removed old artifact: $($_.Name)" -ForegroundColor DarkGray
 }
 
-$bundleDst = Join-Path $usbRoot "NotTheNet_${ver}_bundle.zip"
+$bundleDst = Join-Path $distDir "NotTheNet_${ver}_bundle.zip"
 Move-Item -Force $bundleSrc $bundleDst
-Pass "Bundle → $bundleDst ($( '{0:N1}' -f ((Get-Item $bundleDst).Length/1MB) ) MB)"
+Pass "Zip → $bundleDst ($( '{0:N1}' -f ((Get-Item $bundleDst).Length/1MB) ) MB)"
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 Write-Host ""
-Write-Host "NotTheNet $ver shipped to $usbRoot" -ForegroundColor Green
-Write-Host "  Bundle: NotTheNet_${ver}_bundle.zip" -ForegroundColor Green
+Write-Host "NotTheNet $ver ready in dist/" -ForegroundColor Green
+Write-Host "  NotTheNet_${ver}_bundle.zip" -ForegroundColor Green
+Write-Host ""
+Write-Host "To create an ISO, add these files to your ISO tool (e.g. AnyBurn)." -ForegroundColor Yellow

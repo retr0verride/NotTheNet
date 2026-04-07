@@ -1,21 +1,28 @@
 # NotTheNet — Python Dependencies
-# Pinned to exact versions for supply-chain security (OpenSSF SLSA compliance).
-# Run: pip install -r requirements.txt
+# Pinned with SHA-256 hashes for supply-chain integrity (OpenSSF SLSA).
+# Install: pip install --require-hashes -r requirements.txt
 #
 # To regenerate hashes after version bumps:
-#   pip-compile --generate-hashes requirements.in
+#   pip download <pkg>==<ver> --no-deps -d /tmp/hashes
+#   pip hash --algorithm sha256 /tmp/hashes/<file>.whl
 
-# DNS packet parsing / server
-dnslib==0.9.26
+# DNS packet parsing / server (pure-Python, single wheel for all platforms)
+dnslib==0.9.26 \
+    --hash=sha256:e68719e633d761747c7e91bd241019ef5a2b61a63f56025939e144c841a70e0d
 
 # TLS certificate generation (used by cert_utils.py)
-# >=44.0.1 required: fixes CVE-2024-12797 (OpenSSL RSA key recovery, HIGH) and
+# >=46.0.6 required: fixes CVE-2024-12797 (OpenSSL RSA key recovery, HIGH) and
 # related advisories GHSA-6vqw-3v5j-54x4 / GHSA-h4gh-qq45-vh27 present in 42.x-43.x.
-cryptography>=46.0.6
+# Hashes: manylinux_2_17_x86_64 (Kali target) + win_amd64 (dev).
+cryptography==46.0.6 \
+    --hash=sha256:9a693028b9cbe51b5a1136232ee8f2bc242e4e19d456ded3fa7c86e43c713b4a \
+    --hash=sha256:6739d56300662c468fddb0e5e291f9b4d084bead381667b9e654c7dd81705124
 
 # Optional: process title masquerade (renames process to kernel-thread-like name)
 # Gracefully skipped if not installed, but recommended for stealth deployments.
-setproctitle>=1.3
+# Not hash-pinned: compiled per-platform — install separately with:
+#   pip install setproctitle>=1.3
+# When using --require-hashes, install setproctitle in a second pip call.
 
 # Note: All other functionality uses Python stdlib only:
 #   http.server, ssl, socketserver, threading, tkinter, json, logging,

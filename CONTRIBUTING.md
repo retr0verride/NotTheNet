@@ -35,7 +35,7 @@ git checkout -b feat/my-change
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-pip install ruff mypy bandit pytest build
+pip install ruff mypy bandit pytest
 ```
 
 ### 3. Make your changes

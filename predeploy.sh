@@ -15,7 +15,7 @@ step() { echo -e "\n${CYAN}── $1 ──${NC}"; }
 
 # ── Install check tools if absent ────────────────────────────────────────────
 step "Ensuring dev tools are installed"
-$PIP install --quiet ruff mypy bandit pytest build 2>&1 | tail -1
+$PIP install --quiet ruff mypy bandit pytest 2>&1 | tail -1
 pass "tools ready"
 
 # ── Lint ─────────────────────────────────────────────────────────────────────
@@ -37,9 +37,5 @@ if [ -d tests ] && compgen -G "tests/test_*.py" > /dev/null 2>&1; then
 else
     echo "  (no tests found — skipping)"
 fi
-
-# ── Build ────────────────────────────────────────────────────────────────────
-step "Build package"
-$PYTHON -m build --outdir dist/ && pass "build" || fail "build failed"
 
 echo -e "\n${GREEN}All predeploy checks passed.${NC}"

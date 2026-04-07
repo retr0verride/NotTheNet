@@ -6,6 +6,9 @@ Security notes (OpenSSF):
 - Binds privileged ports (< 1024) as root, then drops to nobody/nogroup
 - Prevents malware being analyzed from leveraging root during service interaction
 - Uses os.setgroups([]) to clear supplementary groups before dropping
+- Uses seteuid/setegid (not setuid/setgid) so privileges can be temporarily
+  restored for iptables cleanup on stop — the real UID stays root but the
+  effective UID is unprivileged during normal operation
 """
 
 import logging
@@ -24,11 +27,18 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Module-level state for reversible privilege drop
+_dropped_uid: int | None = None
+_dropped_gid: int | None = None
+
 
 def drop_privileges(run_as_user: str = "nobody", run_as_group: str = "nogroup") -> bool:
     """
-    Drop from root to a less-privileged user.
+    Drop from root to a less-privileged user (reversible via seteuid/setegid).
     Must be called AFTER binding all ports that need root (port < 1024).
+
+    Uses seteuid/setegid so the real UID remains root and privileges can be
+    temporarily restored for cleanup operations (iptables teardown on stop).
 
     Args:
         run_as_user:  Target username to drop to.
@@ -37,6 +47,7 @@ def drop_privileges(run_as_user: str = "nobody", run_as_group: str = "nogroup") 
     Returns:
         True if successfully dropped, False if already unprivileged or failed.
     """
+    global _dropped_uid, _dropped_gid
     if not hasattr(os, "geteuid") or os.geteuid() != 0:
         logger.debug("Not running as root; privilege drop skipped.")
         return False
@@ -56,8 +67,10 @@ def drop_privileges(run_as_user: str = "nobody", run_as_group: str = "nogroup") 
         # Clear supplementary groups first
         os.setgroups([])
         # Set GID before UID (would lose permission to set GID after UID drop)
-        os.setgid(target_gid)
-        os.setuid(target_uid)
+        os.setegid(target_gid)
+        os.seteuid(target_uid)
+        _dropped_uid = target_uid
+        _dropped_gid = target_gid
         # Update HOME so Tkinter file dialogs don't try to navigate to the
         # original user's home dir, which the dropped-to user cannot access.
         new_home = pw_entry.pw_dir or "/"
@@ -72,6 +85,40 @@ def drop_privileges(run_as_user: str = "nobody", run_as_group: str = "nogroup") 
         return True
     except OSError as e:
         logger.error("Failed to drop privileges: %s", e, exc_info=True)
+        return False
+
+
+def restore_privileges() -> bool:
+    """Temporarily restore root (euid=0) for privileged cleanup operations.
+
+    Only works after a prior ``drop_privileges()`` call that used seteuid.
+    Call ``re_drop_privileges()`` when done to return to unprivileged state.
+    """
+    if not hasattr(os, "seteuid"):
+        return False
+    if os.geteuid() == 0:
+        return True  # already root
+    try:
+        os.seteuid(0)
+        os.setegid(0)
+        logger.debug("Privileges temporarily restored to root for cleanup.")
+        return True
+    except OSError as e:
+        logger.warning("Cannot restore root privileges: %s", e)
+        return False
+
+
+def re_drop_privileges() -> bool:
+    """Re-drop to the user/group from the most recent ``drop_privileges()`` call."""
+    if _dropped_uid is None or _dropped_gid is None:
+        return False
+    try:
+        os.setegid(_dropped_gid)
+        os.seteuid(_dropped_uid)
+        logger.debug("Privileges re-dropped to uid=%s gid=%s.", _dropped_uid, _dropped_gid)
+        return True
+    except OSError as e:
+        logger.warning("Failed to re-drop privileges: %s", e)
         return False
 
 

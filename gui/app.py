@@ -92,6 +92,8 @@ def main():
     parser.add_argument("--config", default=_default_config, help="Path to config JSON")
     parser.add_argument("--nogui", action="store_true",
                         help="Run headless (CLI mode, no GUI)")
+    parser.add_argument("--preflight", action="store_true",
+                        help="Run preflight checks and exit (no services started)")
     parser.add_argument("--loglevel", default=None,
                         help="Override log level (DEBUG/INFO/WARNING/ERROR)")
     args = parser.parse_args()
@@ -110,6 +112,18 @@ def main():
             log_level=log_level,
             log_to_file=bool(cfg.get("general", "log_to_file")),
         )
+
+        if args.preflight:
+            from utils.preflight import format_report, run_preflight
+            _print_logo()
+            report = run_preflight(cfg)
+            print(format_report(report))
+            failures = len(report.failures)
+            if failures:
+                sys.exit(2)
+            elif report.warnings:
+                sys.exit(1)
+            sys.exit(0)
 
         if args.nogui:
             import signal

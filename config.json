@@ -245,5 +245,11 @@
   "dot": {
     "enabled": true,
     "port": 853
+  },
+  "victim": {
+    "username": "",
+    "ip": "",
+    "auto_detect_ip": true,
+    "subnet_mask": 24
   }
 }

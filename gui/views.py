@@ -10,6 +10,7 @@ from tkinter import scrolledtext, ttk
 from typing import TYPE_CHECKING
 
 from gui.dialogs import _DNSPage, _GeneralPage, _JsonEventsPage, _ServicePage
+from gui.preflight import _PreflightPage
 from gui.widgets import (
     _BASE_H,
     _BASE_MIN_H,
@@ -424,6 +425,12 @@ class DashboardMixin(_DashboardHost):
                               "Global settings: bind IP, redirect IP,\n"
                               "network interface, log directory, and verbosity.",
                               show_dot=False)
+        self._add_sidebar_btn(sb_inner, "preflight", "\U0001f6e1  Preflight",
+                              "Pre-detonation readiness check.\n"
+                              "Verifies stealth config, certs, network,\n"
+                              "ports, and optionally checks/fixes the\n"
+                              "victim VM via SSH.",
+                              show_dot=False)
 
         self._add_sidebar_section(sb_inner, "NETWORK")
         _net_items = [
@@ -595,6 +602,10 @@ class DashboardMixin(_DashboardHost):
     def _build_pages(self):
         """Create one config page per service."""
         self._pages["general"] = _GeneralPage(self._page_container, self._cfg)
+        self._pages["preflight"] = _PreflightPage(
+            self._page_container, self._cfg,
+            manager_ref=lambda: self._manager,
+        )
         self._pages["dns"] = _DNSPage(self._page_container, self._cfg)
 
         _PORT_ROOT = "Requires root (or iptables redirect from standard port)."

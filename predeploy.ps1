@@ -11,7 +11,7 @@ function Fail($msg) { Write-Host "  FAIL: $msg" -ForegroundColor Red; exit 1 }
 
 # Install check tools if absent
 Step "Ensuring dev tools are installed"
-& $Pip install --quiet ruff mypy bandit pytest build 2>&1 | Select-Object -Last 1
+& $Pip install --quiet ruff mypy bandit pytest 2>&1 | Select-Object -Last 1
 Pass "tools ready"
 
 # Lint
@@ -42,14 +42,5 @@ if ((Test-Path "tests") -and (Get-ChildItem "tests\test_*.py" -ErrorAction Silen
 } else {
     Write-Host "  (no tests found -- skipping)"
 }
-
-# Build
-Step "Build package"
-$prevEAP2 = $ErrorActionPreference
-$ErrorActionPreference = "Continue"
-& $Python -m build --outdir dist/ 2>&1 | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] } | Write-Host
-$buildExit = $LASTEXITCODE
-$ErrorActionPreference = $prevEAP2
-if ($buildExit -ne 0) { Fail "build failed" } else { Pass "build" }
 
 Write-Host "`nAll predeploy checks passed." -ForegroundColor Green

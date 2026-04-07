@@ -10,6 +10,7 @@
   - [Live Log](#live-log)
 - [Starting and Stopping Services](#starting-and-stopping-services)
 - [Saving and Loading Configs](#saving-and-loading-configs)
+- [Preflight Checks](#preflight-checks)
 - [Updating](#updating)
 - [CLI / Headless Mode](#cli--headless-mode)
 - [Command-Line Reference](#command-line-reference)
@@ -100,7 +101,7 @@ Services are grouped into labelled categories:
 
 | Group | Services |
 |-------|---------|
-| **CONFIG** | General settings |
+| **CONFIG** | General settings, Preflight |
 | **NETWORK** | DNS, HTTP, HTTPS, FTP |
 | **MAIL** | SMTP, POP3, IMAP |
 | **FALLBACK** | Catch-All |
@@ -194,6 +195,25 @@ sudo notthenet --config configs/banking-trojan.json
 
 ---
 
+## Preflight Checks
+
+Use preflight before detonation to validate the Kali host and victim readiness.
+
+- GUI: open the **Preflight** page in the sidebar and run:
+  - **Run Local Checks** (Kali-only)
+  - **Run All Checks** (local + victim checks via WMI)
+  - **Fix Issues** (applies supported fixes via WMI/SMB)
+- CLI: run local preflight without launching services:
+
+```bash
+sudo notthenet --preflight
+```
+
+The preflight report checks config stealth settings, cert material, interface/bind setup,
+port conflicts, hardening status, and required remote tooling (`impacket-wmiexec`, `smbclient`).
+
+---
+
 ## CLI / Headless Mode
 
 For automated pipelines, sandboxes without a display, or SSH sessions:
@@ -247,7 +267,7 @@ cp -r logs/emails emails_$(date +%s)/
 ## Command-Line Reference
 
 ```
-usage: notthenet.py [-h] [--config CONFIG] [--nogui] [--loglevel LEVEL]
+usage: notthenet.py [-h] [--config CONFIG] [--nogui] [--preflight] [--loglevel LEVEL]
 
 Fake internet simulator for malware analysis.
 
@@ -255,6 +275,7 @@ options:
   -h, --help            Show this help message and exit
   --config CONFIG       Path to JSON config file (default: config.json)
   --nogui               Run in headless/CLI mode without the GUI
+  --preflight           Run local preflight checks and exit
   --loglevel LEVEL      Override log level: DEBUG, INFO, WARNING, ERROR
                         (default: value from config general.log_level)
 ```

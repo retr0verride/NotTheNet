@@ -1,0 +1,39 @@
+# NotTheNet — OpenSSF Scorecard
+# Runs the OSSF Scorecard action to evaluate supply-chain security posture.
+# Results are uploaded to GitHub Code Scanning (SARIF) and the badge is served
+# by securityscorecards.dev.
+name: Scorecard
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly on Thursdays at 08:00 UTC
+    - cron: "0 8 * * 4"
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write  # upload SARIF
+      id-token: write         # publish results
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Run analysis
+        uses: ossf/scorecard-action@v2.4.0
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif

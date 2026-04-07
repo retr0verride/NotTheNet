@@ -9,6 +9,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ---
 
+## [2026.04.07-3] — 2026-04-07
+
+### Added
+- **Preflight readiness mode (`--preflight`)** — new CLI path that runs local readiness checks and exits with status codes (`0` pass, `1` warnings, `2` failures). Covers stealth config, cert presence/parse, interface/bind readiness, port conflicts, and hardening checks.
+- **GUI Preflight page** — added a dedicated sidebar page for local and remote readiness checks with one-click fix actions.
+- **Victim config section** — new `victim` settings (`username`, `ip`, `auto_detect_ip`, `subnet_mask`) used for preflight remote checks.
+
+### Changed
+- **Remote preflight transport moved from SSH to WMI/SMB** — remote checks/fixes now use Impacket WMI execution and SMB file upload, removing the need to install OpenSSH on the victim.
+- **Password persistence tightened** — victim passwords are no longer written to `config.json`; they are kept in-session only.
+
+### Fixed
+- **Remote helper robustness** — added IP validation, stricter SMB remote path validation, improved Impacket banner filtering, case-insensitive CA cert detection, and clearer missing-tool/runtime messages.
+- **Preflight socket probing cleanup** — port conflict probes now close sockets reliably even on bind failure.
+- **Build/lint pipeline alignment** — resolved predeploy lint regressions and a Bandit false positive in Discord snowflake generation.
+
+---
+
 ## [2026.03.30-3] — 2026-03-30
 
 ### Added

@@ -20,7 +20,6 @@ Use this CPE to track NotTheNet in vulnerability databases (NVD, OSV, etc.).
 
 Report vulnerabilities privately via one of:
 - **GitHub Private Advisory**: [Security → Advisories → Report a vulnerability](../../security/advisories/new)
-- **Email**: security@your-org.example  *(replace with your actual address)*
 
 Include:
 1. A clear description of the vulnerability
@@ -46,7 +45,7 @@ It is intentionally designed to run on **isolated networks** only.
 | Shell injection (CWE-78) | `subprocess` always called with a list, `shell=False` enforced |
 | Path traversal (CWE-22) | `utils/validators.sanitize_path()` resolves real paths under a strict base |
 | Disk exhaustion (CWE-400) | Per-file and total caps on email saves and FTP uploads |
-| Privilege escalation | Privileges dropped via `setuid`/`setgid` after binding low ports (`utils/privilege.py`) |
+| Privilege escalation | Privileges dropped via `seteuid`/`setegid` after binding low ports (`utils/privilege.py`); `NoNewPrivileges=no` in the systemd unit is required for the drop and is justified in the service file |
 | Weak TLS | TLS 1.2+ enforced; SSLv2/v3/TLS1.0/1.1 disabled; strong ECDHE+AEAD ciphers only |
 | Insecure key storage | Private key written with mode `0o600` (owner-read only) |
 | Attacker-controlled filenames | All saved files use UUID names; attacker input never used in file paths |

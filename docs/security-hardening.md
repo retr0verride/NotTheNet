@@ -78,7 +78,7 @@ sudo iptables -A FORWARD -i eth0 -o virbr0 -j DROP
 NotTheNet performs a **bind-then-drop** privilege model:
 
 1. **Starts as root** — required to bind privileged ports (53, 80, 443, 25, 110, 143, 21) and apply iptables NAT rules.
-2. **Drops to `nobody:nogroup`** — immediately after all ports are bound and iptables rules are applied (`general.drop_privileges: true`, the default). Root is held only for the minimum duration needed.
+2. **Drops to `nobody:nogroup`** — immediately after all ports are bound and iptables rules are applied (`general.drop_privileges: true`, the default). Uses `seteuid`/`setegid` (not permanent `setuid`/`setgid`) so root can be temporarily restored for iptables cleanup on stop.
 
 Before dropping, the service manager:
 - `chown`s `logs/` and all subdirs (`emails/`, `ftp_uploads/`, `tftp_uploads/`) to the target user/group, so file saves (JSON events, emails, uploads) continue to work after the drop.

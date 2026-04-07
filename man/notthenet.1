@@ -10,6 +10,7 @@ notthenet \- fake internet simulator for malware analysis
 .B notthenet
 [\fB\-\-config\fR \fIFILE\fR]
 [\fB\-\-nogui\fR]
+[\fB\-\-preflight\fR]
 [\fB\-\-loglevel\fR \fILEVEL\fR]
 [\fB\-h\fR]
 
@@ -49,6 +50,12 @@ All output is written to stdout and the log file.
 (Ctrl+C) or
 .B SIGTERM
 triggers a clean shutdown with iptables rule restoration.
+
+.TP
+.BR \-\-preflight
+Run local preflight checks and exit without launching the GUI or services.
+This validates stealth-related configuration, certificates, network/interface
+readiness, port conflicts, and hardening prerequisites.
 
 .TP
 .BR \-\-loglevel " " \fILEVEL\fR

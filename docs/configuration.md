@@ -32,6 +32,7 @@ The GUI exposes every field — you can also edit the JSON directly.
 - [redis](#redis)
 - [ldap](#ldap)
 - [catch\_all](#catch_all)
+- [victim](#victim)
 - [Custom DNS Records](#custom-dns-records)
 - [Example Configurations](#example-configurations)
 
@@ -597,6 +598,32 @@ This config bypasses WannaCry's kill switch, resolves its hardcoded `.onion` C2 
       "iuqerfsodp9ifjaposdfjhgosurijfaewrwergwea.com"
     ],
     "nxdomain_entropy_threshold": 4.0,
+
+    ---
+
+    ## `victim`
+
+    Victim connection settings used by the Preflight page for remote readiness checks.
+
+    | Key | Type | Default | Description |
+    |-----|------|---------|-------------|
+    | `username` | string | `""` | Victim account name used by remote preflight checks. Domain users are supported (for example `LAB\\analyst`). |
+    | `ip` | string | `""` | Victim IPv4 address. If empty and `auto_detect_ip=true`, preflight attempts ARP discovery on the configured interface. |
+    | `auto_detect_ip` | bool | `true` | Auto-detect victim IP before remote checks by scanning ARP/neighbour entries. |
+    | `subnet_mask` | int | `24` | CIDR mask used for ARP subnet scan (for example `24` for `/24`). |
+
+    > Security note: victim passwords are entered in the GUI but are intentionally not persisted to `config.json`.
+
+    ### Example
+
+    ```json
+    "victim": {
+      "username": "analyst",
+      "ip": "10.10.10.20",
+      "auto_detect_ip": true,
+      "subnet_mask": 24
+    }
+    ```
     "custom_records": {
       "gx7ekbenv2riucmf.onion": "10.10.10.1",
       "cwwnhwhlz52maqm7.onion": "10.10.10.1",
