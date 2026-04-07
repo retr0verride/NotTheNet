@@ -154,7 +154,23 @@ else
     echo "    Re-run with sudo to also update the desktop icon."
 fi
 
-# ── 6. Show new version ───────────────────────────────────────────────────────
+# ── 6. Re-run lab hardening ────────────────────────────────────────────────────
+if [[ $EUID -eq 0 ]] && [[ "$SKIP_HARDEN" -eq 0 ]]; then
+    echo "[*] Re-applying lab hardening..."
+    _harden_args=()
+    if [[ -f "${SCRIPT_DIR}/config.json" ]] && command -v python3 &>/dev/null; then
+        _bridge=$(python3 -c "import json,sys; c=json.load(open('${SCRIPT_DIR}/config.json')); print(c.get('general',{}).get('interface','vmbr1'))" 2>/dev/null || echo 'vmbr1')
+        _gw=$(python3 -c "import json,sys; c=json.load(open('${SCRIPT_DIR}/config.json')); print(c.get('general',{}).get('redirect_ip','10.10.10.1'))" 2>/dev/null || echo '10.10.10.1')
+        _harden_args+=("--bridge" "$_bridge" "--gateway-ip" "$_gw")
+    fi
+    bash "${SCRIPT_DIR}/harden-lab.sh" "${_harden_args[@]}" || echo "[!] Hardening step failed — run manually: sudo bash harden-lab.sh"
+elif [[ "$SKIP_HARDEN" -eq 1 ]]; then
+    echo "[!] Lab hardening skipped (--skip-harden). Run manually: sudo bash harden-lab.sh"
+else
+    echo "[!] Not root — skipping lab hardening. Run manually: sudo bash harden-lab.sh"
+fi
+
+# ── 7. Show new version ───────────────────────────────────────────────────────
 VERSION=$("$PYTHON" -c "import notthenet; print(notthenet.APP_VERSION)" 2>/dev/null || echo "unknown")
 echo ""
 echo "[✓] NotTheNet updated to version: $VERSION"

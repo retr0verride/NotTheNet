@@ -1,5 +1,7 @@
 # Installation Guide
 
+This guide covers every way to install NotTheNet on a Kali Linux (or Debian-based) machine. If you're building an isolated lab, start with the [Lab Setup](lab-setup.md) guide first — it walks you through the full environment before you get to installation.
+
 ## Table of Contents
 
 - [System Requirements](#system-requirements)
@@ -14,6 +16,8 @@
 ---
 
 ## System Requirements
+
+NotTheNet is lightweight — it runs comfortably on the same Kali VM you use for analysis.
 
 | Component | Minimum | Recommended |
 |-----------|---------|-------------|
@@ -42,12 +46,17 @@
 
 ## .deb Package Install
 
-The easiest way to install on Kali Linux or any Debian-based system.
+The easiest way to install on Kali Linux or any Debian-based system. A `.deb` package is like a Windows installer — it puts everything in the right place and can be cleanly uninstalled later.
 
 ```bash
+# Download the source code
 git clone https://github.com/retr0verride/NotTheNet.git
 cd NotTheNet
+
+# Build the .deb package from the source code
 bash build-deb.sh
+
+# Install the package (sudo = run as administrator)
 sudo dpkg -i notthenet_2026.02.24-2_all.deb
 ```
 
@@ -56,6 +65,7 @@ sudo dpkg -i notthenet_2026.02.24-2_all.deb
 If `dpkg` reports missing dependencies, run:
 
 ```bash
+# This tells apt to find and install anything that was missing
 sudo apt --fix-broken install
 ```
 
@@ -84,72 +94,75 @@ sudo apt purge notthenet         # remove everything including /opt/notthenet
 ## Quick Install (Script)
 
 ```bash
-# Clone the repository (run from your home directory)
+# Download the source code into your home directory
 cd ~
 git clone https://github.com/retr0verride/NotTheNet.git
 cd NotTheNet
 
-# Run the install script as root
+# Run the install script (sudo = run as administrator)
 sudo bash notthenet-install.sh
 ```
 
-The install script will:
-1. Check Python version (3.9+ required)
-2. Install system packages (`python3-venv`, `iptables`, `iproute2`, `openssl`)
-3. Create a virtualenv at `./venv`
-4. Install Python dependencies (`dnslib`, `cryptography`)
-5. Generate a self-signed TLS certificate (`certs/server.crt` / `certs/server.key`)
-6. Create log directories (`logs/`, `logs/emails/`, `logs/ftp_uploads/`)
-7. Install a launcher at `/usr/local/bin/notthenet`
-8. Install an uninstall command at `/usr/local/bin/notthenet-uninstall`
-9. Install icon and app-menu entry (`.desktop` file for GNOME/XFCE/KDE application launchers)
+The install script handles everything automatically:
+
+1. Checks your Python version (3.9 or newer required)
+2. Installs system packages needed by NotTheNet (`python3-venv`, `iptables`, `iproute2`, `openssl`)
+3. Creates a **virtual environment** (an isolated Python folder so NotTheNet's dependencies don't interfere with other tools on your system)
+4. Installs Python dependencies (`dnslib` for DNS packet handling, `cryptography` for TLS certificates)
+5. Generates a self-signed TLS certificate for the fake HTTPS server
+6. Creates log directories (`logs/`, `logs/emails/`, `logs/ftp_uploads/`)
+7. Installs a `notthenet` command you can run from anywhere
+8. Installs an uninstall command (`notthenet-uninstall`)
+9. Adds NotTheNet to your application menu with an icon
 
 After install:
 
 ```bash
-sudo notthenet           # launch GUI from terminal
-sudo notthenet --nogui   # headless mode
+# Launch NotTheNet with the GUI
+sudo notthenet
+
+# Or run without a GUI (for SSH sessions or automation)
+sudo notthenet --nogui
 ```
 
-Or simply search for **NotTheNet** in the Kali application menu (or any GNOME/XFCE/KDE desktop) and click the icon — a graphical password prompt will appear via `pkexec`.
+Or search for **NotTheNet** in your Kali application menu and click the icon — a password prompt will appear asking for your root password.
 
 ---
 
 ## Offline / USB Install
 
-Use this method when the Kali machine has no internet access (air-gapped lab, isolated analysis network, etc.).
-All Python dependencies are embedded in the installer — no `pip` or `apt` internet access required beyond base system packages.
+Use this when your Kali machine has **no internet access** — which is the recommended setup for a malware analysis lab. All Python dependencies are packed into a single shell script, so nothing needs to be downloaded on Kali.
 
 ### What you need
 
-- A Windows machine with internet access (to build the bundle)
-- A USB drive or any way to transfer a ~6 MB file to Kali
+- A Windows machine with internet access (to prepare the bundle)
+- A USB drive (or any way to copy a ~6 MB file to Kali)
 
 ### Step 1 — Build and deploy the bundle on Windows
 
-From the `NotTheNet` project folder on your Windows machine:
+On your Windows machine, open PowerShell in the `NotTheNet` project folder:
 
 ```powershell
-# Full workflow: bump version, run checks, build bundle, copy to USB
+# The all-in-one command: bumps version, runs checks, builds the bundle, copies to USB
 .\ship.ps1
 
-# Skip lint/type checks (e.g. after a quick config change)
+# Skip the lint/type checks (use when you just need a quick rebuild)
 .\ship.ps1 -SkipPredeploy
 
-# Force a specific drive letter instead of auto-detecting USB
+# Force a specific USB drive letter if auto-detection picks the wrong one
 .\ship.ps1 -Drive E:\
 ```
 
-`ship.ps1` auto-detects the connected USB drive (first removable `DriveType=2` disk via WMI). It will fail with a clear message if no USB is present. Use `-Drive` to override.
+`ship.ps1` automatically finds your USB drive. If no USB is plugged in, it tells you.
 
-If you only want the zip without copying to USB:
+If you only want the zip file (without copying to USB):
 
 ```powershell
 .\make-bundle.ps1 -Zip
-# Output: NotTheNet-bundle.zip in the project root
+# Creates: NotTheNet-bundle.zip in the project folder
 ```
 
-> **What gets bundled:** All Python wheels for Kali (dnslib, cryptography, cffi, pycparser) are embedded as base64 in `notthenet-bundle.sh`. No internet access is needed on Kali.
+> **What's inside the bundle:** All Python packages that NotTheNet needs (dnslib, cryptography, cffi, pycparser) are embedded directly in the installer script. Kali does not need internet access to install them.
 
 ### Step 2 — Transfer to Kali
 
@@ -158,23 +171,18 @@ Copy `NotTheNet-bundle.zip` (or just `notthenet-bundle.sh`) to the Kali machine 
 ### Step 3 — Install
 
 ```bash
-# If you transferred the zip:
+# If you transferred the zip file, unzip it first:
 unzip NotTheNet-bundle.zip
 cd NotTheNet
 
-# Run the offline installer (prompts for fresh install or update)
+# Run the offline installer
 sudo bash notthenet-bundle.sh
 ```
 
-The installer will auto-detect whether a previous install exists and offer:
-- **Fresh install** — sets up everything in the current directory. The unzipped folder becomes the install.
-- **Update** — copies new source files into the existing install, preserves your `config.json`, `certs/`, and `logs/`, then **deletes the staging directory** (the unzipped folder) when done.
+The installer detects whether NotTheNet is already installed and asks if you want a fresh install or an update:
 
-> **After an update**, the installer prints the path to `ghost-flare.ps1` so you can find it:
-> ```
-> [*] ghost-flare.ps1 is at: /root/NotTheNet/ghost-flare.ps1
-> ```
-> Transfer that file to FlareVM when you need it.
+- **Fresh install** — sets up everything from scratch. The unzipped folder becomes your install directory.
+- **Update** — copies new files into your existing install while keeping your settings (`config.json`), certificates (`certs/`), and logs (`logs/`).
 
 You can also skip the prompt with a flag:
 
@@ -183,27 +191,13 @@ sudo bash notthenet-bundle.sh --install   # always fresh
 sudo bash notthenet-bundle.sh --update    # always update
 ```
 
-### Step 4 — Install GhostFlare on FlareVM (optional)
-
-`ghost-flare.ps1` is included in the zip. After a **fresh install** it lives in the NotTheNet folder you just extracted. After an **update** the staging folder is deleted but `ghost-flare.ps1` is kept in the existing install directory (the installer prints the exact path).
-
-Run it **on the FlareVM** (Windows) to scrub VM artifacts from the registry so malware cannot detect the sandbox:
-
-```powershell
-# On FlareVM — run once as Administrator
-Set-ExecutionPolicy Bypass -Scope Process -Force
-.\ghost-flare.ps1
-```
-
-GhostFlare registers itself as a scheduled task (`ONLOGON / SYSTEM`) so it re-applies automatically after every reboot.
-
 ---
 
 ## Desktop Integration
 
-`notthenet-install.sh` installs three things that make the app launchable from the desktop:
+The install script sets up NotTheNet so you can launch it like any other app — from the application menu, dock, or desktop.
 
-| File installed | Purpose |
+| File installed | What it does |
 |----------------|---------|
 | `/usr/share/icons/hicolor/scalable/apps/notthenet.svg` | SVG icon (all sizes) |
 | `/usr/share/icons/hicolor/128x128/apps/notthenet.png` | 128 px PNG icon |
@@ -217,17 +211,11 @@ GhostFlare registers itself as a scheduled task (`ONLOGON / SYSTEM`) so it re-ap
 > chmod +x ~/Desktop/notthenet.desktop
 > ```
 
-### How privilege escalation works
+### How the password prompt works
 
-When you click the icon, `notthenet-gui` is called, which executes:
+NotTheNet needs root (administrator) access to listen on standard ports like 80 and 443 and to set up traffic redirection rules. When you click the app icon, a password dialog appears asking for your root password.
 
-```
-pkexec /path/to/venv/bin/python notthenet.py
-```
-
-This causes the desktop to show a **graphical password prompt** with the message *"NotTheNet needs root access to bind privileged ports and manage iptables rules."*
-
-If `pkexec` is not available, the wrapper falls back to `kdesudo` → `gksudo` → `xterm + sudo` in that order.
+Behind the scenes, the launcher uses `pkexec` (a Linux tool for requesting administrator access with a graphical prompt). If `pkexec` is not available on your system, it falls back to other methods (`kdesudo` → `gksudo` → `xterm + sudo`).
 
 ### Manual desktop entry (if not installed by script)
 
@@ -243,15 +231,19 @@ sudo update-desktop-database /usr/share/applications
 
 ## Manual Install
 
-If you prefer not to use the install script:
+If you prefer to set things up yourself instead of using the install script:
 
 ### 1. Install system dependencies
 
 ```bash
+# python3-tk is the GUI toolkit; iptables handles traffic redirection;
+# iproute2 provides the 'ip' command for network configuration
 sudo apt-get install -y python3 python3-venv python3-tk iptables iproute2
 ```
 
-### 2. Create and activate a virtualenv
+### 2. Create and activate a virtual environment
+
+A virtual environment keeps NotTheNet's Python packages separate from the rest of your system.
 
 ```bash
 cd NotTheNet
@@ -267,6 +259,8 @@ pip install -r requirements.txt
 ```
 
 ### 4. Generate a self-signed TLS certificate
+
+NotTheNet needs a TLS certificate for its fake HTTPS server. This creates a self-signed one (not trusted by browsers, but fine for intercepting malware traffic).
 
 ```bash
 mkdir -p certs
@@ -285,12 +279,14 @@ EOF
 ### 5. Set correct permissions on the private key
 
 ```bash
+# Only the owner (root) should be able to read this file
 chmod 600 certs/server.key
 ```
 
 ### 6. Create log directories
 
 ```bash
+# NotTheNet stores intercepted emails and FTP uploads here
 mkdir -p logs/emails logs/ftp_uploads
 chmod 700 logs logs/emails logs/ftp_uploads
 ```
@@ -305,22 +301,22 @@ sudo venv/bin/python notthenet.py
 
 ## Verifying the Install
 
-After starting NotTheNet, verify each service is responding:
+After starting NotTheNet, run these quick tests to confirm each service is responding. Open a second terminal on Kali:
 
 ```bash
-# DNS — should return 127.0.0.1 for any name
+# Test DNS — should return 127.0.0.1 (meaning NotTheNet answered the query)
 dig @127.0.0.1 evil.com A
 
-# HTTP — should return 200 OK
+# Test HTTP — should print "200" (meaning the fake web server is working)
 curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1/
 
-# HTTPS — should return 200 OK (skip cert verify for self-signed)
+# Test HTTPS — -k tells curl to accept the self-signed certificate
 curl -sk -o /dev/null -w "%{http_code}" https://127.0.0.1/
 
-# SMTP
+# Test SMTP — should show a "220" greeting from the fake mail server
 echo "QUIT" | nc 127.0.0.1 25
 
-# FTP
+# Test FTP — should show a "220" greeting from the fake FTP server
 echo "QUIT" | nc 127.0.0.1 21
 ```
 
@@ -330,7 +326,7 @@ echo "QUIT" | nc 127.0.0.1 21
 
 ### One-command update
 
-A convenience script is included. Run it from anywhere inside the repo:
+A convenience script handles the entire update process:
 
 ```bash
 cd ~/NotTheNet
@@ -338,13 +334,14 @@ sudo bash update.sh
 ```
 
 The script will:
-1. Stop NotTheNet if it is running
-2. Back up your local `config.json` if it has unsaved changes, pull, then restore it automatically
-3. Reset any other locally-modified tracked files so the pull can complete cleanly
-4. Pull the latest code from GitHub
-5. Re-install the package (picks up dependency or entry-point changes)
-6. Re-sync system-installed assets — icon (SVG + 128 px PNG), `.desktop` file, and polkit action — so the app menu always reflects the latest version
-7. Print the new version number
+1. Stop NotTheNet if it's currently running
+2. Back up your `config.json` (your settings), pull the latest code, then restore your config
+3. Reset any other modified files so the update can apply cleanly
+4. Download the latest code from GitHub
+5. Re-install the package (picks up any new dependencies)
+6. Update the app menu icon, desktop entry, and other system files to match the new version
+7. Re-apply lab hardening rules (if applicable)
+8. Print the new version number
 
 ### Manual steps
 
@@ -366,7 +363,7 @@ python -c "import notthenet; print(notthenet.APP_VERSION)"
 
 ### Config file changes
 
-New releases may add keys to `config.json`. Your existing config is never overwritten automatically. To see what changed:
+New versions may add settings to `config.json`. Your existing config is **never overwritten** — your settings are always preserved. To see what new settings were added:
 
 ```bash
 diff config.json <(git show origin/master:config.json)

@@ -1,146 +1,146 @@
 # Safe Detonation Guide
 
-Complete checklist for running malware safely in a NotTheNet + Proxmox lab.
+A step-by-step checklist for safely running ("detonating") malware in a NotTheNet + Proxmox lab. Follow this every time you analyse a new sample.
+
+> **"Detonation"** means intentionally executing a malware sample in a controlled environment so you can observe what it does.
 
 ---
 
 ## Pre-Flight Checklist
 
-### 1. Proxmox Snapshot (RAM-inclusive)
+### 1. Take a Proxmox Snapshot (with RAM)
 
-**Always snapshot before detonation.** Include RAM so you can resume analysis mid-execution.
+**Always snapshot your victim VM before running malware.** Including RAM lets you freeze and resume the VM mid-execution if needed.
 
 ```bash
-# From Proxmox host shell:
+# Run this on the Proxmox host (not inside a VM):
 qm snapshot <VMID> pre-detonation --vmstate 1 --description "Clean state before sample X"
 
-# Verify:
+# Verify the snapshot was created:
 qm listsnapshot <VMID>
 ```
 
-> Replace `<VMID>` with your Windows 7 victim VM ID (e.g., `101`).
+> Replace `<VMID>` with your FlareVM's Proxmox VM ID (visible in the Proxmox sidebar, e.g. `200`).
 
-### 2. Network Isolation Verification
+### 2. Verify Network Isolation
 
-On the **Kali host** (after running `harden-lab.sh`):
+Make sure the victim VM truly cannot reach the real internet.
+
+On **Kali** (after running `harden-lab.sh` or with auto-hardening enabled):
 
 ```bash
-# Confirm bridge ↔ management forwarding is blocked:
+# Check that forwarding between the lab bridge and management network is blocked:
 iptables -L FORWARD -n | grep NOTTHENET_HARDEN
-# Expected: two DROP rules (bridge→mgmt, mgmt→bridge)
-
-# Confirm no real internet from victim subnet:
-ip netns exec victim curl --max-time 3 https://1.1.1.1/
-# Expected: timeout / connection refused
+# You should see two DROP rules
 ```
 
-On the **Windows 7 victim** (after NotTheNet is running):
+On **FlareVM** (after NotTheNet is running):
 
 ```
-ping 10.10.10.1
-:: Expected: Reply (ICMP responder)
-
-nslookup evil.com 10.10.10.1
-:: Expected: resolves to 10.10.10.1
-
+REM These should all work (they hit NotTheNet's fake services):
+ping 10.0.0.1
+nslookup evil.com 10.0.0.1
 curl http://www.msftconnecttest.com/connecttest.txt
-:: Expected: "Microsoft Connect Test" (NCSI pass)
 ```
 
-### 3. NotTheNet Config Verification
+### 3. Verify NotTheNet Config
 
-| Setting | Required Value | Why |
-|---------|---------------|-----|
-| `bind_ip` | `10.10.10.1` (gateway IP) | Prevents binding to management NIC |
-| `interface` | `vmbr1` (isolated bridge) | iptables rules target this interface |
-| `redirect_ip` | `10.10.10.1` | All traffic redirected to sinkhole |
-| `drop_privileges` | `true` | Drop root after port binding |
-| `process_masquerade` | `true` | Hide from process scanners |
-| `tcp_fingerprint` | `true` | Spoof OS fingerprint |
-| `tcp_fingerprint_os` | `windows` | Match victim OS expectation |
+Double-check these settings match your lab setup:
 
-### 4. Services Check
+| Setting | Should be | Why |
+|---------|-----------|-----|
+| `bind_ip` | `10.0.0.1` (your Kali IP) | So NotTheNet only listens on the lab network, not other interfaces |
+| `interface` | `eth0` (or whatever your lab NIC is) | Traffic rules are applied to this interface |
+| `redirect_ip` | `10.0.0.1` | All intercepted traffic is sent here |
+| `tcp_fingerprint` | `true` | Hides the fact that Kali (Linux) is answering instead of a real Windows/Mac server |
+| `tcp_fingerprint_os` | `windows` | Match what the malware expects to see |
 
-After `sudo python notthenet.py --nogui`:
+### 4. Verify Services Are Running
+
+After starting NotTheNet (either click **▶ Start** in the GUI or run headless):
 
 ```bash
-# All services should show green:
-ss -tlnp | grep python   # TCP listeners
-ss -ulnp | grep python   # UDP listeners
+# Check which ports NotTheNet is listening on:
+ss -tlnp | grep python   # TCP services
+ss -ulnp | grep python   # UDP services
 
-# Key ports:
+# You should see at least these key ports:
 # :53 (DNS), :80 (HTTP), :443 (HTTPS), :25 (SMTP),
 # :21 (FTP), :445 (SMB), :23 (Telnet), :9999 (Catch-all)
 ```
+
+In the GUI, every enabled service should show a green dot in the sidebar.
 
 ---
 
 ## During Analysis
 
-- **Monitor live:** Watch logs in the GUI or tail the JSON event log:
+- **Watch the live log:** In the GUI, or tail the JSON event log in a terminal:
   ```bash
+  # Shows new log entries as they appear, formatted for readability:
   tail -f logs/events.jsonl | python -m json.tool
   ```
-- **Do NOT** access the victim VM via RDP/VNC from the management network during detonation — this creates cross-bridge traffic that may confuse the malware or leak your IP.
-- Use Proxmox's built-in noVNC console (accessed via the Proxmox web UI) instead.
+- **Do NOT connect to the victim VM from the management network** (e.g. via RDP or VNC) during detonation — this creates cross-network traffic that may confuse the malware or reveal your real IP.
+- Instead, use **Proxmox's built-in noVNC console** (accessible from the Proxmox web UI) to watch the victim.
 
 ---
 
-## Post-Detonation: Handling Hot Artifacts
+## Post-Detonation: Handling Captured Artifacts
 
 ### 1. Stop NotTheNet
 
 ```bash
-# Ctrl+C (headless) or Stop button (GUI)
-# Or: sudo systemctl stop notthenet
+# Press Ctrl+C in headless mode, or click Stop in the GUI.
 ```
 
 ### 2. Secure the artifacts
 
-Artifacts in `logs/emails/` and `logs/ftp_uploads/` **may contain live malware**.
+Files captured by NotTheNet in `logs/emails/` and `logs/ftp_uploads/` **may contain live malware**. Handle them carefully.
 
 ```bash
 cd /opt/NotTheNet
 
-# Password-protect before moving off-host
+# Compress and password-protect before transferring anywhere.
+# The password "infected" is a standard convention in malware research.
 zip -P infected -r artifacts.zip logs/emails/ logs/ftp_uploads/ logs/events.jsonl
 
-# Verify contents without extracting
+# Check what's in the zip without extracting:
 unzip -l artifacts.zip
 
-# SHA256 manifest for chain of custody
+# Create a hash for chain-of-custody documentation:
 sha256sum artifacts.zip > artifacts.zip.sha256
 ```
 
 ### 3. Transfer safely
 
 ```bash
-# SCP to analysis workstation (never unzip on production systems)
+# Copy to an analysis workstation via SCP (never unzip on a production machine):
 scp artifacts.zip analyst@10.0.0.5:/secure/evidence/
 
-# Or USB (write-only, no autorun):
+# Or copy to a USB drive:
 cp artifacts.zip /media/usb-evidence/
-sync
+sync  # ensures the write is flushed to the USB before unplugging
 ```
 
-### 4. Revert the victim VM
+### 4. Revert the victim VM to its clean snapshot
 
 ```bash
-# From Proxmox host:
+# Run on the Proxmox host:
 qm rollback <VMID> pre-detonation
 
-# Verify clean state:
+# Verify you're back to the clean state:
 qm listsnapshot <VMID>
 ```
 
-### 5. Clean up Kali logs (if tmpfs mounted, this is automatic on reboot)
+### 5. Clean up Kali logs
+
+If you mounted `logs/` as tmpfs (RAM disk), they are automatically cleared on reboot. Otherwise:
 
 ```bash
-# If logs were on tmpfs:
-sudo umount /opt/NotTheNet/logs  # automatic if using systemd unit
-
-# If logs were on disk:
+# Delete captured emails and uploads from the previous session:
 rm -rf logs/emails/* logs/ftp_uploads/*
+
+# Clear the event log:
 > logs/events.jsonl
 ```
 
@@ -148,24 +148,27 @@ rm -rf logs/emails/* logs/ftp_uploads/*
 
 ## Proxmox KVM Cloaking
 
-Malware may detect KVM/QEMU and refuse to execute. Add these to your victim VM's Proxmox config file at `/etc/pve/qemu-server/<VMID>.conf`:
+Some malware checks if it's running inside a virtual machine and refuses to execute if it detects one. To defeat this, you can modify the Proxmox VM config to hide the virtualisation layer.
+
+> **For the full step-by-step guide**, see [Lab Setup → Part 8: Anti-Detection Hardening](lab-setup.md#part-8--anti-detection-hardening).
+
+Here's a quick summary of the key settings to add to `/etc/pve/qemu-server/<VMID>.conf` on the Proxmox host:
 
 ```ini
-# ── Anti-VM detection ────────────────────────────────────────
-# Hide the KVM hypervisor leaf (CPUID 0x40000000)
+# Hide the KVM hypervisor so malware can't detect it
 args: -cpu host,kvm=off,hv_vendor_id=GenuineIntel
 
-# Disable hypervisor signature entirely
+# Pass the real CPU model through (no "QEMU Virtual CPU" string)
 cpu: host,hidden=1
 
-# Spoof SMBIOS to look like real hardware
+# Make WMI report real hardware names instead of "QEMU"
 smbios1: type=0,vendor=Dell Inc.,version=A11
 smbios1: type=1,manufacturer=Dell Inc.,product=OptiPlex 7050,serial=ABC1234XYZ
 
-# Disable QEMU ballooning (detected by some malware)
+# Disable memory ballooning (some malware detects this)
 balloon: 0
 
-# Set machine type to latest Q35 (hides older QEMU signatures)
+# Use a modern chipset (the old i440fx is a known sandbox indicator)
 machine: pc-q35-9.2
 ```
 

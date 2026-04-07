@@ -1,6 +1,8 @@
 # Services Reference
 
-Detailed technical reference for every fake service included in NotTheNet.
+This page describes every fake service that NotTheNet runs. Each service pretends to be a real network service (like a web server, email server, or DNS server) so that malware thinks it is talking to the real internet.
+
+You don't need to understand every service to use NotTheNet — it works out of the box. Use this page as a reference when you want to know **what** a specific service does and **why** it responds the way it does.
 
 ## Table of Contents
 
@@ -36,13 +38,15 @@ Detailed technical reference for every fake service included in NotTheNet.
 
 ## DNS Service
 
+**What is DNS?** DNS translates domain names (like `evil-c2.com`) into IP addresses. It is the first thing almost all malware does when it tries to "phone home".
+
 **File:** `services/dns_server.py`  
 **Library:** [dnslib](https://github.com/paulc/dnslib) (pure Python)  
 **Protocol:** UDP + TCP on port 53
 
 ### Behaviour
 
-Every DNS query — regardless of type, domain, or record class — receives a synthesised `A` record pointing to `resolve_to`. This affects:
+Every DNS query — regardless of type, domain, or record class — receives a response pointing to `resolve_to` (your NotTheNet IP). This means all domain lookups lead back to NotTheNet:
 
 | Query Type | Response |
 |------------|----------|
@@ -83,6 +87,8 @@ dig @127.0.0.1 update.microsoft.com +short
 
 ## DNS-over-TLS (DoT) Service
 
+**What is DoT?** Some malware encrypts its DNS lookups inside a TLS tunnel to avoid detection. This service intercepts those encrypted DNS queries.
+
 **File:** `services/dot_server.py`  
 **Protocol:** TCP on port 853 with TLS  
 **RFC:** [7858](https://datatracker.ietf.org/doc/html/rfc7858)  
@@ -90,7 +96,7 @@ dig @127.0.0.1 update.microsoft.com +short
 
 ### Behaviour
 
-Implements DNS-over-TLS — every query is resolved with the same logic as the plain DNS server (`_FakeResolver` is shared). DGA entropy detection, FCrDNS consistency, NCSI exact-match overrides, public IP pool rotation, and custom record overrides all apply identically inside the TLS tunnel.
+Identical to the plain DNS server, but wrapped in TLS encryption. All DNS features (custom records, NCSI overrides, etc.) work the same way inside the encrypted tunnel.
 
 Each DNS message is framed with a 2-byte big-endian length prefix as required by RFC 7858 (same framing as DNS-over-TCP per RFC 1035 §4.2.2). Multiple queries can be pipelined over a single TLS connection; the session times out after 10 s of inactivity.
 
@@ -137,13 +143,15 @@ kdig @127.0.0.1 +tls-no-auth c2.evil.com A +short
 
 ## HTTP Service
 
+**What is HTTP?** HTTP is the protocol your web browser uses. Malware uses it to download payloads, send stolen data, and communicate with command-and-control (C2) servers.
+
 **File:** `services/http_server.py`  
 **Protocol:** TCP on port 80  
 **Model:** Threaded (`ThreadPoolExecutor`, max 50 workers)
 
 ### Behaviour
 
-Responds identically to **every** HTTP request — any method (`GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `HEAD`, `OPTIONS`, `CONNECT`, `TRACE`), any path, any host header.
+Responds to **every** HTTP request — any method (`GET`, `POST`, `PUT`, etc.), any path, any host header.
 
 #### Response body
 
@@ -314,6 +322,8 @@ curl -ko /dev/null -w "%{content_type}" https://127.0.0.1/malware.dll
 ---
 
 ## SMTP Service
+
+**What is SMTP?** SMTP is the protocol for sending email. Malware uses it to send spam, exfiltrate data, or communicate with C2 servers via email.
 
 **File:** `services/mail_server.py` (`SMTPService` class)  
 **Protocol:** TCP on port 25  
@@ -520,14 +530,14 @@ ftp> put /tmp/sample.bin
 
 ## NTP Service
 
+**What is NTP?** NTP synchronizes clocks over a network. Some malware checks the time via NTP to detect sandboxes that have incorrect clocks.
+
 **File:** `services/ntp_server.py`  
 **Protocol:** UDP on port 123
 
 ### Behaviour
 
-Responds to any valid NTP client request (≥ 48 bytes) with the **current system time**. Returns a Stratum 2 response with reference ID `LOCL`. Malformed / undersized packets are silently discarded.
-
-Some malware queries NTP before executing to detect time-shifted sandboxes — a large discrepancy between system time and NTP response is a known sandbox indicator. This service keeps the apparent NTP time in sync with the host clock.
+Responds to time-sync requests with the **current system time**. This prevents malware from detecting it's in a sandbox by comparing system time to NTP time.
 
 Response is always exactly 48 bytes (no amplification). Client's Transmit Timestamp is echoed as the Originate Timestamp per RFC 5905.
 
@@ -546,12 +556,14 @@ sntp -t 5 127.0.0.1
 
 ## IRC Service
 
+**What is IRC?** IRC (Internet Relay Chat) is an old chat protocol. Many botnets use IRC channels to receive commands from their operator.
+
 **File:** `services/irc_server.py`  
 **Protocol:** TCP on port 6667
 
 ### Behaviour
 
-Fake IRC server designed to capture IRC-based botnet C2. Sends RFC 1459 numeric burst (001–005, LUSERS, MOTD) so the bot considers itself registered, then auto-joins the configured channel. Bots proceed to `JOIN` a channel and await `PRIVMSG` operator commands — all captured in the sandbox.
+Fake IRC server that captures botnet C2 traffic. When a bot connects, it sends a realistic welcome message so the bot thinks it has joined its command channel. All commands the bot sends or receives are logged.
 
 | Command | Handling |
 |---------|----------|
@@ -604,12 +616,14 @@ QUIT
 
 ## TFTP Service
 
+**What is TFTP?** TFTP (Trivial File Transfer Protocol) is a simple file transfer protocol with no authentication. Malware uses it to stage payloads and upload data.
+
 **File:** `services/tftp_server.py`  
 **Protocol:** UDP on port 69
 
 ### Behaviour
 
-TFTP is used by malware for payload staging, firmware uploads over network devices, and PXE-boot-style persistence. This server handles both read and write requests:
+Handles both read and write requests:
 
 | Request | Handling |
 |---------|----------|
@@ -636,14 +650,14 @@ tftp> put /tmp/sample.bin malware.bin
 
 ## Telnet Service
 
+**What is Telnet?** Telnet is an old remote-login protocol with no encryption. Botnets like Mirai scan for Telnet on routers and IoT devices to spread.
+
 **File:** `services/telnet_server.py`  
 **Protocol:** TCP on port 23
 
 ### Behaviour
 
-Fake BusyBox router telnet shell for capturing Mirai-family botnet credential sprays. The server sends realistic Telnet option negotiations (`WILL ECHO`, `WILL SGA`), a configurable hostname banner, and `login:` / `Password:` prompts. Any credentials are accepted and logged.
-
-After login, a minimal BusyBox-style shell prompt is presented. Common shell commands (`id`, `uname`, `ls`, `wget`, `curl`, `cd`, `exit`) return realistic-but-harmless static output so the bot keeps executing and all commands are logged.
+Pretends to be a Linux router (BusyBox-style). Shows a login prompt, accepts any username and password, and then presents a fake shell. Commands the malware types (like `wget` to download a payload) are logged with realistic-looking responses so the bot keeps going.
 
 ### Supported Shell Responses
 
@@ -672,12 +686,14 @@ nc 127.0.0.1 23
 
 ## SOCKS5 Service
 
+**What is SOCKS5?** SOCKS5 is a proxy protocol. Some malware tunnels its traffic through a SOCKS proxy to hide the true destination.
+
 **File:** `services/socks5_server.py`  
 **Protocol:** TCP on port 1080
 
 ### Behaviour
 
-Fake SOCKS5 proxy that reveals the **true C2 destination** inside the CONNECT request — even when the outer DNS lookup resolves to NotTheNet's IP. This captures the real target host:port that tunnelling malware is trying to reach (SystemBC, QakBot, Cobalt Strike, Emotet).
+Fake SOCKS5 proxy that reveals the **true C2 destination** — even when DNS has already been redirected. When malware says "connect me to evil-c2.com:443", that destination is logged. This is valuable because it captures addresses the malware might not look up via DNS.
 
 1. Completes RFC 1928 SOCKS5 handshake (no-auth)
 2. Accepts `CONNECT` for IPv4, IPv6, and domain-name targets
@@ -703,16 +719,14 @@ grep "CONNECT" logs/notthenet.log
 
 ## ICMP Responder
 
+**What is ICMP?** ICMP is the protocol behind `ping`. When malware pings an IP address, ICMP tells it whether the host is reachable.
+
 **File:** `services/icmp_responder.py`  
 **Protocol:** Raw ICMP socket (no port number)
 
 ### Behaviour
 
-Logs ICMP echo-request (ping) packets from any source. The companion iptables DNAT rule (applied automatically in `gateway` mode) redirects all forwarded ICMP echo-requests to this host — the Linux kernel then sends genuine echo-replies, making every ping to any IP appear to succeed.
-
-This service does **not** send replies itself; it only observes packets via a raw socket for logging. There is no port configuration — only `enabled`.
-
-Requires `CAP_NET_RAW` (root). Gracefully skips with a warning if unavailable.
+Logs all incoming ping packets. When used with gateway mode, every ping to any IP address appears to succeed — the Linux kernel sends the replies while this service captures the details for your logs.
 
 ### Logged Fields
 
@@ -739,12 +753,14 @@ grep icmp logs/events.jsonl | tail -5
 
 ## MySQL Service
 
+**What is MySQL?** MySQL is a popular database server. Credential-stealing malware and web shells often try to connect to MySQL to steal data.
+
 **File:** `services/mysql_server.py`  
 **Protocol:** TCP on port 3306
 
 ### Behaviour
 
-Fake MySQL 5.7.x server for capturing credential-harvesting stealers and database exfiltrators (RedLine, Vidar, Raccoon, web shells):
+Pretends to be a MySQL 5.7 server. Captures usernames, database queries, and other intel:
 
 1. Sends an authentic MySQL 5.7.39 Handshake V10 packet (random 20-byte auth challenge)
 2. Reads the client `HandshakeResponse41` — extracts the **username** (arrives in plaintext)
@@ -766,12 +782,14 @@ grep '"service":"mysql"' logs/events.jsonl
 
 ## MSSQL Service
 
+**What is MSSQL?** Microsoft SQL Server is a database commonly found in corporate networks. Malware targets it for credential theft and lateral movement.
+
 **File:** `services/mssql_server.py`  
 **Protocol:** TCP on port 1433
 
 ### Behaviour
 
-Fake Microsoft SQL Server for capturing lateral movement and credential sprays (QakBot, Emotet, Impacket `mssqlclient`, password sprayers):
+Fake SQL Server that captures credentials — including recovering the actual plaintext password (MSSQL's obfuscation is trivially reversible):
 
 1. Reads TDS Pre-Login request
 2. Responds with `ENCRYPTION = ENCRYPT_NOT_SUP` — forces the client to send `Login7` in plaintext
@@ -797,12 +815,14 @@ grep '"service":"mssql"' logs/events.jsonl
 
 ## RDP Service
 
+**What is RDP?** Remote Desktop Protocol lets you control a Windows computer remotely. Ransomware gangs and brute-force bots frequently target it.
+
 **File:** `services/rdp_server.py`  
 **Protocol:** TCP on port 3389
 
 ### Behaviour
 
-Fake RDP server for capturing ransomware operators, brute-force bots (NLBrute, Hydra, Crowbar), and worm propagation (BlueKeep CVE-2019-0708):
+Fake RDP server that captures the Windows username from the connection request:
 
 1. Reads the X.224 Connection Request TPDU (over TPKT)
 2. Extracts the `mstshash` cookie — the **Windows username** sent before any authentication
@@ -823,12 +843,14 @@ grep '"service":"rdp"' logs/events.jsonl
 
 ## SMB Service
 
+**What is SMB?** SMB (Server Message Block) is Windows file sharing. Worms like WannaCry and NotPetya spread through SMB vulnerabilities.
+
 **File:** `services/smb_server.py`  
 **Protocol:** TCP on port 445
 
 ### Behaviour
 
-Fake SMB server that logs dialect negotiation from lateral-movement tools and worms (WannaCry, NotPetya, Emotet, Ryuk, Impacket):
+Fake SMB server that detects what vulnerability a scanner is probing for:
 
 - **SMBv1 negotiate:** returns `STATUS_NOT_SUPPORTED` and logs the full dialect list. Logs an explicit **EternalBlue probe** warning when the dialect list matches the NSA exploit fingerprint (`NT LM 0.12` present)
 - **SMBv2 negotiate:** returns `STATUS_NOT_SUPPORTED` in a valid SMB2 header and logs the dialect list
@@ -851,12 +873,14 @@ grep '"service":"smb"' logs/events.jsonl
 
 ## VNC Service
 
+**What is VNC?** VNC is a remote desktop tool (like RDP but cross-platform). RATs (Remote Access Trojans) and botnets often target it.
+
 **File:** `services/vnc_server.py`  
 **Protocol:** TCP on port 5900
 
 ### Behaviour
 
-Fake VNC server for capturing passwords from RATs (hVNC), botnets scanning port 5900, and ransomware pre-ops recon:
+Fake VNC server that captures authentication attempts:
 
 1. Sends RFB `003.008` version string
 2. Reads client version string (reveals client software)
@@ -881,12 +905,14 @@ grep '"service":"vnc"' logs/events.jsonl
 
 ## Redis Service
 
+**What is Redis?** Redis is an in-memory database often left exposed on the internet. Attackers exploit it to plant cryptominers, web shells, and backdoor SSH keys.
+
 **File:** `services/redis_server.py`  
 **Protocol:** TCP on port 6379
 
 ### Behaviour
 
-Fake Redis server (RESP protocol) that logs all commands issued by clients. Targets cryptominer C2, webshell planting, SSH key hijacking via `CONFIG SET dir`, and NjRAT/DarkComet variants that use Redis as a C2 message queue.
+Fake Redis server that logs every command. Flags high-interest commands (like `CONFIG SET dir` which is how attackers write files to disk):
 
 High-interest commands are flagged in the log:
 
@@ -920,20 +946,18 @@ grep '"service":"redis"' logs/events.jsonl
 
 ## LDAP Service
 
+**What is LDAP?** LDAP is the protocol used to query Active Directory (the user/computer database in Windows networks). Attackers use tools like BloodHound and Mimikatz to enumerate users and extract credentials via LDAP.
+
 **File:** `services/ldap_server.py`  
 **Protocol:** TCP on port 389
 
 ### Behaviour
 
-Fake LDAP server targeting Active Directory enumeration and credential harvesting (BloodHound/SharpHound, Mimikatz, Cobalt Strike `ldap_query` BOF, .NET `DirectoryServices` SimpleBind RATs):
+Fake LDAP server that captures login attempts:
 
-1. Parses incoming BER/DER-encoded ASN.1 LDAP messages
-2. On `BindRequest` (both anonymous and SimpleBind):
-   - Extracts the **Bind DN** (e.g. `CN=svc_backup,OU=Service Accounts,DC=corp,DC=local`) — reveals targeted domain and account
-   - Extracts the **password in plaintext** (SimpleBind sends it unencrypted)
-3. Returns a successful `BindResponse` so enumeration proceeds
-
-BER parser validates tag, length, and offset before every slice. Maximum message size is capped at 65 535 bytes.
+1. When a client connects and tries to log in, the server extracts the **username** (e.g. `CN=svc_backup,OU=Service Accounts,DC=corp,DC=local`) and the **password in plaintext** (LDAP SimpleBind sends passwords unencrypted)
+2. Returns a successful response so the malware continues its enumeration
+3. All subsequent queries are logged
 
 ### Verifying
 
@@ -947,6 +971,8 @@ grep '"service":"ldap"' logs/events.jsonl
 ---
 
 ## TCP Catch-All
+
+**What is this?** A safety net for any TCP connection that doesn't match a specific service. If malware connects to an unusual port (like 4444 or 8080), this service catches it.
 
 **File:** `services/catch_all.py`  
 **Protocol:** TCP on port 9999 (with iptables REDIRECT from all other TCP ports not in `excluded_ports`)
@@ -981,6 +1007,8 @@ openssl s_client -connect 127.0.0.1:8443 -quiet
 
 ## UDP Catch-All
 
+**What is this?** Same idea as TCP Catch-All, but for UDP traffic on unknown ports.
+
 **File:** `services/catch_all.py` (`UDPCatchAll` class)  
 **Protocol:** UDP on port 9998 (with iptables REDIRECT from all other UDP ports not in `excluded_ports`)
 
@@ -997,139 +1025,12 @@ echo -n "test" | nc -u 127.0.0.1 5555
 
 ---
 
-## IMAP Service
-
-**File:** `services/mail_server.py` (`IMAPService` class)  
-**Protocol:** TCP on port 143  
-**Standard:** IMAP4rev1 (minimal subset)
-
-### Behaviour
-
-Presents an empty `INBOX`. Accepts any `LOGIN` credentials. This satisfies malware that uses IMAP to check for C2 commands delivered as email.
-
-### Supported Commands
-
-`CAPABILITY`, `LOGIN`, `LIST`, `SELECT`, `LOGOUT`, `NOOP`
-
-### Verifying
-
-```bash
-nc 127.0.0.1 143
-# * OK mail.notthenet.local IMAP4rev1 ready
-a1 LOGIN user pass
-# a1 OK LOGIN completed
-a2 SELECT INBOX
-# * 0 EXISTS
-# a2 OK [READ-WRITE] SELECT completed
-a3 LOGOUT
-```
-
----
-
-## FTP Service
-
-**File:** `services/ftp_server.py`  
-**Protocol:** TCP control on port 21; data on dynamic PASV ports 50000–51000
-
-### Behaviour
-
-Accepts all logins, responds to all commands with success. Acts as a data sink — receives uploads, discards or saves them. Always reports transfers as successful.
-
-### Supported Commands
-
-| Command | Notes |
-|---------|-------|
-| `USER`, `PASS` | Always `230 Login successful` |
-| `PASV` | Opens a port in range 50000–51000 |
-| `PORT` | **Disabled** (SSRF/lateral movement risk) |
-| `LIST` | Returns empty directory listing |
-| `STOR` | Accepts file upload; saves if `allow_uploads: true` |
-| `RETR` | Sends empty data connection; always `226 Transfer complete` |
-| `CWD`, `CDUP`, `MKD`, `RMD`, `DELE` | Always succeed |
-| `QUIT` | `221 Goodbye` |
-
-### Upload Saving
-
-Uploaded files are saved to `logs/ftp_uploads/` with UUID hex filenames (`.bin` extension). The cap is 50 MB per file and 200 MB total directory usage.
-
-### Why PORT is disabled
-
-The FTP `PORT` command tells the server to connect **back** to a client-specified IP:port. In a malware analysis context, this creates a Server-Side Request Forgery (SSRF) vector where malware could force the analysis host to connect to arbitrary internal IPs. NotTheNet refuses PORT commands with `500 Active mode not supported; use PASV`.
-
-### Verifying
-
-```bash
-ftp 127.0.0.1
-# Connected. Login with any credentials.
-ls
-# 226 Directory send OK.
-
-# Test upload
-put /etc/hostname
-# 226 Transfer complete
-# Check: ls logs/ftp_uploads/
-```
-
----
-
-## TCP Catch-All
-
-**File:** `services/catch_all.py` (`CatchAllTCPService`)  
-**Protocol:** TCP on the configured `catch_all.tcp_port` (default: 9999)
-
-### Behaviour
-
-Listens on the catch-all port. iptables redirects any TCP connection **not** already handled by a named service (and not in `excluded_ports`) to this port.
-
-On connection:
-1. Sends `200 OK\r\n`
-2. Reads up to 1 KB of data (logged as a sanitised preview)
-3. Closes the connection after `SESSION_TIMEOUT` (10 seconds)
-
-This means malware that connects to any TCP port (custom C2 ports, custom protocols, etc.) receives a response and doesn't hang waiting.
-
-### Verifying
-
-```bash
-# With iptables running, any non-excluded port should respond
-nc 127.0.0.1 31337
-# 200 OK
-
-nc 127.0.0.1 4444
-# 200 OK
-```
-
----
-
-## UDP Catch-All
-
-**File:** `services/catch_all.py` (`CatchAllUDPService`)  
-**Protocol:** UDP on `catch_all.udp_port` (default: 9998)  
-**Default:** Disabled
-
-### Behaviour
-
-Receives a UDP datagram, logs the source and size, and replies with `OK\r\n`. Disabled by default because indiscriminate UDP interception can break legitimate services (NTP on port 123, mDNS on 5353, etc.).
-
-Enable only when you specifically need to trap UDP-based C2 protocols and have carefully set `excluded_ports`.
-
-### Verifying
-
-```bash
-echo -n "hello" | nc -u 127.0.0.1 9998
-# OK
-```
-
----
-
 ## JSON Event Logging
+
+**What is this?** A structured log that every service writes to. Each line is a JSON object you can search, filter, and analyse with any tool.
 
 **File:** `utils/json_logger.py`  
 **Config:** `general.json_logging`, `general.json_log_file`
-
-When enabled, every service emits structured JSON events to a single `.jsonl` file. Each line is a self-contained JSON object with a timestamp, event type, source IP, and service-specific fields.
-
-The logger is a module-level singleton (`JsonEventLogger`) that is thread-safe, file-size capped (500 MB), and auto-flushed. The convenience function `json_event()` is a fast no-op when logging is disabled, so there is zero overhead when the feature is off.
 
 ### Example events
 

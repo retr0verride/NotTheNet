@@ -1,5 +1,9 @@
 # Network & iptables Guide
 
+This guide explains how NotTheNet intercepts network traffic from the malware sample and redirects it to its fake services. If you're new to Linux networking, this page will help you understand what's happening behind the scenes.
+
+> **Key concept: iptables** — `iptables` is a built-in Linux firewall tool that can inspect and redirect network traffic. NotTheNet uses it to catch all traffic leaving the malware and route it to the appropriate fake service. You don't need to configure iptables yourself — NotTheNet does it automatically.
+
 ## Table of Contents
 
 - [How Traffic Redirection Works](#how-traffic-redirection-works)
@@ -16,24 +20,24 @@
 
 ## How Traffic Redirection Works
 
-NotTheNet solves the core problem of INetSim and FakeNet-NG: **DNS resolves before services are ready, or resolves to addresses that don't match where services are listening**.
+The core problem with older fake-internet tools (INetSim, FakeNet-NG) is a **race condition**: DNS answers come back before the fake service is ready, or DNS points to an address where nothing is listening. NotTheNet solves this by starting all services first, then enabling traffic redirection.
 
-NotTheNet's approach:
+Here's what happens step by step when malware runs:
 
 ```
 Malware makes DNS query for evil-c2.com
          │
          ▼
-[iptables NAT: port 53 → 127.0.0.1:53]
+[iptables: redirect port 53 traffic to NotTheNet's DNS]
          │
          ▼
-NotTheNet DNS server returns 127.0.0.1
+NotTheNet DNS server answers with 127.0.0.1
          │
          ▼
 Malware connects to 127.0.0.1:80 (HTTP beacon)
          │
          ▼
-[iptables NAT: port 80 → 127.0.0.1:80]  ← already bound, no race
+[iptables: port 80 → NotTheNet's HTTP server]  ← already running, no race
          │
          ▼
 NotTheNet HTTP server returns 200 OK
@@ -41,13 +45,13 @@ NotTheNet HTTP server returns 200 OK
 Malware connects to 127.0.0.1:4444 (custom C2 port)
          │
          ▼
-[iptables NAT: all other TCP → 127.0.0.1:9999]
+[iptables: all other TCP → NotTheNet's catch-all on port 9999]
          │
          ▼
-NotTheNet catch-all returns "200 OK"
+NotTheNet catch-all pretends to be whatever the malware expects
 ```
 
-The key difference: **all services are bound before iptables rules are applied**. There is no window between DNS resolution and service availability.
+The key difference: **all services are running and listening before any traffic rules kick in**. There is no gap between DNS answers and service availability.
 
 ---
 
@@ -104,44 +108,50 @@ Rules are applied to the `PREROUTING` chain — they affect traffic **arriving f
 sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
 ```
 
-And in `config.json`, set `redirect_ip` to the Kali host's IP on the host-only adapter (e.g. `192.168.100.1`), not `127.0.0.1`.
+And in `config.json`, set `redirect_ip` to Kali's IP on the isolated network (e.g. `10.0.0.1`), **not** `127.0.0.1`.
 
 ---
 
 ## iptables Rules Explained
 
-When NotTheNet starts with `auto_iptables: true`, it applies rules like these (example for loopback mode):
+You don't need to understand these rules to use NotTheNet — they are applied and removed automatically. This section is for anyone who wants to know what's happening under the hood.
 
-```
-# Redirect DNS (TCP+UDP) to local DNS server
+When NotTheNet starts with `auto_iptables: true`, it creates rules like these (example for loopback mode):
+
+```bash
+# Redirect all DNS traffic (both TCP and UDP) to NotTheNet's DNS server
 iptables -t nat -A OUTPUT -p udp --dport 53 -j REDIRECT --to-ports 53 -m comment --comment NOTTHENET
 iptables -t nat -A OUTPUT -p tcp --dport 53 -j REDIRECT --to-ports 53 -m comment --comment NOTTHENET
 
-# Redirect HTTP
+# Redirect HTTP traffic
 iptables -t nat -A OUTPUT -p tcp --dport 80 -j REDIRECT --to-ports 80 -m comment --comment NOTTHENET
 
-# Redirect HTTPS
+# Redirect HTTPS traffic
 iptables -t nat -A OUTPUT -p tcp --dport 443 -j REDIRECT --to-ports 443 -m comment --comment NOTTHENET
 
-# Redirect SMTP
+# Redirect SMTP (email) traffic
 iptables -t nat -A OUTPUT -p tcp --dport 25 -j REDIRECT --to-ports 25 -m comment --comment NOTTHENET
 
-# (and POP3, IMAP, FTP similarly...)
+# (same pattern for POP3, IMAP, FTP...)
 
-# Exclude SSH from catch-all
+# Skip SSH so you don't lose remote access to Kali
 iptables -t nat -A OUTPUT -p tcp --dport 22 -j RETURN -m comment --comment NOTTHENET
 
-# Catch-all: redirect all remaining TCP → port 9999
+# Catch-all: every remaining TCP connection goes to port 9999
 iptables -t nat -A OUTPUT -p tcp -j REDIRECT --to-ports 9999 -m comment --comment NOTTHENET
 ```
 
-All rules are tagged with the comment `NOTTHENET` for easy identification and bulk removal.
+All rules are tagged with the comment `NOTTHENET` so they can be easily identified and cleaned up.
 
 ### Viewing active NotTheNet rules
 
+To see which rules NotTheNet has currently applied:
+
 ```bash
+# For loopback mode:
 sudo iptables -t nat -L OUTPUT --line-numbers -n | grep NOTTHENET
-# or for gateway mode:
+
+# For gateway mode:
 sudo iptables -t nat -L PREROUTING --line-numbers -n | grep NOTTHENET
 ```
 
@@ -149,24 +159,28 @@ sudo iptables -t nat -L PREROUTING --line-numbers -n | grep NOTTHENET
 
 ## Manual Rule Management
 
-NotTheNet saves existing iptables rules to `/tmp/notthenet_iptables_save.rules` before applying its own rules. On stop, it restores from this snapshot.
+NotTheNet automatically saves your existing iptables rules before adding its own. When you click Stop, it restores the original rules from the backup.
 
 ### If NotTheNet crashed without cleaning up
 
+If NotTheNet was killed unexpectedly (power loss, `kill -9`, system crash), it may not have removed its rules. Here's how to fix that:
+
 ```bash
-# Restore from snapshot (if it exists)
+# Option 1: Restore from the automatic backup (if it exists)
 sudo iptables-restore /tmp/notthenet_iptables_save.rules
 
-# OR manually delete NotTheNet rules one by one
+# Option 2: Manually delete NotTheNet rules one by one
+# First, list the rules with line numbers:
 sudo iptables -t nat -L OUTPUT --line-numbers -n
-# Find NOTTHENET lines, then:
+# Find lines tagged NOTTHENET, then delete by line number:
 sudo iptables -t nat -D OUTPUT <line_number>
 ```
 
 ### Nuclear option — flush all NAT rules
 
 ```bash
-# WARNING: removes ALL NAT rules, not just NotTheNet's
+# WARNING: This removes ALL NAT rules, not just NotTheNet's.
+# Only use this if Kali is dedicated to this lab and you have no other NAT rules.
 sudo iptables -t nat -F
 ```
 
@@ -174,7 +188,7 @@ sudo iptables -t nat -F
 
 ## Disabling auto_iptables
 
-If you prefer to manage routing manually (e.g. using network namespaces or a different firewall), set:
+If you want to manage traffic redirection yourself (for advanced setups like network namespaces or custom firewall rules), you can turn off automatic rule management:
 
 ```json
 "general": {
@@ -182,7 +196,7 @@ If you prefer to manage routing manually (e.g. using network namespaces or a dif
 }
 ```
 
-In this mode, NotTheNet only starts the service listeners. You are responsible for ensuring traffic reaches them.
+In this mode, NotTheNet only starts the fake services. **You** are responsible for making sure traffic reaches them.
 
 Example manual redirect for DNS only:
 
@@ -195,9 +209,11 @@ sudo iptables -t nat -A OUTPUT -p tcp --dport 53 -j REDIRECT --to-ports 53
 
 ## Excluding Ports from Catch-All
 
-The `catch_all.excluded_ports` list tells iptables to **skip** the catch-all redirect for specific ports. These connections pass through unmodified.
+The catch-all service is a "safety net" that catches all TCP/UDP traffic on ports that don't have a dedicated fake service. But some ports should be left alone — most importantly SSH, so you don't lose remote access to your Kali machine.
 
-**Always include port 22 (SSH)** to avoid losing remote access:
+The `catch_all.excluded_ports` setting tells NotTheNet to skip redirection for specific ports.
+
+**Always include port 22 (SSH)** to avoid locking yourself out:
 
 ```json
 "catch_all": {
@@ -205,17 +221,19 @@ The `catch_all.excluded_ports` list tells iptables to **skip** the catch-all red
 }
 ```
 
-Other ports to consider excluding:
-- `5900` — VNC (remote desktop to analysis VM)
-- `3389` — RDP
+Other ports you might want to exclude:
+- `5900` — VNC (if you use remote desktop to view the victim VM)
+- `3389` — RDP (same reason)
 - `2222` — alternate SSH
-- Any port you're using for live monitoring tools
+- Any port used by monitoring tools running alongside NotTheNet
 
 ---
 
 ## Network Namespace Isolation (Advanced)
 
-For maximum isolation, run the malware sample inside a dedicated network namespace where **all** traffic is handled by NotTheNet.
+> **This section is for advanced users.** If you're using the standard Proxmox lab setup described in [Lab Setup](lab-setup.md), you can skip this.
+
+For maximum isolation, you can run malware inside a dedicated Linux network namespace where **all** traffic is controlled by NotTheNet. This is useful if you're running Linux malware directly on Kali without a separate VM.
 
 ```bash
 # Create a network namespace
@@ -248,7 +266,11 @@ sudo ip netns del malware-analysis
 
 ## Common Network Configurations
 
+Here are ready-to-use config snippets for common lab setups. Copy the one that matches your environment.
+
 ### Single Kali VM (no separate victim VM)
+
+Running malware directly on Kali (e.g. via Wine or as a native Linux binary):
 
 ```json
 {
@@ -263,6 +285,8 @@ sudo ip netns del malware-analysis
 ```
 
 ### Kali + Victim VM on VirtualBox Host-Only Network
+
+Using VirtualBox with a host-only adapter (`vboxnet0`):
 
 ```json
 {
@@ -280,6 +304,8 @@ sudo ip netns del malware-analysis
 ```
 
 ### Kali + Victim VM on libvirt/KVM Host-Only
+
+Using libvirt/KVM with the default virtual bridge:
 
 ```json
 {
@@ -320,9 +346,9 @@ sudo ip netns del malware-analysis
 **File:** `network/tcp_fingerprint.py`  
 **Config:** `general.tcp_fingerprint`, `general.tcp_fingerprint_os`
 
-Advanced malware and network scanners (Nmap, p0f) fingerprint the operating system by analysing low-level TCP/IP parameters in SYN-ACK packets — specifically the IP TTL, TCP window size, Don't Fragment (DF) bit, and Maximum Segment Size (MSS). When these values don't match the expected OS, malware may detect it is running in a sandbox and alter its behaviour.
+Some malware and network tools (like Nmap) can detect what operating system is running by examining low-level details in network packets — things like the TTL (time to live), TCP window size, and other fields that differ between Windows, Linux, and macOS. If the malware sees Linux-style packets but expects Windows, it may refuse to run.
 
-When `tcp_fingerprint` is enabled, NotTheNet modifies these parameters on every listening socket after services bind but before accepting connections. This makes responses appear to come from the configured OS.
+When `tcp_fingerprint` is enabled, NotTheNet modifies these low-level values on every connection so responses look like they came from the configured OS.
 
 ### OS Profiles
 
@@ -335,18 +361,16 @@ When `tcp_fingerprint` is enabled, NotTheNet modifies these parameters on every 
 
 ### Platform Limitation
 
-TCP fingerprint spoofing uses Linux-specific `setsockopt` constants (`IP_TTL`, `TCP_WINDOW_CLAMP`, `IP_MTU_DISCOVER`, `TCP_MAXSEG`). It has no effect on other operating systems. Errors are logged as warnings but do not prevent services from starting.
+TCP fingerprint spoofing only works on Linux (it uses Linux-specific socket options). On other platforms, it silently does nothing. Errors are logged as warnings but do not prevent services from starting.
 
 ### Verifying
 
 ```bash
-# From the analysis VM, scan NotTheNet with Nmap OS detection
+# From the victim VM, scan NotTheNet with Nmap OS detection:
 nmap -O 10.0.0.1
+# The "OS details" line should match your configured profile
 
-# Or use p0f to passively fingerprint
-p0f -i eth0
-
-# Check TTL in response
+# Or check the TTL in a simple ping:
 ping -c 1 10.0.0.1
-# TTL should match the configured profile (128 for windows, 64 for linux, etc.)
+# TTL should be 128 for "windows", 64 for "linux" or "macos"
 ```

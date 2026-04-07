@@ -251,3 +251,22 @@ echo -e "${GREEN}║   Headless:  sudo notthenet --nogui                  ║${N
 echo -e "${GREEN}║   Man page:  man notthenet                           ║${NC}"
 echo -e "${GREEN}║   Uninstall: sudo notthenet-uninstall                ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
+
+_GW_IP=$(python3 -c "import json; c=json.load(open('${SCRIPT_DIR}/config.json')); print(c.get('general',{}).get('bind_ip','10.10.10.1'))" 2>/dev/null || echo '10.10.10.1')
+if [[ -f "${SCRIPT_DIR}/assets/prepare-victim.ps1" ]]; then
+echo ""
+echo -e "${YELLOW}┌──────────────────────────────────────────────────────┐${NC}"
+echo -e "${YELLOW}│  VICTIM PREP — run once on FlareVM (Admin PowerShell)│${NC}"
+echo -e "${YELLOW}├──────────────────────────────────────────────────────┤${NC}"
+echo -e "${YELLOW}│  On Kali:${NC}"
+echo -e "${YELLOW}│    cd ${SCRIPT_DIR}/assets${NC}"
+echo -e "${YELLOW}│    python3 -m http.server 8080${NC}"
+echo -e "${YELLOW}│${NC}"
+echo -e "${YELLOW}│  On FlareVM (Admin PowerShell):${NC}"
+echo -e "${YELLOW}│    curl.exe -o C:\\prepare-victim.ps1 http://${_GW_IP}:8080/prepare-victim.ps1${NC}"
+echo -e "${YELLOW}│    Set-ExecutionPolicy Bypass -Scope Process -Force${NC}"
+echo -e "${YELLOW}│    & C:\\prepare-victim.ps1${NC}"
+echo -e "${YELLOW}│${NC}"
+echo -e "${YELLOW}│  Then take a baseline snapshot.${NC}"
+echo -e "${YELLOW}└──────────────────────────────────────────────────────┘${NC}"
+fi

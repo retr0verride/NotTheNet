@@ -169,11 +169,19 @@ class _PreflightPage(tk.Frame):
     def _on_detect_ip(self):
         """Detect victim IP from ARP cache."""
         from utils.victim_remote import arp_scan, detect_victims
+        manual_ip = self.vars["ip"].get().strip()
         if self.vars.get("auto_detect_ip", tk.BooleanVar(value=True)).get():
             hosts = arp_scan(self.cfg)
         else:
             hosts = detect_victims(self.cfg)
         if not hosts:
+            if manual_ip:
+                messagebox.showinfo(
+                    "Detect IP",
+                    "No hosts found on the lab bridge.\n"
+                    f"Keeping manually entered IP: {manual_ip}",
+                )
+                return
             messagebox.showinfo("Detect IP",
                                 "No hosts found on the lab bridge.\n"
                                 "Is the victim VM running?")

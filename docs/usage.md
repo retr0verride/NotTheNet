@@ -1,5 +1,7 @@
 # Usage Guide
 
+This guide shows you how to use NotTheNet day-to-day — launching the GUI, configuring services, running malware analysis, and using headless (no-GUI) mode.
+
 ## Table of Contents
 
 - [Launching the GUI](#launching-the-gui)
@@ -21,16 +23,16 @@
 
 ## Launching the GUI
 
-NotTheNet must be run as **root** to bind privileged ports (53, 80, 443, 25, etc.) and manage iptables rules.
+NotTheNet must be run as **root** (administrator) because standard internet ports like 53 (DNS), 80 (HTTP), and 443 (HTTPS) are restricted to root on Linux. It also needs root to set up traffic redirection rules.
 
 ```bash
-# If installed via notthenet-install.sh
+# If you installed with the install script or .deb package:
 sudo notthenet
 
-# If running from the project directory directly
+# If running directly from the project folder:
 sudo venv/bin/python notthenet.py
 
-# With a specific config file
+# To load a specific configuration file:
 sudo notthenet --config /path/to/my-lab.json
 ```
 
@@ -77,27 +79,27 @@ The toolbar has three zones separated by dividers:
 
 | Zone | Contents |
 |------|----------|
-| **Left — Brand** | Canvas-rendered globe+prohibition icon, "NotTheNet" wordmark, version and tagline |
+| **Left — Brand** | Globe icon, "NotTheNet" name, version number |
 | **Centre — Controls** | **▶ Start** (green), **■ Stop** (red), **💾 Save**, **📂 Load…** |
-| **Right** | Zoom controls (**A−**, percentage label, **A+**), root warning label if not running as root |
+| **Right** | Zoom controls (**A−** / **A+**), warning if not running as root |
 
 A 2 px teal accent line runs along the very top of the toolbar.
 
-| Button | Action |
+| Button | What it does |
 |--------|--------|
-| **▶ Start** | Applies all config panel values, starts all enabled services and iptables rules. Disabled while running. |
-| **■ Stop** | Gracefully stops all services and removes iptables rules. |
-| **💾 Save** | Saves current GUI values to `config.json` (or the `--config` path). |
-| **📂 Load…** | Opens a file picker to load a different `.json` config file and rebuilds all panels. |
-| **A−** | Decrease zoom by 15% (also `Ctrl+-`). Range: 70%–200%. |
-| **A+** | Increase zoom by 15% (also `Ctrl+=`). Range: 70%–200%. |
-| **Ctrl+0** | Reset zoom to 100%. |
+| **▶ Start** | Saves your settings, starts all enabled services, and sets up traffic redirection rules. Greyed out while running. |
+| **■ Stop** | Stops all services and removes traffic redirection rules so your network goes back to normal. |
+| **💾 Save** | Saves your current settings to `config.json` so they persist between sessions. |
+| **📂 Load…** | Opens a file picker to load a different config file. |
+| **A−** | Decrease text size by 15% (also `Ctrl+-`). Range: 70%–200%. |
+| **A+** | Increase text size by 15% (also `Ctrl+=`). Range: 70%–200%. |
+| **Ctrl+0** | Reset text size to 100%. |
 
-All buttons change shade on hover. A `⚠ Not root` warning appears on the right if not running as root.
+All buttons change shade on hover. A `⚠ Not root` warning appears if you forgot to run with `sudo`.
 
 ### Service Sidebar
 
-Services are grouped into labelled categories:
+The left panel lists all services grouped by category. Click any row to open its settings.
 
 | Group | Services |
 |-------|---------|
@@ -107,11 +109,11 @@ Services are grouped into labelled categories:
 | **FALLBACK** | Catch-All |
 | **ANALYSIS** | JSON Events |
 
-Click any row to open the configuration panel. The active row is highlighted with a darker background and bold text.
+Click any row to open the configuration panel. The selected row is highlighted.
 
 ### Configuration Panels
 
-Each panel maps directly to a section in `config.json`. All fields are validated when **▶ Start** is clicked. See the [Configuration Reference](configuration.md) for every field.
+Each panel shows the settings for one service (or the General settings). These map directly to sections in `config.json`. All fields are checked for errors when you click **▶ Start**. See the [Configuration Reference](configuration.md) for a full description of every field.
 
 New fields in this release:
 
@@ -132,47 +134,43 @@ A hint label above the text box shows the expected format.
 
 ### Live Log
 
-The log panel fills the lower portion of the window and is vertically resizable by dragging the sash. Lines are colour-coded:
+The log panel fills the bottom of the window. You can drag the divider to make it taller or shorter. Each line is colour-coded by severity:
 
-| Colour | Level |
-|--------|-------|
-| White | INFO |
-| Orange | WARNING |
-| Red | ERROR |
-| Grey | DEBUG |
+| Colour | Level | What it means |
+|--------|-------|---------------|
+| White | INFO | Normal activity (service started, request handled) |
+| Orange | WARNING | Something unexpected but not broken |
+| Red | ERROR | Something failed (port conflict, crash, etc.) |
+| Grey | DEBUG | Detailed internal info (useful when troubleshooting) |
 
-**Level filter pills** (DEBUG / INFO / WARNING / ERROR) let you focus on a single log level — click a pill to show only that level, click it again to restore all output. The log is capped at 2,000 lines in the GUI display (the file log has no display limit). Click **✕ Clear** to wipe the display.
+**Level filter pills** (DEBUG / INFO / WARNING / ERROR) let you show only one level at a time — click a pill to filter, click again to show all. The log display is capped at 2,000 lines (the file log is unlimited). Click **✕ Clear** to wipe the display.
 
 ---
 
 ## Starting and Stopping Services
 
-1. **Configure** — click each service in the sidebar, adjust fields as needed.
-2. **Save** — hit **Save Config** to persist your settings.
-3. **Start** — click **▶ Start**. The log will show each service binding. A new session-labeled JSON log file is created automatically (e.g. `logs/events_2026-04-01_s1.jsonl`).
-4. **Verify** — run the test commands below.
-5. **Detonate** — execute the malware sample in your isolated VM.
-6. **Review** — check the live log, the JSON Events viewer, and the `logs/` directory. Each session's events are in their own dated file.
-7. **Stop** — click **■ Stop** to cleanly restore iptables and shut down all services.
+1. **Configure** — click each service in the sidebar and adjust settings as needed.
+2. **Save** — click **💾 Save** to persist your settings to disk.
+3. **Start** — click **▶ Start**. Watch the log — you should see each service binding to its port. A new JSON log file is created automatically for each session (e.g. `logs/events_2026-04-01_s1.jsonl`).
+4. **Verify** — run the quick test commands below to confirm services are responding.
+5. **Detonate** — run your malware sample in the isolated victim VM.
+6. **Review** — check the live log, the JSON Events tab, and the `logs/` folder. Each session gets its own log file.
+7. **Stop** — click **■ Stop** to shut down all services and remove traffic redirection rules.
 
 ### Quick verification after Start
 
 ```bash
-# Verify DNS
+# Test DNS — should return 127.0.0.1
 dig @127.0.0.1 anything-at-all.evil +short
-# Expected: 127.0.0.1
 
-# Verify HTTP
+# Test HTTP — should return "HTTP/1.1 200 OK"
 curl -I http://127.0.0.1/
-# Expected: HTTP/1.1 200 OK
 
-# Verify HTTPS
+# Test HTTPS — -k ignores the self-signed certificate warning
 curl -Ik https://127.0.0.1/
-# Expected: HTTP/1.1 200 OK
 
-# Verify SMTP
+# Test SMTP — should show a "220" greeting
 nc 127.0.0.1 25
-# Expected: 220 mail.notthenet.local ESMTP ...
 ```
 
 ---
@@ -197,30 +195,34 @@ sudo notthenet --config configs/banking-trojan.json
 
 ## Preflight Checks
 
-Use preflight before detonation to validate the Kali host and victim readiness.
+Preflight is a built-in diagnostic that verifies your Kali host and (optionally) the victim VM are ready for analysis. Think of it like a pre-flight checklist before takeoff.
 
-- GUI: open the **Preflight** page in the sidebar and run:
-  - **Run Local Checks** (Kali-only)
-  - **Run All Checks** (local + victim checks via WMI)
-  - **Fix Issues** (applies supported fixes via WMI/SMB)
-- CLI: run local preflight without launching services:
+- **GUI:** Open the **Preflight** page in the sidebar, then:
+  - **Run Local Checks** — checks only the Kali host (config, ports, certs, hardening)
+  - **Run All Checks** — checks Kali **and** the victim VM (via remote WMI)
+  - **Fix Issues** — attempts to automatically fix problems found on the victim VM
+- **CLI:** Run local checks from the terminal without launching the GUI:
 
 ```bash
 sudo notthenet --preflight
 ```
 
-The preflight report checks config stealth settings, cert material, interface/bind setup,
-port conflicts, hardening status, and required remote tooling (`impacket-wmiexec`, `smbclient`).
+The report checks your configuration, certificate files, network interface settings, port conflicts, lab hardening status, and whether the remote management tools (`impacket-wmiexec`, `smbclient`) are installed.
 
 ---
 
 ## CLI / Headless Mode
 
-For automated pipelines, sandboxes without a display, or SSH sessions:
+For running NotTheNet without a graphical display — useful for SSH sessions, automated pipelines, or systems without a desktop environment:
 
 ```bash
 sudo notthenet --nogui --config config.json
 ```
+
+In headless mode:
+- All output goes to the terminal and `logs/notthenet.log`
+- Press **Ctrl+C** to stop cleanly (services shut down and traffic rules are removed)
+- Exit code `0` means clean stop; `1` means it failed to start (check the log for details)
 
 On startup, an ASCII banner is printed to stdout:
 
@@ -235,11 +237,13 @@ On startup, an ASCII banner is printed to stdout:
 ```
 
 In headless mode:
-- All output goes to stdout and `logs/notthenet.log`
-- `SIGINT` (Ctrl+C) and `SIGTERM` trigger a clean shutdown with iptables restore
-- Exit code `0` = clean stop; `1` = failed to start (check log)
+- All output goes to the terminal and `logs/notthenet.log`
+- Press **Ctrl+C** to stop cleanly (services shut down and traffic rules are removed)
+- Exit code `0` means clean stop; `1` means it failed to start (check the log for details)
 
 ### Scripted analysis example
+
+You can automate an entire analysis session with a shell script:
 
 ```bash
 #!/usr/bin/env bash
@@ -300,10 +304,10 @@ sudo notthenet --nogui --loglevel ERROR --config configs/default.json
 
 ## Running Multiple Configs
 
-Multiple NotTheNet instances cannot run simultaneously on the same ports. To switch configs:
+You cannot run two copies of NotTheNet at the same time (they would fight over the same ports). To switch between different configurations:
 
-1. Click **■ Stop** (or Ctrl+C in headless mode)
-2. Click **Load Config…** and pick the new file
+1. Click **■ Stop**
+2. Click **📂 Load…** and pick the new config file
 3. Click **▶ Start**
 
 Or from the CLI:
@@ -322,28 +326,32 @@ sudo notthenet --nogui --config configs/ransomware.json &
 
 ### Lab Setup Prerequisites
 
+You need two machines connected by an isolated network — no real internet access for either:
+
 ```
 ┌─────────────────────────┐        ┌─────────────────────────┐
-│  Analysis Host (Kali)   │        │  Victim VM              │
+│  Analysis Host (Kali)   │        │  Victim VM (FlareVM)    │
 │  NotTheNet running      │◄──────►│  Isolated network only  │
-│  IP: 192.168.100.1      │        │  DNS: 192.168.100.1     │
-│  iptables: gateway mode │        │  GW:  192.168.100.1     │
+│  IP: 10.0.0.1           │        │  DNS: 10.0.0.1          │
+│                         │        │  GW:  10.0.0.1          │
 └─────────────────────────┘        └─────────────────────────┘
-         virbr0 / host-only adapter
+         vmbr1 (isolated virtual switch)
 ```
+
+> **Need help setting this up?** See the [Lab Setup](lab-setup.md) guide for a complete walkthrough.
 
 ### Step-by-Step
 
-1. **Snapshot the victim VM** before any execution.
-2. Set the victim VM's DNS server to your Kali IP.
-3. Set the victim VM's default gateway to your Kali IP (for gateway mode).
-4. In NotTheNet config: set `interface` to your VM network adapter (e.g. `virbr0`), `iptables_mode` to `"gateway"`, and `redirect_ip` to your Kali IP.
-5. **Check for kill-switch domains.** Many samples exit early if a specific domain resolves. Add known kill-switch domains to `dns.kill_switch_domains` so they return NXDOMAIN. Example (WannaCry): `"kill_switch_domains": ["iuqerfsodp9ifjaposdfjhgosurijfaewrwergwea.com"]`.
-6. **Check for high-entropy C2 domains.** If the sample uses `.onion` addresses or other high-entropy hostnames, either raise `dns.nxdomain_entropy_threshold` (e.g. to `4.0`) or add them explicitly to `dns.custom_records` pointing to your sinkhole IP.
-7. Start NotTheNet.
-8. Execute the malware sample in the victim VM.
-9. Watch the live log for C2 callbacks, DNS lookups, email exfil attempts.
-10. Stop NotTheNet and review `logs/`.
-11. Revert the victim VM snapshot.
+1. **Snapshot the victim VM** before running anything (so you can revert to a clean state afterward).
+2. Set the victim VM's **DNS server** to your Kali IP (e.g. `10.0.0.1`).
+3. Set the victim VM's **default gateway** to your Kali IP (so all traffic routes through Kali).
+4. In NotTheNet config: set `interface` to your lab network adapter (e.g. `eth0`), `iptables_mode` to `"gateway"`, and `redirect_ip` to your Kali IP.
+5. **Check for kill-switch domains.** Some malware exits early if a specific domain resolves (famously, WannaCry checks `iuqerfsodp9ifjaposdfjhgosurijfaewrwergwea.com`). Add known kill-switch domains to `dns.kill_switch_domains` so they return NXDOMAIN ("not found").
+6. **Check for high-entropy C2 domains.** If the malware uses random-looking domain names (like `.onion` addresses), raise `dns.nxdomain_entropy_threshold` to `4.0` or add them to `dns.custom_records`.
+7. **Start** NotTheNet.
+8. **Run** the malware sample in the victim VM.
+9. **Watch** the live log for C2 callbacks, DNS lookups, and data exfiltration attempts.
+10. **Stop** NotTheNet and review the `logs/` folder.
+11. **Revert** the victim VM to its clean snapshot.
 
 > See [Configuration → Example Configurations](configuration.md#wannacry--ransomware-with-embedded-tor-client) for a ready-made WannaCry config that bypasses the kill switch, maps `.onion` C2 addresses, and serves fake Tor directory responses.

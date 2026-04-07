@@ -157,6 +157,34 @@ class ServiceManager:
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Could not check/stop %s: %s", svc, exc)
 
+    def _apply_hardening(self) -> None:
+        """Run harden-lab.sh to apply iptables isolation rules.
+
+        Uses the configured interface and bind_ip to derive the correct
+        bridge and gateway arguments.  The script is idempotent (safe to
+        re-run) and exits quickly if the rules are already present.
+        """
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "harden-lab.sh")
+        if not os.path.isfile(script):
+            logger.warning("harden-lab.sh not found at %s — skipping hardening", script)
+            return
+
+        interface = self.config.get("general", "interface") or "vmbr1"
+        gateway_ip = self.config.get("general", "bind_ip") or "10.10.10.1"
+
+        cmd = ["bash", script, "--bridge", interface, "--gateway-ip", gateway_ip, "--skip-mount"]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
+            if result.returncode == 0:
+                logger.info("Lab hardening applied (bridge=%s, gateway=%s)", interface, gateway_ip)
+            else:
+                logger.warning("harden-lab.sh exited %d: %s", result.returncode,
+                               result.stderr.strip()[:200])
+        except subprocess.TimeoutExpired:
+            logger.warning("harden-lab.sh timed out after 30s")
+        except OSError as exc:
+            logger.warning("Could not run harden-lab.sh: %s", exc)
+
     def _check_port_conflicts(self):
         """Warn about duplicate port/proto assignments across enabled services."""
         port_map: dict[tuple[str, int], str] = {}
@@ -266,6 +294,8 @@ class ServiceManager:
         require_root_or_warn()
         if self.config.get("general", "auto_evict_services"):
             self._evict_conflicting_services()
+        if self.config.get("general", "auto_hardening"):
+            self._apply_hardening()
         self._check_port_conflicts()
 
         self._setup_json_logging()

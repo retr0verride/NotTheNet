@@ -1,5 +1,7 @@
 # Troubleshooting Guide
 
+Common problems and how to fix them. Each section starts with the **symptom** (what you see) and ends with the **fix**.
+
 ## Table of Contents
 
 - [Services fail to bind ports](#services-fail-to-bind-ports)
@@ -28,17 +30,15 @@
 
 ## Services fail to bind ports
 
-**Symptom:** Log shows `OSError: [Errno 13] Permission denied` or `[Errno 98] Address already in use`.
+**Symptom:** The log shows `OSError: [Errno 13] Permission denied` or `[Errno 98] Address already in use`.
 
 ### Permission denied (Errno 13)
 
-Port numbers below 1024 require root.
+Ports below 1024 (like 53 for DNS, 80 for HTTP, 443 for HTTPS) require root access on Linux.
 
-**Fix:**
+**Fix:** Run NotTheNet with `sudo`:
 ```bash
 sudo notthenet
-# or
-sudo venv/bin/python notthenet.py
 ```
 
 If you don't want to run as root, shift services to high ports and rely on iptables REDIRECT (which itself requires root, but doesn't need the service on a low port):
@@ -49,26 +49,21 @@ If you don't want to run as root, shift services to high ports and rely on iptab
 
 ### Address already in use (Errno 98)
 
-Another process is already using that port.
+Another program is already using that port.
 
-**Automatic fix:** NotTheNet automatically stops known conflicting services on startup when `auto_evict_services: true` (the default). Check the log for lines like `Stopping conflicting system service: apache2`.
+**Automatic fix:** NotTheNet can automatically stop known conflicting services (like Apache or systemd-resolved) when it starts. This is enabled by default (`auto_evict_services: true`). Check the log for messages like `Stopping conflicting system service: apache2`.
 
-**Manual fix — find and kill the conflicting process:**
+**Manual fix — find and stop the conflicting program:**
 ```bash
-# Find what's using port 53
+# Find what's using port 53 (DNS):
 sudo ss -tulpn | grep ':53'
-sudo lsof -i :53
 
-# Common culprit: systemd-resolved on Ubuntu/Kali
+# The most common culprit is systemd-resolved (a built-in DNS service on Ubuntu/Kali):
 sudo systemctl stop systemd-resolved
 sudo systemctl disable systemd-resolved
-
-# Or change its stub listener port only
-sudo sed -i 's/^#DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf
-sudo systemctl restart systemd-resolved
 ```
 
-**For port 80/443 — Apache/nginx running:**
+**For port 80/443 — web server running:**
 ```bash
 sudo systemctl stop apache2
 sudo systemctl stop nginx
@@ -85,39 +80,38 @@ sudo systemctl stop nginx
 
 **Symptom:** `dig @127.0.0.1 evil.com` hangs or returns `connection refused`.
 
-### Check the service is running
+### Check that the DNS service is running
 
-In the GUI, the DNS dot should be green. In headless mode:
+In the GUI, the DNS row in the sidebar should have a green dot. From the terminal:
 ```bash
 sudo ss -tulpn | grep ':53'
-# Should show: udp   UNCONN 0  0  0.0.0.0:53  ...python
-#              tcp   LISTEN 0  0  0.0.0.0:53  ...python
+# You should see two lines — one for UDP and one for TCP — with "python" as the process
 ```
 
-### Check systemd-resolved conflict (Ubuntu/Kali)
+### Check for systemd-resolved conflict (Ubuntu/Kali)
 
+systemd-resolved is a built-in DNS service that may be occupying port 53. Check:
 ```bash
 resolvectl status | head -5
-# If "DNS Stub Listener: yes", it's occupying 127.0.0.53:53
+# If you see "DNS Stub Listener: yes", it's blocking NotTheNet
 
+# Fix: stop it and restart NotTheNet
 sudo systemctl stop systemd-resolved
-sudo notthenet    # restart NotTheNet
+sudo notthenet
 ```
 
-### Check firewall blocking DNS
+### Check if a firewall is blocking DNS
 
 ```bash
 sudo iptables -L INPUT -n | grep 53
-# If a DROP rule is catching port 53, add an ACCEPT before it
+# If you see a DROP rule blocking port 53, add ACCEPT rules:
 sudo iptables -I INPUT 1 -p udp --dport 53 -j ACCEPT
 sudo iptables -I INPUT 1 -p tcp --dport 53 -j ACCEPT
 ```
 
 ### dnslib not installed
 
-```
-ERROR: DNS service cannot start: dnslib not installed.
-```
+If the log shows `DNS service cannot start: dnslib not installed`:
 ```bash
 source venv/bin/activate
 pip install dnslib==0.9.25
@@ -127,45 +121,43 @@ pip install dnslib==0.9.25
 
 ## HTTP/HTTPS not responding
 
-**Symptom:** `curl http://127.0.0.1/` times out or returns connection refused.
+**Symptom:** `curl http://127.0.0.1/` times out or returns "connection refused".
 
+First, check whether the service is actually listening:
 ```bash
-# Check the service is listening
 sudo ss -tlpn | grep ':80'
 sudo ss -tlpn | grep ':443'
-
-# Test directly (bypassing iptables)
-curl -v http://127.0.0.1:80/
-curl -kv https://127.0.0.1:443/
 ```
 
-If the direct port test works but DNS-resolved URLs don't, the issue is with iptables redirect — see [iptables rules not applied](#iptables-rules-not-applied).
+Then test the ports directly (bypassing traffic redirection):
+```bash
+curl -v http://127.0.0.1:80/
+curl -kv https://127.0.0.1:443/   # -k ignores the self-signed cert
+```
+
+If direct port tests work but browsing fails, the issue is with traffic redirection — see [iptables rules not applied](#iptables-rules-not-applied).
 
 ---
 
 ## iptables rules not applied
 
-**Symptom:** Log shows `iptables rules cannot be applied` or rules aren't visible.
+**Symptom:** The log shows `iptables rules cannot be applied` or you can't see any NOTTHENET rules.
 
 ```bash
-# Check if iptables is available
+# Check that iptables is installed:
 which iptables
 iptables --version
 
-# On newer systems, iptables may need the legacy backend
-update-alternatives --config iptables
+# On newer systems, iptables may need to use the "legacy" backend instead of nftables:
+sudo update-alternatives --config iptables
 # Select: iptables-legacy
-
-# Check for nftables conflict
-systemctl status nftables
-# If nftables is running and has rules, it may override iptables
 ```
 
 **Check the interface name is correct:**
 ```bash
 ip link show
-# Lists: eth0, virbr0, lo, etc.
-# Make sure config.interface matches one of these exactly
+# This lists all network interfaces (e.g. eth0, lo, vmbr1)
+# Make sure the name in config.json matches exactly
 ```
 
 **Verify rules were applied:**
@@ -177,24 +169,24 @@ sudo iptables -t nat -L OUTPUT --line-numbers -n | grep NOTTHENET
 
 ## Malware still reaching real internet
 
-**Symptom:** Malware successfully connects to real C2 servers instead of NotTheNet.
+**Symptom:** The malware successfully connects to real C2 servers instead of NotTheNet.
 
-### Check DNS is being used
+### Some malware bypasses DNS entirely
 
-Some malware bypasses the system DNS and hard-codes IP addresses. If the sample uses hard-coded IPs, DNS interception won't help — you need iptables catch-all to redirect those connections.
+If the malware has hard-coded IP addresses (instead of domain names), DNS interception won't help. You need the **catch-all** service to redirect those connections.
 
-Verify the catch-all is working:
+Test the catch-all from the victim:
 ```bash
-nc -v 1.2.3.4 80   # from the victim machine
-# Should connect to NotTheNet catch-all, not 1.2.3.4
+nc -v 1.2.3.4 80
+# Should connect to NotTheNet's catch-all, not the real 1.2.3.4
 ```
 
-### Check the interface
+### Wrong interface
 
-The most common cause: `general.interface` is set to `eth0` but the victim VM traffic arrives on `virbr0`. The iptables rule is applied to the wrong interface.
+The most common cause: `general.interface` is set to the wrong network adapter. For example, it's set to `eth0` but victim traffic actually arrives on `vmbr1`.
 
 ```bash
-# Watch actual traffic to identify the correct interface
+# Watch live traffic to identify which interface the victim's packets arrive on:
 sudo tcpdump -i any port 80 -n
 ```
 
@@ -210,23 +202,21 @@ sudo iptables -A FORWARD -i virbr0 -o eth0 -j DROP
 
 ## Hypervisor firewall blocking traffic (Proxmox / ESXi)
 
-**Symptom:** NotTheNet is running, iptables rules are applied, `ip_forward=1`, but the analysis VM cannot ping or connect to any external IP. Traffic never arrives at Kali.
+**Symptom:** NotTheNet is running, traffic rules are set up, IP forwarding is on, but the victim VM can't reach anything. Traffic never arrives at Kali.
 
-### Cause
+### Why this happens
 
-Hypervisor-level firewalls (Proxmox VE firewall, VMware NSX, ESXi port groups) inspect packets **before** they reach the guest OS. When the analysis VM sends a packet to `8.8.8.8`, the hypervisor sees the real destination IP — not the DNAT'd address — and drops it if no matching ACCEPT rule exists.
-
-This is true even if the VMs are on an isolated bridge with no physical uplink.
+Hypervisor-level firewalls (Proxmox firewall, VMware NSX) check packets **before** they reach the guest OS. When the victim sends a packet to `8.8.8.8`, the hypervisor sees the real destination and may drop it — even though Kali's iptables would redirect it to NotTheNet.
 
 ### Fix
 
-**Recommended: Disable the hypervisor firewall on both lab VMs.** If the bridge has no physical uplink, network topology already provides containment — the firewall adds no value and breaks DNAT-based traffic interception.
+**Disable the hypervisor firewall on both lab VMs.** The isolated bridge with no physical uplink already provides network containment — the hypervisor firewall adds no value in this setup.
 
 **Proxmox:**
-1. Select the Kali VM → **Firewall** → **Options** → set **Firewall: No**
-2. Select the analysis VM → **Firewall** → **Options** → set **Firewall: No**
+1. Select Kali VM → **Firewall** → **Options** → **Firewall: No**
+2. Select FlareVM → **Firewall** → **Options** → **Firewall: No**
 
-Security groups and firewall rules are only evaluated when the VM-level firewall is enabled. Disabling it per-VM does not affect other VMs or the datacenter-level firewall.
+Disabling per-VM does not affect other VMs or your datacenter-level firewall.
 
 **VMware / ESXi:**
 - Ensure the port group security policy allows promiscuous mode, MAC address changes, and forged transmits if using a vSwitch.
@@ -243,24 +233,20 @@ sudo tcpdump -i any -c 5 icmp
 
 ## Windows shows "No Internet" (NCSI failure)
 
-**Symptom:** Windows taskbar shows "No Internet access" on the network icon, even though DNS resolves and HTTP works.
+**Symptom:** The Windows taskbar shows "No Internet access" even though DNS and HTTP work.
 
-### How Windows checks connectivity (NCSI)
+### Why this happens
 
-Windows runs the Network Connectivity Status Indicator (NCSI) probe on every network change:
+Windows has a built-in connectivity checker called NCSI that runs two specific tests:
 
-1. **HTTP probe:** `GET http://www.msftconnecttest.com/connecttest.txt` — expects body `Microsoft Connect Test`
-2. **DNS probe:** resolves `dns.msftncsi.com` — expects `131.107.255.255`
+1. **HTTP test:** Fetches `http://www.msftconnecttest.com/connecttest.txt` and expects the exact text `Microsoft Connect Test`
+2. **DNS test:** Resolves `dns.msftncsi.com` and expects the IP `131.107.255.255`
 
-Both must succeed for Windows to show "Internet access".
+Both must pass for Windows to show "connected".
 
 ### NotTheNet handles this automatically
 
-As of v2026.03.13-2, NotTheNet has built-in NCSI support:
-- HTTP server responds with the correct body for `www.msftconnecttest.com` and `msftconnecttest.com`
-- DNS server returns `131.107.255.255` for `dns.msftncsi.com`
-
-If NCSI is still failing, verify:
+NotTheNet's built-in NCSI support fakes both responses. If it's still failing, test manually:
 ```bash
 # From the analysis VM — test the HTTP probe
 curl -s http://www.msftconnecttest.com/connecttest.txt
@@ -284,13 +270,11 @@ Get-NetAdapter | Restart-NetAdapter
 
 ## GUI won't start / Tkinter errors
 
-**Symptom:** Password prompt appears (pkexec / polkit) but the GUI never opens afterward.
+**Symptom:** The password prompt appears but the GUI never opens.
 
-This is a known polkit issue — versions 0.106+ strip `DISPLAY` and `XAUTHORITY` from the
-environment before launching the process, so the program starts as root but cannot connect
-to the X display.
+This is a known issue with certain Linux desktop environments — the password tool (`pkexec`) strips display environment variables, so the program starts as root but can't open a window.
 
-**Fix:** Re-run the install script to deploy the updated launcher that explicitly forwards the display environment:
+**Fix:** Re-run the install script to get the updated launcher:
 
 ```bash
 sudo bash notthenet-install.sh
@@ -302,7 +286,7 @@ Then launch via the desktop icon or:
 notthenet-gui
 ```
 
-If you cannot re-run the install script, you can work around it by launching directly from a terminal with `sudo`:
+If that doesn't work, launch directly from a terminal with sudo:
 
 ```bash
 sudo /path/to/venv/bin/python notthenet.py
@@ -310,26 +294,21 @@ sudo /path/to/venv/bin/python notthenet.py
 
 ---
 
-**Symptom:** `ModuleNotFoundError: No module named 'tkinter'` or display errors.
+**Symptom:** `ModuleNotFoundError: No module named 'tkinter'`
+
+Tkinter is the Python GUI toolkit. On some systems it needs to be installed separately:
 
 ```bash
-# Install Tkinter (Kali/Debian)
 sudo apt-get install python3-tk
 
-# Verify
+# Test that it works:
 python3 -c "import tkinter; tkinter._test()"
 ```
 
-**On headless server (no display):**
+**On a headless server (no display):**
 ```bash
-# Use headless mode
+# Use headless mode instead:
 sudo notthenet --nogui
-
-# Or set up a virtual display
-sudo apt-get install xvfb
-export DISPLAY=:99
-Xvfb :99 -screen 0 1024x768x24 &
-sudo notthenet
 ```
 
 ---
@@ -340,31 +319,26 @@ sudo notthenet
 
 ### Regenerate the certificate
 
+The simplest fix is to delete the old certificates and let NotTheNet create new ones:
+
 ```bash
 rm -f certs/server.crt certs/server.key
-sudo notthenet   # will auto-generate
-```
-
-Or manually:
-```bash
-source venv/bin/activate
-python3 -c "
-from utils.cert_utils import generate_self_signed_cert
-generate_self_signed_cert('certs/server.crt', 'certs/server.key')
-"
+sudo notthenet   # will auto-generate new certs on startup
 ```
 
 ### Check key permissions
 
+The private key must be readable by the process running NotTheNet:
 ```bash
 ls -la certs/
-# server.key must be readable by the process user
+# server.key should show: -rw------- 1 root root ...
+# If not:
 chmod 600 certs/server.key
 ```
 
 ### Wrong working directory
 
-NotTheNet resolves cert paths relative to the working directory. Always run from the project root:
+NotTheNet looks for certificate files relative to wherever you run it from. Always run from the project root:
 ```bash
 cd /opt/NotTheNet
 sudo notthenet
@@ -382,29 +356,23 @@ Or use absolute paths in `config.json`:
 
 ## High CPU or memory usage
 
-**Symptom:** NotTheNet consuming >10% CPU or growing memory.
+**Symptom:** NotTheNet using >10% CPU or memory keeps growing.
 
-### Flooded with connections
+### Malware is flooding the fake services
 
-Malware may be hammering the fake services. Check the log for thousands of rapid-fire requests. The bounded thread pool (50 workers) prevents CPU runaway, but log writes can still stress the disk.
+Some malware hammers its C2 server with rapid-fire requests. NotTheNet's thread pool (50 workers) prevents CPU runaway, but heavy logging can still stress the disk.
 
 Reduce log verbosity:
 ```json
 "general": { "log_level": "WARNING" }
 ```
 
-Or disable request logging:
-```json
-"http": { "log_requests": false },
-"https": { "log_requests": false }
-```
-
-### Log file disk usage
+### Check log file sizes
 
 ```bash
 du -sh logs/
 ls -lh logs/notthenet.log*
-# If > 50 MB total (5 × 10 MB), something is wrong with rotation
+# Normal: under 50 MB total (5 × 10 MB rotation)
 ```
 
 ---
@@ -414,19 +382,16 @@ ls -lh logs/notthenet.log*
 **Symptom:** No `logs/notthenet.log` file after starting.
 
 ```bash
-# Check the log directory exists and is writable
+# Check the logs directory exists and is writable:
 ls -la logs/
-# If it doesn't exist:
+
+# If it doesn't exist, create it:
 mkdir -p logs && chmod 700 logs
 
-# Check config
-cat config.json | python3 -m json.tool | grep log
-# "log_to_file" must be true
+# Check that logging is enabled in your config:
+grep log_to_file config.json
+# Should show: "log_to_file": true
 ```
-
-Also verify the user running NotTheNet has write permission to the `logs/` directory (NotTheNet runs as root, so this is only an issue if the directory was created with restrictive permissions by another user).
-
----
 
 ## Emails / FTP uploads not saved
 

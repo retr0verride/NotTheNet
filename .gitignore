@@ -19,9 +19,13 @@ venv/
 .venv/
 env/
 
-# Secrets / TLS keys (NEVER commit private keys)
+# Secrets / TLS keys and generated certs (NEVER commit)
 certs/server.key
+certs/server.crt
+certs/ca.crt
+certs/ca.key
 certs/*.key
+certs/*.crt
 certs/*.p12
 certs/*.pfx
 

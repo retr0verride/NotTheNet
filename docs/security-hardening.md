@@ -1,8 +1,8 @@
 # Security Hardening Guide
 
-NotTheNet is designed for use in **isolated malware analysis environments**. This guide covers how to harden your lab to prevent malware from escaping the sandbox.
+NotTheNet runs in an **isolated malware analysis lab**. This guide covers how to lock down your lab so malware cannot escape the sandbox and reach your real network or the internet.
 
-> See also: [SECURITY.md](../SECURITY.md) for the vulnerability disclosure policy.
+> See also: [SECURITY.md](../SECURITY.md) for reporting security vulnerabilities in NotTheNet itself.
 
 ## Table of Contents
 
@@ -20,30 +20,30 @@ NotTheNet is designed for use in **isolated malware analysis environments**. Thi
 
 ## Lab Network Isolation
 
-**This is the most important security step.**
+**This is the single most important security step.** Everything else is secondary.
 
-NotTheNet intercepts fake traffic — it does not prevent real network access if the host itself is connected to the internet.
+NotTheNet intercepts and fakes traffic — but it does **not** block real internet access by itself. If the host machine has a route to the real internet, malware could potentially use it.
 
 ### Rules
 
-1. **Never run NotTheNet on a machine with a real internet-connected interface that is not firewalled off from the analysis network.**
-2. The network interface specified in `general.interface` should be a **host-only** or **internal-only** virtual adapter.
-3. The analysis VM should have **no** route to the real internet.
+1. **Never run NotTheNet on a machine that is connected to the real internet** unless the internet-facing interface is firewalled off from the lab network.
+2. The network interface in `general.interface` should be a **host-only** or **internal-only** virtual adapter (e.g. `vmbr1` on Proxmox with no physical uplink).
+3. The victim VM (where malware runs) should have **no route to the real internet** — only to Kali.
 
-### Verifying isolation
+### How to verify isolation
 
 On the victim VM, after NotTheNet is running:
 ```bash
-# This must NOT succeed (real internet must be blocked)
+# This must NOT work (real internet must be unreachable):
 curl --max-time 5 https://1.1.1.1/
 # Expected: timeout or connection refused
 
-# This should succeed (fake HTTP)
+# This should work (it's hitting NotTheNet's fake HTTP server):
 curl --max-time 5 http://evil.example.com/
-# Expected: 200 OK from NotTheNet
+# Expected: 200 OK
 ```
 
-If the real internet request succeeds, your iptables interface config is wrong — traffic is leaking through a different adapter.
+If the first command succeeds, your network is not properly isolated — check your interface config and firewall rules.
 
 ---
 
@@ -51,19 +51,20 @@ If the real internet request succeeds, your iptables interface config is wrong �
 
 ### Bind to the isolated interface only
 
-In `config.json`:
+By default, `bind_ip` can be set to `0.0.0.0` which means "listen on all network interfaces". This is convenient but means NotTheNet also listens on any internet-facing interface.
+
+For a properly isolated lab, set `bind_ip` to the specific IP of your lab adapter:
+
 ```json
 "general": {
-  "bind_ip": "192.168.100.1",
-  "interface": "virbr0"
+  "bind_ip": "10.0.0.1",
+  "interface": "eth0"
 }
 ```
 
-Setting `bind_ip` to `0.0.0.0` is convenient but binds to **all** interfaces including real network adapters. On machines with internet access, tighten this to the specific isolated interface IP.
-
 ### Block traffic on other interfaces
 
-Even with `bind_ip` set correctly, add an explicit iptables rule to block unwanted outbound traffic:
+As an extra layer of protection, add firewall rules to block any traffic between the lab network and the real internet:
 
 ```bash
 # Block all outbound on real internet interface (eth0) from the analysis subnet
@@ -75,21 +76,21 @@ sudo iptables -A FORWARD -i eth0 -o virbr0 -j DROP
 
 ## Privilege Model
 
-NotTheNet performs a **bind-then-drop** privilege model:
+NotTheNet follows a **"start privileged, then drop privileges"** model:
 
-1. **Starts as root** — required to bind privileged ports (53, 80, 443, 25, 110, 143, 21) and apply iptables NAT rules.
-2. **Drops to `nobody:nogroup`** — immediately after all ports are bound and iptables rules are applied (`general.drop_privileges: true`, the default). Uses `seteuid`/`setegid` (not permanent `setuid`/`setgid`) so root can be temporarily restored for iptables cleanup on stop.
+1. **Starts as root** — required to bind standard ports (53, 80, 443, etc.) and set up traffic redirection rules.
+2. **Drops to an unprivileged user** — after all ports are bound and rules are set, NotTheNet switches to the `nobody` user. This limits the damage if a bug or exploit is found.
 
-Before dropping, the service manager:
-- `chown`s `logs/` and all subdirs (`emails/`, `ftp_uploads/`, `tftp_uploads/`) to the target user/group, so file saves (JSON events, emails, uploads) continue to work after the drop.
-- Adds `o+x` traversal permission on each parent directory in the path to the project root (e.g. `/home/kali/`) so the dropped process can still access config and cert files by relative path.
+Before dropping privileges, the service manager:
+- Changes ownership of the `logs/` directory so logs can still be written
+- Adds permissions on parent directories so config and certificate files remain accessible
 
-Disable with:
+To disable privilege dropping (not recommended):
 ```json
 "general": { "drop_privileges": false }
 ```
 
-Or drop to a custom account instead of `nobody`:
+Or drop to a dedicated service account instead of `nobody`:
 ```json
 "general": {
   "drop_privileges": true,
@@ -98,11 +99,11 @@ Or drop to a custom account instead of `nobody`:
 }
 ```
 
-> **Note:** Privilege drop is permanent within a process — clicking Stop and Start again requires a full process relaunch (the GUI's Stop/Start cycle already does this).
+> **Note:** Privilege drop persists for the lifetime of the process. If you click Stop and then Start again, the GUI relaunches the service process, so root is re-acquired and then dropped again.
 
-### Desktop launch (pkexec)
+### Desktop launch (password prompt)
 
-When launched from the app menu, `pkexec` is used to acquire root for the session rather than running permanently as root in the user session. The polkit action provides a descriptive auth dialog:
+When launched from the app menu, a password prompt appears (via `pkexec`) asking for root access. The prompt says:
 
 ```
 NotTheNet needs root access to bind privileged ports and manage iptables rules.
@@ -112,7 +113,9 @@ NotTheNet needs root access to bind privileged ports and manage iptables rules.
 
 ## TLS Certificate Security
 
-### Certificate generation defaults
+NotTheNet generates TLS certificates for its fake HTTPS server. These are intentionally self-signed — they don't need to be trusted by real browsers, they just need to make the TLS handshake succeed so malware will talk to the fake server.
+
+### Certificate defaults
 
 | Property | Value |
 |----------|-------|
@@ -120,15 +123,14 @@ NotTheNet needs root access to bind privileged ports and manage iptables rules.
 | Key size | 4096 bits |
 | Signature | SHA-256 |
 | Validity | 825 days |
-| SAN | localhost, notthenet.local, 127.0.0.1 |
-| CN-only | No (SAN is included, as required by RFC 2818) |
+| Hostnames | localhost, notthenet.local, 127.0.0.1 |
 
 ### Private key permissions
 
-The private key is written with mode `0o600` (owner read/write only). Verify:
+The private key is created with strict permissions so only root can read it:
 ```bash
 ls -la certs/server.key
-# -rw------- 1 root root ... certs/server.key
+# Should show: -rw------- 1 root root ...
 ```
 
 ### Replacing with a custom certificate
@@ -143,16 +145,16 @@ You can use any PEM certificate/key pair:
 
 Keep custom keys outside the project directory and out of version control (they are already in `.gitignore`).
 
-### Certificate is NOT trusted by malware by default
+### Do malware samples trust these certificates?
 
-That's fine — most malware either:
-- Does not validate TLS certificates (common for C2)
-- Uses certificate pinning (won't connect to anything fake anyway)
-- Validates trust on first connect (TOFU) — accepts self-signed on first connection
+Usually, yes — most malware either:
+- **Doesn't validate TLS certificates at all** (very common for C2 traffic)
+- **Uses certificate pinning** (won't connect to anything fake regardless)
+- **Trusts on first connect** (accepts self-signed on the first connection)
 
-For malware that does strict CA validation, install the Root CA (`certs/ca.crt`) in the analysis VM's trust store. When `https.dynamic_certs` is enabled, NotTheNet auto-generates a Root CA at `certs/ca.crt` / `certs/ca.key` and forges per-domain certs signed by it — installing the CA once makes all forged certs trusted.
+For malware that does strict CA validation, install NotTheNet's Root CA (`certs/ca.crt`) in the victim VM's trust store. When `https.dynamic_certs` is enabled, NotTheNet generates a Root CA and forges per-domain certificates signed by it — installing the CA once makes all forged certs trusted.
 
-### Dynamic Certificate Security
+### Dynamic Certificate Forging (advanced)
 
 When `https.dynamic_certs` is enabled:
 
@@ -165,41 +167,41 @@ When `https.dynamic_certs` is enabled:
 
 ## Log Security
 
-### Log injection prevention (CWE-117)
+### Protection against log injection (CWE-117)
 
-All untrusted data (IP addresses, hostnames, HTTP paths, DNS query names, SMTP commands, FTP commands) is passed through `sanitize_log_string()` before being written to logs. This function:
+Malware can try to inject fake log entries by putting special characters in hostnames, URLs, or commands. NotTheNet sanitises all untrusted data before writing it to logs:
 
-- Strips ANSI escape sequences (prevents terminal hijacking via log viewing)
-- Replaces ASCII control characters (`\r`, `\n`, `\x00`–`\x1f`) with `[?]`
-- Truncates strings longer than 512 characters
+- Strips ANSI escape sequences (prevents terminal colour hijacking when viewing logs)
+- Replaces control characters (`\r`, `\n`, null bytes) with `[?]`
+- Truncates overly long strings (512-character limit)
 
 ### Log file permissions
 
-Log directories are created with mode `0o700`. Before privilege drop, the service manager `chown`s `logs/` and its subdirectories to the drop target user (default `nobody`) so the dropped process retains write access. Log files inherit the umask of the running process.
+Log directories are created with restricted permissions (`0o700` — only the owner can read/write/enter). Before dropping privileges, NotTheNet changes log directory ownership so the unprivileged process can still write to them.
 
 ### Session-labeled JSON event logs
 
-When `general.json_logging` is enabled, each session writes to a new date/session-labeled file:
+When JSON logging is enabled, each NotTheNet session writes to a new file:
 
 ```
 logs/events_2026-04-01_s1.jsonl   ← first session today
 logs/events_2026-04-01_s2.jsonl   ← second session today
 ```
 
-The session number increments for each Start within the same calendar day. The active session path is written back to in-memory config at runtime — the GUI JSON Events viewer and export dialog always reference the current session.
+The session number increments each time you click Start on the same day.
 
-### Rotating logs
+### Log rotation
 
-Logs rotate at 10 MB with 5 backups (50 MB maximum total). This prevents disk exhaustion from captured verbose malware traffic.
+Logs automatically rotate at 10 MB with 5 backups (50 MB maximum). This prevents a verbose malware sample from filling up your disk.
 
-### JSON Event Log Security
+### JSON event log safety
 
-When `general.json_logging` is enabled:
+When JSON logging is enabled:
 
-- **File size cap:** 500 MB — logging stops when the cap is reached to prevent disk exhaustion
-- **Thread-safe writes:** All log writes go through a single `JsonEventLogger` singleton with proper locking
-- **No eval/exec:** JSON events are serialised with `json.dumps()` — no user-controlled data is ever evaluated as code
-- **Auto-flush:** Events are flushed immediately so data is not lost on crash
+- **Size cap:** 500 MB — logging stops when the cap is reached to prevent disk exhaustion
+- **Thread-safe:** All writes go through a single logger with proper locking so events aren't corrupted
+- **No code execution:** Events are serialised with `json.dumps()` — malware data is never evaluated as code
+- **Immediate flush:** Events are written immediately so nothing is lost if NotTheNet crashes
 
 If you need longer retention, archive logs before the backups roll over:
 ```bash
@@ -211,16 +213,16 @@ If you need longer retention, archive logs before the backups roll over:
 
 ## Captured Artifact Handling
 
-Emails saved to `logs/emails/` and FTP uploads saved to `logs/ftp_uploads/` **may contain malware binaries or scripts**. Handle accordingly:
+Emails saved to `logs/emails/` and FTP uploads in `logs/ftp_uploads/` **may contain live malware**. Treat them with caution:
 
-- Open these directories only in a sandboxed environment
-- Do not double-click `.bin` files
-- Use `file`, `strings`, and `xxd` to inspect rather than executing
-- Compress and password-protect before transferring off the analysis host:
+- Only open these directories in a sandboxed environment
+- Don't double-click `.bin` or `.exe` files
+- Use command-line tools (`file`, `strings`, `xxd`) to inspect files without executing them
+- Always compress and password-protect before transferring off the analysis machine:
   ```bash
   zip -P infected --encrypt artifacts.zip logs/emails/ logs/ftp_uploads/
   ```
-- The `.gitignore` already blocks `logs/` from being committed to version control
+- The `.gitignore` already prevents `logs/` from being committed to version control
 
 ---
 
@@ -228,7 +230,7 @@ Emails saved to `logs/emails/` and FTP uploads saved to `logs/ftp_uploads/` **ma
 
 ### Disable services you don't need
 
-Only enable services relevant to the malware being analyzed. For ransomware studying HTTP C2 only:
+Only enable the services relevant to the malware you're analysing. For example, if you're analysing ransomware that only uses HTTP for C2, you don't need SMTP, POP3, IMAP, or FTP:
 
 ```json
 {
@@ -245,16 +247,18 @@ Only enable services relevant to the malware being analyzed. For ransomware stud
 ### Minimal external dependencies
 
 NotTheNet uses only **two** external Python packages:
-- `dnslib` — DNS packet parsing
-- `cryptography` — TLS certificate generation
+- `dnslib` — for parsing DNS packets
+- `cryptography` — for generating TLS certificates
 
-Everything else (HTTP, SMTP, FTP, TCP/UDP servers, iptables management, GUI) uses Python's standard library. This minimises supply-chain risk.
+Everything else (HTTP server, SMTP server, FTP server, GUI, traffic redirection) uses Python's built-in standard library. Fewer dependencies means fewer potential supply-chain vulnerabilities.
 
 ---
 
 ## OpenSSF Practices Implemented
 
-| OpenSSF Practice | Implementation |
+This section is for security auditors and contributors. It lists the security engineering practices built into NotTheNet, following the [OpenSSF](https://openssf.org/) framework.
+
+| Practice | How NotTheNet implements it |
 |-----------------|----------------|
 | Vulnerability disclosure policy | `SECURITY.md` with private reporting channel |
 | Contribution process | `CONTRIBUTING.md` with PR process, code style, and test policy |
@@ -292,17 +296,16 @@ ruff check .
 
 ## Recommended Lab Checklist
 
-Before each analysis session:
+Run through this checklist before each analysis session:
 
-- [ ] Victim VM is **snapshotted** before execution
-- [ ] Victim VM has **no route** to real internet
-- [ ] Victim VM DNS is **set to NotTheNet host IP**
-- [ ] `config.json` interface is set to the **isolated adapter** (not `eth0` connected to real internet)
-- [ ] `redirect_ip` matches the **NotTheNet host's IP** on the isolated network
-- [ ] NotTheNet is running and **all expected services show green** in the sidebar
-- [ ] Verified DNS resolution: `dig @<notthenet-ip> test.com +short` returns expected IP
-- [ ] Log directory is **writable** and has sufficient disk space
-- [ ] If using `dynamic_certs`, install `certs/ca.crt` in the analysis VM's **trust store** for seamless HTTPS interception
-- [ ] If using `tcp_fingerprint`, set `tcp_fingerprint_os` to match the **expected OS** of the analysis target (e.g. `"windows"` for FlareVM)
-- [ ] If using `json_logging`, confirm `json_log_file` path is writable and monitor disk usage (500 MB cap)
-- [ ] Malware artifacts (`logs/emails`, `logs/ftp_uploads`) from **previous sessions are archived** or cleared
+- [ ] Victim VM is **snapshotted** (so you can revert after detonation)
+- [ ] Victim VM has **no route to the real internet**
+- [ ] Victim VM's DNS is set to the **NotTheNet host IP** (e.g. `10.0.0.1`)
+- [ ] `config.json` interface is set to the **isolated lab adapter** (not an internet-connected one)
+- [ ] `redirect_ip` matches Kali's IP on the isolated network
+- [ ] NotTheNet is running and **all expected services show green**
+- [ ] DNS test works: `dig @10.0.0.1 test.com +short` returns the expected IP
+- [ ] Log directory is **writable** and has sufficient free disk space
+- [ ] If using `dynamic_certs`, the Root CA (`certs/ca.crt`) is installed in the victim VM's trust store
+- [ ] If using `tcp_fingerprint`, the profile matches the victim OS (e.g. `"windows"` for FlareVM)
+- [ ] Artifacts from **previous sessions** are archived or cleared

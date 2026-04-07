@@ -4,23 +4,28 @@
 
 # NotTheNet Documentation
 
-Welcome to the NotTheNet documentation hub. NotTheNet is a fake internet simulator for malware analysis — a modern, easy-to-configure alternative to INetSim and FakeNet-NG.
+Welcome to the NotTheNet documentation. NotTheNet is a **fake internet simulator** built for malware analysis.
+
+When you detonate (run) a malware sample in a lab, the malware tries to connect to the internet — it makes DNS lookups, downloads files, sends stolen data, and phones home to command-and-control (C2) servers. NotTheNet pretends to be the entire internet so the malware behaves normally while you watch, but nothing ever leaves your lab.
+
+> **New to malware analysis?** Start with the [Lab Setup](lab-setup.md) guide, which walks you through building an isolated lab from scratch on Proxmox.
 
 ---
 
 ## Contents
 
-| Document | Description |
-|----------|-------------|
-| [Installation](installation.md) | System requirements, install steps, virtualenv setup |
-| [Configuration](configuration.md) | Full reference for every `config.json` field |
-| [Usage](usage.md) | GUI walkthrough, CLI/headless mode, command-line flags |
-| [Services](services.md) | DNS, HTTP/HTTPS, SMTP, POP3, IMAP, FTP, Catch-All, DoH sinkhole, WebSocket sinkhole, dynamic responses, JSON event logging |
-| [Network & iptables](network.md) | How traffic redirection works, gateway vs loopback modes, TCP/IP fingerprint spoofing |
-| [Security Hardening](security-hardening.md) | Lab network isolation, interface binding, privilege model |
-| [Troubleshooting](troubleshooting.md) | Common errors and fixes |
-| [Lab Setup: Proxmox + Kali + FlareVM](lab-setup.md) | Isolated lab wiring, IP forwarding, detonation workflow |
-| [Development Setup](development.md) | VS Code on Kali/Windows, venv, predeploy checks, project structure |
+| Document | What it covers |
+|----------|----------------|
+| [Installation](installation.md) | How to install NotTheNet on Kali (online, offline/USB, or .deb package) |
+| [Configuration](configuration.md) | Every setting in `config.json` explained |
+| [Usage](usage.md) | How to use the GUI, run in headless mode, and analyse malware step by step |
+| [Services](services.md) | Details on every fake service (DNS, HTTP, SMTP, FTP, and 20+ more) |
+| [Network & iptables](network.md) | How NotTheNet redirects traffic and what iptables rules it creates |
+| [Security Hardening](security-hardening.md) | How to lock down your lab so malware cannot escape |
+| [Troubleshooting](troubleshooting.md) | Common problems and how to fix them |
+| [Lab Setup: Proxmox + Kali + FlareVM](lab-setup.md) | Build an isolated malware analysis lab from scratch |
+| [Safe Detonation](safe-detonation.md) | Step-by-step checklist for safely running a malware sample |
+| [Development Setup](development.md) | For contributors: dev environment, tests, project structure |
 
 Man page: [`man/notthenet.1`](../man/notthenet.1)
 
@@ -51,11 +56,13 @@ sudo notthenet
 
 Then click **▶ Start**.
 
-That's it. Every DNS query from the analysis machine now resolves to `127.0.0.1`, every HTTP/HTTPS request gets a `200 OK`, and all other TCP traffic hits the catch-all service.
+That's it. From this moment, any program on your analysis machine that tries to "talk to the internet" — whether it's looking up a domain name, loading a web page, sending an email, or connecting to a random port — will get a believable fake response from NotTheNet instead.
 
 ---
 
 ## Why NotTheNet Instead of INetSim / FakeNet-NG?
+
+INetSim and FakeNet-NG are older tools that do a similar job. The table below compares them — don't worry if you don't understand every row, the important takeaway is that NotTheNet handles many edge cases automatically.
 
 | Issue | INetSim | FakeNet-NG | NotTheNet |
 |-------|---------|-----------|-----------|

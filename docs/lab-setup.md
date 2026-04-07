@@ -2,9 +2,13 @@
 
 > **Goal:** Build a fully isolated malware analysis lab where all network traffic from a Windows sandbox (FlareVM) is transparently intercepted by NotTheNet running on Kali — no real internet reachable from the sample.
 
+This walkthrough is step-by-step. You don't need to be an expert — each step explains **what** you're doing and **why**.
+
 ---
 
 ## Architecture Overview
+
+Here is a diagram of how the lab is laid out. The two VMs (Kali and FlareVM) share an isolated virtual network that has no connection to the real internet.
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -36,6 +40,8 @@ Each VM has **one NIC**. During setup you switch that NIC to `vmbr0` for interne
 
 ### 1.1 Create the isolated lab bridge
 
+A "bridge" in Proxmox is like a virtual network switch. You're going to create one (`vmbr1`) that connects your VMs to each other but has **no connection to the real internet**.
+
 In Proxmox web UI: **Node → System → Network → Create → Linux Bridge**
 
 | Field | Value |
@@ -50,7 +56,7 @@ In Proxmox web UI: **Node → System → Network → Create → Linux Bridge**
 
 Click **Create**, then **Apply Configuration**.
 
-> **No second physical NIC required.** Leaving **Bridge ports** empty creates a purely internal virtual switch that exists only between VMs — it does not touch any physical network adapter. Your Proxmox host only needs one NIC. `vmbr0` stays connected to the internet; `vmbr1` is completely air-gapped from the outside world, carrying only VM-to-VM traffic.
+> **No second physical NIC required.** Leaving **Bridge ports** empty creates a purely internal virtual switch that exists only between VMs. No real network traffic passes through it. Your Proxmox host only needs one physical network card.
 
 ---
 
@@ -134,9 +140,11 @@ ip addr show
 
 ### 2.4 IP forwarding
 
-`net.ipv4.ip_forward` is **enabled automatically** by NotTheNet when gateway mode is active — the iptables PREROUTING DNAT rules require it even on a single-NIC setup, because traffic from FlareVM arriving at eth0 for a foreign IP (e.g. `8.8.8.8`) still goes through the kernel forwarding path before DNAT can rewrite it. The original value is restored when NotTheNet stops.
+IP forwarding allows packets to flow from FlareVM through Kali so NotTheNet can intercept them.
 
-> No manual configuration needed. If you check `/proc/sys/net/ipv4/ip_forward` while NotTheNet is running in gateway mode, you will see `1`.
+**NotTheNet enables this automatically** when gateway mode is active — you don't need to set anything manually. The original setting is restored when NotTheNet stops.
+
+> If you check `/proc/sys/net/ipv4/ip_forward` while NotTheNet is running in gateway mode, you will see `1`.
 
 ### 2.5 Install NotTheNet
 
@@ -267,7 +275,7 @@ ping 10.0.0.1
 
 ### 3.5 Install FlareVM
 
-> **FlareVM installer needs real internet.** Before running the installer, temporarily switch FlareVM's NIC bridge to `vmbr0`.
+> **FlareVM needs real internet to install.** Before running the installer, temporarily switch FlareVM's NIC to `vmbr0` so it can download its components (around 10–15 GB).
 
 **Switch FlareVM to internet temporarily:**
 
@@ -299,7 +307,28 @@ Proxmox → **flarevm → Hardware → Network Device (net0) → Edit → Bridge
 
 Then inside FlareVM, re-apply the static IP from section 3.4 (it will have been overwritten by DHCP). From this point on FlareVM has no real internet.
 
-### 3.6 Take a clean baseline snapshot
+### 3.6 Enable WMI and disable Windows Firewall
+
+NotTheNet's **Preflight** checks (the pre-flight checker that runs before analysis) can remotely verify FlareVM's configuration. This uses WMI (Windows Management Instrumentation), which is blocked by Windows Firewall by default.
+
+Open an **Administrator PowerShell** on FlareVM and run:
+
+```powershell
+# Disable Windows Firewall (safe — the isolated bridge provides containment)
+Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
+
+# Verify WMI service is running
+Get-Service Winmgmt | Select-Object Status
+```
+
+> **Why disable the firewall entirely?** FlareVM has no internet — it only connects to Kali. The firewall provides no security benefit here but it blocks remote management features. Disabling it avoids chasing individual firewall rules.
+
+If you prefer to keep the firewall on, enable only WMI:
+```powershell
+netsh advfirewall firewall set rule group="Windows Management Instrumentation (WMI)" new enable=yes
+```
+
+### 3.7 Take a clean baseline snapshot
 
 Before detonating anything, snapshot FlareVM in a known-good state:
 
@@ -315,7 +344,7 @@ Proxmox → **flarevm → Snapshots → Take Snapshot**
 
 ## Part 4 — Full Lab Verification
 
-Before detonating any samples, verify every layer of the lab is working.
+Before detonating any samples, run through this checklist to confirm every layer of the lab is working. This takes about 5 minutes and saves a lot of confusion later.
 
 ### 4.1 Ping (basic connectivity)
 
@@ -374,14 +403,22 @@ Expected: `200 OK` — caught by the TCP Catch-All service. These appear in the 
 
 ### 4.8 Confirm isolation (no real internet)
 
+This is the most important check. Confirm that **nothing can reach the real internet**.
+
 ```cmd
 curl.exe -s -m 5 telnet://8.8.8.8:53
 ```
-Expected: no output / command returns after 5 seconds. If a banner appears, FlareVM still has a route to the real internet — re-check that `vmbr0` is not attached.
+Expected: no output / command returns after 5 seconds with no response.
+
+> If output appears, FlareVM still has a path to the internet. Go back to Proxmox and confirm `vmbr0` is not attached to FlareVM.
 
 ### 4.9 Dynamic TLS certs (install Root CA)
 
-If `https.dynamic_certs` is enabled (default), install the Root CA so forged per-domain certs are trusted:
+When `https.dynamic_certs` is enabled (the default), NotTheNet creates a unique certificate for every website malware connects to. For this to work without certificate errors, you need to install NotTheNet's Root CA certificate in Windows.
+
+**Think of it this way:** Windows asks "who signed this certificate?" When malware connects to `https://evil-c2.com`, NotTheNet creates a certificate on the spot. Windows will only trust it if you've told Windows to trust NotTheNet's Root CA as an authority.
+
+Steps:
 
 1. Copy `certs/ca.crt` from Kali to FlareVM (e.g. via the Python HTTP server in Part 6)
 2. On FlareVM: double-click `ca.crt` → **Install Certificate** → **Local Machine** → **Place all certificates in the following store** → **Trusted Root Certification Authorities** → Finish
@@ -390,7 +427,7 @@ Verify:
 ```cmd
 curl.exe -s https://evil-c2.com/
 ```
-Expected: `200 OK` response **without** a certificate error (because the forged cert for `evil-c2.com` is signed by the now-trusted Root CA).
+Expected: `200 OK` response **without** a certificate error.
 
 ### 4.10 Dynamic responses
 
@@ -659,32 +696,66 @@ Modern malware frequently checks for sandbox and VM indicators before executing 
 
 ### 8.1 Proxmox VM hardware config (FlareVM)
 
-Edit `/etc/pve/qemu-server/<VMID>.conf` on the Proxmox host. The following settings defeat the most common VM detection techniques:
+These changes modify the FlareVM's virtual hardware so that malware cannot tell it is running inside a VM. You will edit the VM's config file directly on the Proxmox host — this cannot be done from the Proxmox web UI.
+
+**Step-by-step:**
+
+1. **Shut down FlareVM** — the config file cannot be edited while the VM is running. In Proxmox UI: right-click the VM → **Shutdown**.
+
+2. **SSH into the Proxmox host:**
+   ```bash
+   ssh root@<proxmox-ip>
+   ```
+
+3. **Find FlareVM's VMID** (the number in the ID column):
+   ```bash
+   qm list
+   ```
+
+4. **Back up the existing config** (so you can revert if something breaks):
+   ```bash
+   cp /etc/pve/qemu-server/<VMID>.conf /etc/pve/qemu-server/<VMID>.conf.bak
+   ```
+
+5. **Open the config file:**
+   ```bash
+   nano /etc/pve/qemu-server/<VMID>.conf
+   ```
+
+6. **Apply the changes below.** Some lines already exist and need to be **replaced** (like `cpu:`, `machine:`, `memory:`, `cores:`, `bios:`). Others are **new** and must be **added** (like `args:`, `smbios1:`, `tpmstate0:`). The comments below indicate which is which.
+
+7. **Save and exit** (`Ctrl+O`, `Enter`, `Ctrl+X` in nano), then start the VM from the Proxmox UI.
 
 ```ini
-# Pass through the real host CPU model — no "QEMU Virtual CPU" string
+# REPLACE existing cpu: line
 cpu: host,hidden=1,flags=+pcid
 
-# Anti-detection QEMU flags
+# ADD — anti-detection QEMU flags (this line is new; paste it exactly as shown)
 args: -cpu host,kvm=off,hv-vendor-id=GenuineIntel,-hypervisor,+pcid,+invtsc,tsc-frequency=3600000000 -overcommit cpu-pm=on
 
-# Realistic SMBIOS — reported to WMI/Win32_ComputerSystem
+# ADD — realistic SMBIOS so WMI reports a Dell desktop, not "QEMU"
 smbios1: manufacturer=Dell Inc.,product=OptiPlex 7090,version=1,serial=7GH2JK3,uuid=a1b2c3d4-e5f6-7890-abcd-ef1234567890,family=Desktop
 
-# Modern chipset (i440fx is a sandbox flag)
+# REPLACE existing machine: line (i440fx is an immediate sandbox flag)
 machine: q35
 
-# Adequate resources — low RAM/CPU/disk is a sandbox indicator
+# REPLACE existing memory: line — low RAM is a sandbox indicator
 memory: 16384
+
+# REPLACE existing cores: line
 cores: 2
+
+# REPLACE existing sata0/scsi0 line (adjust storage name to match yours)
 sata0: local-lvm:vm-200-disk-1,size=256G
 
-# TPM 2.0 — Windows 11 requires it; presence indicates a real modern PC
+# ADD — TPM 2.0 (Windows 11 requires it; presence indicates a real PC)
 tpmstate0: local-lvm:vm-200-disk-2,size=4M,version=v2.0
 
-# UEFI firmware
+# REPLACE existing bios: line (must be UEFI, not SeaBIOS)
 bios: ovmf
 ```
+
+> **Tip:** If you already created the VM with the default `i440fx` machine type and `seabios`, you will need to reinstall Windows after switching to `q35` + `ovmf`. It is easier to apply these settings **before** installing the OS. If you followed this guide from the start, go back to section 3.1 and recreate the VM with these settings first.
 
 **What each flag does:**
 
@@ -719,33 +790,7 @@ The isolated bridge (`vmbr1` with no physical uplink) already provides full cont
 
 > Disabling per-VM does not affect other VMs or the datacenter-level firewall.
 
-### 8.3 GhostFlare — registry-level VM artifact removal
-
-GhostFlare is a PowerShell script that patches Windows registry entries that reveal the VM environment:
-
-| What it patches | Detail |
-|-----------------|--------|
-| SCSI disk identifier / serial | QEMU/VBOX/VMWARE → Samsung SSD |
-| BIOS version and date | BOCHS/QEMU → realistic Dell timestamp |
-| SMBIOS manufacturer/product | QEMU/innotek → Dell OptiPlex 7090 |
-| VM guest tools registry keys | Removes VirtualBox, VMware, Hyper-V service entries |
-| NIC MAC address OUI | QEMU `52:54:00` → Intel `D4:BE:D9` (Dell NIC OUI) |
-| Windows install date | Backdated to look like a well-used machine |
-| VBS / DeviceGuard | Disabled |
-
-**Copy to FlareVM and run once as Administrator:**
-
-```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force
-.\ghost-flare.ps1
-```
-
-GhostFlare registers itself as a SYSTEM ONLOGON scheduled task so patches persist across reboots.
-
-> `ghost-flare.ps1` is included in the NotTheNet bundle. After install it is at:
-> `~/NotTheNet/ghost-flare.ps1` on Kali.
-
-### 8.4 Display resolution
+### 8.3 Display resolution
 
 A VM defaulting to 800×600 or 1280×800 is a well-known sandbox indicator. Set 1920×1080:
 
@@ -756,7 +801,7 @@ A VM defaulting to 800×600 or 1280×800 is a well-known sandbox indicator. Set 
 
 > This is a persistent UEFI NVRAM setting — it survives reboots and snapshot rollbacks.
 
-### 8.5 Additional hardening checklist
+### 8.4 Additional hardening checklist
 
 | Check | Target value | How to set |
 |-------|-------------|------------|
@@ -770,11 +815,11 @@ A VM defaulting to 800×600 or 1280×800 is a well-known sandbox indicator. Set 
 | **User artifacts** | Desktop files, browser bookmarks, recent docs | Stage manually |
 | **Uptime** | Boot and idle 10+ min before detonating | Wait before running samples |
 
-### 8.6 Snapshot strategy
+### 8.5 Snapshot strategy
 
-After completing all hardening steps (sections 8.1–8.5) and verifying the lab is working:
+After completing all hardening steps (sections 8.1–8.4) and verifying the lab is working:
 
-1. Run GhostFlare, reboot, verify resolution and NIC MAC
+1. Verify resolution and NIC MAC
 2. Take a **Stealth** snapshot — clean OS with all hardening applied, no analysis tools
 3. Install FlareVM tools on top
 4. Take a **Pre-detonate** snapshot — tools installed, ready for samples

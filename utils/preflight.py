@@ -247,7 +247,7 @@ def _check_network(cfg: Config) -> list[CheckResult]:
         if val == "1":
             results.append(CheckResult(OK, "ip_forward: enabled"))
         else:
-            results.append(CheckResult(WARN, "ip_forward: disabled (needed for gateway mode)"))
+            results.append(CheckResult(INFO, "ip_forward: disabled (auto-enabled on service start)"))
     except OSError:
         results.append(CheckResult(INFO, "ip_forward: could not read"))
 
@@ -320,8 +320,8 @@ def _check_hardening() -> list[CheckResult]:
         if "NOTTHENET_HARDEN" in out.stdout or "DROP" in out.stdout:
             results.append(CheckResult(OK, "FORWARD DROP rules: active"))
         else:
-            results.append(CheckResult(WARN,
-                "FORWARD DROP rules: not found — run harden-lab.sh"))
+            results.append(CheckResult(INFO,
+                "FORWARD DROP rules: not found (auto-applied on service start)"))
     except Exception:
         results.append(CheckResult(WARN, "Could not check FORWARD rules (need root?)"))
 

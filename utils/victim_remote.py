@@ -36,6 +36,44 @@ class DetectedHost:
     mac: str
 
 
+def _parse_ip_neigh_output(output: str, bind_ip: str) -> list[DetectedHost]:
+    """Parse `ip neigh` output into DetectedHost entries.
+
+    Handles both common formats:
+    - "10.10.10.10 lladdr aa:bb:cc:dd:ee:ff REACHABLE"
+    - "10.10.10.10 dev eth1 lladdr aa:bb:cc:dd:ee:ff REACHABLE"
+    """
+    hosts: list[DetectedHost] = []
+
+    for line in output.strip().splitlines():
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+
+        ip = parts[0]
+        if ip == bind_ip:
+            continue
+
+        try:
+            ip_obj = ipaddress.ip_address(ip)
+            if ip_obj.version != 4:
+                continue
+        except ValueError:
+            continue
+
+        if "lladdr" not in parts:
+            continue
+
+        lladdr_idx = parts.index("lladdr")
+        if lladdr_idx + 1 >= len(parts):
+            continue
+
+        mac = parts[lladdr_idx + 1]
+        hosts.append(DetectedHost(ip=ip, mac=mac))
+
+    return hosts
+
+
 def detect_victims(cfg: Config) -> list[DetectedHost]:
     """Find non-gateway hosts on the lab bridge via ARP cache.
 
@@ -51,23 +89,16 @@ def detect_victims(cfg: Config) -> list[DetectedHost]:
     if not interface:
         return []
 
-    hosts: list[DetectedHost] = []
-
     # Try ip neigh first
     try:
         out = subprocess.run(
             ["ip", "neigh", "show", "dev", interface],
             capture_output=True, text=True, timeout=5,
         )
-        for line in out.stdout.strip().splitlines():
-            parts = line.split()
-            if len(parts) >= 5 and parts[2] == "lladdr":
-                ip = parts[0]
-                mac = parts[3]
-                if ip != bind_ip:
-                    hosts.append(DetectedHost(ip=ip, mac=mac))
+        hosts = _parse_ip_neigh_output(out.stdout, bind_ip)
     except Exception as e:
         logger.debug("ip neigh failed: %s", e)
+        hosts = []
 
     return hosts
 

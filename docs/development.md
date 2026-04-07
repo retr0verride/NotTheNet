@@ -1,6 +1,8 @@
 # Development Setup
 
-How to set up a local development environment for working on NotTheNet.
+How to set up a local development environment for contributing to NotTheNet.
+
+> **Note:** NotTheNet **runs** on Kali Linux only (it needs Linux iptables). However, you can write and test code on Windows, then deploy to Kali to verify end-to-end behaviour.
 
 ---
 
@@ -43,7 +45,11 @@ VS Code will detect the `.venv` automatically. If prompted, select it as the Pyt
 bash predeploy.sh
 ```
 
-This runs ruff (lint), mypy (type check), bandit (security scan), pytest (250 tests), and builds the package.
+This runs ruff (lint), mypy (type check), bandit (security scan), pytest (250+ tests), and builds the package. **All checks must pass before pushing.**
+
+---
+
+## Windows (development only)
 
 NotTheNet **runs on Kali Linux only**. The Windows workflow is for developers who write and test code on a Windows host before pushing.
 
@@ -69,13 +75,13 @@ code .
 .\predeploy.ps1
 ```
 
-This runs ruff (lint), mypy (type check), bandit (security scan), pytest (250 tests), and builds the package.
+This runs ruff (lint), mypy (type check), bandit (security scan), pytest (250+ tests), and builds the package. **All checks must pass before pushing.**
 
 ---
 
 ## Running Tests
 
-All tests are pure-Python, require no root access or network, and complete in under a second:
+All tests are pure-Python, require no root access or real network, and complete in under a second.
 
 ```bash
 # Kali / Debian / Ubuntu
@@ -84,6 +90,8 @@ pytest tests/ -v
 # Windows (dev-only)
 .venv\Scripts\python.exe -m pytest tests/ -v
 ```
+
+> Running with `-v` (verbose) shows each test name. Without it you just see a pass/fail summary.
 
 | Test file | What it covers |
 |-----------|----------------|
@@ -103,7 +111,7 @@ pytest tests/ -v
 ---
 
 ## Recommended VS Code Extensions
-
+These extensions give you inline lint and type errors as you code:
 | Extension | Purpose |
 |-----------|---------|
 | `ms-python.python` | Python language support, IntelliSense, venv detection |
@@ -132,5 +140,5 @@ pytest tests/ -v
 ## Notes
 
 - The GUI uses **Tkinter** only — no extra GUI dependencies beyond the Python standard library.
-- Services require **root** (or iptables redirect) to bind to ports below 1024. Run with `sudo` when testing services end-to-end; the GUI itself can be developed and launched as a normal user with services disabled.
-- `network/iptables_manager.py` and `utils/privilege.py` are Linux-only (`iptables`, `grp`, `pwd`). On a Windows dev machine mypy suppresses errors for those modules (configured in `pyproject.toml`); they are fully exercised on Kali at deploy time.
+- Services require **root** to bind to ports below 1024 (like 53, 80, 443). Run with `sudo` when testing services end-to-end; the GUI itself can be developed as a normal user with services disabled.
+- `network/iptables_manager.py` and `utils/privilege.py` are Linux-only. On Windows, mypy skips those modules (see `pyproject.toml`). They're fully exercised on Kali at deploy time.

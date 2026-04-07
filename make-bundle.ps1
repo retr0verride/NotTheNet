@@ -532,6 +532,26 @@ echo -e "${GREEN}|   Headless:  sudo notthenet --nogui                  |${NC}"
 echo -e "${GREEN}|   Uninstall: sudo notthenet-uninstall                |${NC}"
 echo -e "${GREEN}+------------------------------------------------------+${NC}"
 fi
+
+_PREP_DIR="${INSTALL_DIR:-$SCRIPT_DIR}/assets"
+_GW_IP=$(python3 -c "import json; c=json.load(open('${INSTALL_DIR:-$SCRIPT_DIR}/config.json')); print(c.get('general',{}).get('bind_ip','10.10.10.1'))" 2>/dev/null || echo '10.10.10.1')
+if [[ -f "${_PREP_DIR}/prepare-victim.ps1" ]]; then
+echo ""
+echo -e "${YELLOW}+------------------------------------------------------+${NC}"
+echo -e "${YELLOW}|  VICTIM PREP - run once on FlareVM (Admin PowerShell)|${NC}"
+echo -e "${YELLOW}+------------------------------------------------------+${NC}"
+echo -e "${YELLOW}  On Kali:${NC}"
+echo -e "${YELLOW}    cd ${_PREP_DIR}${NC}"
+echo -e "${YELLOW}    python3 -m http.server 8080${NC}"
+echo ""
+echo -e "${YELLOW}  On FlareVM (Admin PowerShell):${NC}"
+echo -e "${YELLOW}    curl.exe -o C:\\prepare-victim.ps1 http://${_GW_IP}:8080/prepare-victim.ps1${NC}"
+echo -e "${YELLOW}    Set-ExecutionPolicy Bypass -Scope Process -Force${NC}"
+echo -e "${YELLOW}    & C:\\prepare-victim.ps1${NC}"
+echo ""
+echo -e "${YELLOW}  Then take a baseline snapshot.${NC}"
+echo -e "${YELLOW}+------------------------------------------------------+${NC}"
+fi
 '@)
 
     # ── Write output file with LF line endings (critical for bash on Linux) ──
