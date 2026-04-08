@@ -21,11 +21,12 @@ BRIDGE_IF="${BRIDGE_IF:-vmbr1}"
 MGMT_IF="${MGMT_IF:-eth0}"
 GATEWAY_IP="${GATEWAY_IP:-10.10.10.1}"
 VICTIM_SUBNET="${VICTIM_SUBNET:-10.10.10.0/24}"
+VICTIM_IP="${VICTIM_IP:-}"
 LOG_DIR="${LOG_DIR:-$(dirname "$0")/logs}"
 SKIP_MOUNT="${SKIP_MOUNT:-0}"
 
 usage() {
-    echo "Usage: $0 [--bridge IFACE] [--mgmt IFACE] [--gateway-ip IP] [--victim-subnet CIDR] [--log-dir PATH] [--skip-mount]"
+    echo "Usage: $0 [--bridge IFACE] [--mgmt IFACE] [--gateway-ip IP] [--victim-subnet CIDR] [--victim-ip IP] [--log-dir PATH] [--skip-mount]"
     exit 1
 }
 
@@ -35,6 +36,7 @@ while [[ $# -gt 0 ]]; do
         --mgmt)           MGMT_IF="$2";       shift 2 ;;
         --gateway-ip)     GATEWAY_IP="$2";    shift 2 ;;
         --victim-subnet)  VICTIM_SUBNET="$2"; shift 2 ;;
+        --victim-ip)      VICTIM_IP="$2";      shift 2 ;;
         --log-dir)        LOG_DIR="$2";       shift 2 ;;
         --skip-mount)     SKIP_MOUNT=1;       shift   ;;
         -h|--help)        usage ;;
@@ -53,6 +55,7 @@ echo "  Bridge:        $BRIDGE_IF"
 echo "  Management:    $MGMT_IF"
 echo "  Gateway IP:    $GATEWAY_IP"
 echo "  Victim subnet: $VICTIM_SUBNET"
+echo "  Victim IP:     ${VICTIM_IP:-auto-detect from config.json}"
 echo "═══════════════════════════════════════════════════════"
 
 # ── 1. Stop conflicting services ──────────────────────────────────────────
@@ -124,14 +127,27 @@ echo 1 > /proc/sys/net/ipv4/ip_forward
 # ── Block lateral movement ports: victim subnet → Kali (vmbr1 INPUT) ─────
 # Victims can still reach NotTheNet fake-internet ports (53,80,443,25,…) but
 # cannot attack Kali via Windows exploitation channels.
-# Flush stale rules first (idempotent re-run).
-# Loop until all duplicates are gone (single -D only removes one instance).
-for _proto in tcp udp; do
-    for _port in 135 137 138 139 445 3389 5985 5986; do
-        while iptables -D INPUT -i "$BRIDGE_IF" -s "$VICTIM_SUBNET" \
-            -p "$_proto" --dport "$_port" -j DROP 2>/dev/null; do :; done
+# Purge ALL existing NOTTHENET_HARDEN INPUT rules before re-adding (prevents stacking).
+while iptables -L INPUT --line-numbers -n 2>/dev/null | awk '/NOTTHENET_HARDEN/{print $1}' | sort -rn | head -1 | xargs -r iptables -D INPUT 2>/dev/null; do :; done
+
+# Auto-read victim IP from config.json if not provided via --victim-ip
+if [[ -z "$VICTIM_IP" ]]; then
+    _CFG="$(dirname "$0")/config.json"
+    VICTIM_IP=$(python3 -c "import json,sys; d=json.load(open('$_CFG')); print(d.get('victim',{}).get('ip',''))" 2>/dev/null || true)
+fi
+
+# Allow selected victim to reach Kali on WMI/DCOM/SMB ports (needed for Preflight checks).
+# These ACCEPTs are inserted BEFORE the subnet-wide DROPs so they take precedence.
+if [[ -n "$VICTIM_IP" && "$VICTIM_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    for _port in 135 139 445; do
+        iptables -I INPUT 1 -i "$BRIDGE_IF" -s "$VICTIM_IP" \
+            -p tcp --dport "$_port" -j ACCEPT \
+            -m comment --comment "NOTTHENET_HARDEN: allow victim WMI/SMB → Kali"
     done
-done
+    echo "  ✓ WMI/SMB INPUT from $VICTIM_IP: ALLOWED (Preflight checks)"
+else
+    echo "  -- No victim IP configured; skipping WMI/SMB ACCEPT rules"
+fi
 
 for _proto in tcp udp; do
     for _port in 135 139 445 3389 5985 5986; do
@@ -151,7 +167,7 @@ for _port in 137 138; do
         -m comment --comment "NOTTHENET_HARDEN: block lateral movement → Kali"
 done
 
-echo "  ✓ Lateral movement ports (SMB/RDP/WMI/WinRM) from $VICTIM_SUBNET: BLOCKED on $BRIDGE_IF"
+echo "  ✓ Lateral movement ports (SMB/RDP/WMI/WinRM) from $VICTIM_SUBNET: BLOCKED on $BRIDGE_IF${VICTIM_IP:+ (except $VICTIM_IP via ACCEPT)}"
 echo "  Done."
 
 # ── 3. Mount logs/ as tmpfs (noexec) ─────────────────────────────────────

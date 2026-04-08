@@ -248,8 +248,8 @@
     "port": 853
   },
   "victim": {
-    "username": "",
-    "ip": "",
+    "username": "Desktop10FVM",
+    "ip": "10.10.10.10",
     "auto_detect_ip": true,
     "subnet_mask": 24
   }
