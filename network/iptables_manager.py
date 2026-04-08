@@ -340,6 +340,16 @@ class IPTablesManager:
         excluded_ports = excluded_ports or []
 
         ok_count = 0
+        # Exempt established/related connections (e.g. DCOM callbacks for WMI)
+        # so that tools running on Kali (impacket-wmiexec, smbclient) are not
+        # redirected to NTN's fake services.
+        conntrack_rule = table_flag + [
+            "-I", chain, "1",
+            "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED",
+            "-j", "RETURN",
+            "-m", "comment", "--comment", _RULE_COMMENT,
+        ]
+        self._add_rule(conntrack_rule)
         ok_count += self._apply_service_redirects(service_ports, chain, table_flag)
 
         ok_count += self._apply_catch_all(

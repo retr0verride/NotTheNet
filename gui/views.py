@@ -425,7 +425,7 @@ class DashboardMixin(_DashboardHost):
                               "Global settings: bind IP, redirect IP,\n"
                               "network interface, log directory, and verbosity.",
                               show_dot=False)
-        self._add_sidebar_btn(sb_inner, "preflight", "\U0001f6e1  Preflight",
+        self._add_sidebar_btn(sb_inner, "preflight", "\u2708  Preflight",
                               "Pre-detonation readiness check.\n"
                               "Verifies stealth config, certs, network,\n"
                               "ports, and optionally checks/fixes the\n"

@@ -125,15 +125,18 @@ echo 1 > /proc/sys/net/ipv4/ip_forward
 # Victims can still reach NotTheNet fake-internet ports (53,80,443,25,…) but
 # cannot attack Kali via Windows exploitation channels.
 # Flush stale rules first (idempotent re-run).
+# Loop until all duplicates are gone (single -D only removes one instance).
 for _proto in tcp udp; do
     for _port in 135 137 138 139 445 3389 5985 5986; do
-        iptables -D INPUT -i "$BRIDGE_IF" -s "$VICTIM_SUBNET" \
-            -p "$_proto" --dport "$_port" -j DROP 2>/dev/null || true
+        while iptables -D INPUT -i "$BRIDGE_IF" -s "$VICTIM_SUBNET" \
+            -p "$_proto" --dport "$_port" -j DROP 2>/dev/null; do :; done
     done
 done
 
 for _proto in tcp udp; do
     for _port in 135 139 445 3389 5985 5986; do
+        iptables -C INPUT -i "$BRIDGE_IF" -s "$VICTIM_SUBNET" \
+            -p "$_proto" --dport "$_port" -j DROP 2>/dev/null || \
         iptables -A INPUT -i "$BRIDGE_IF" -s "$VICTIM_SUBNET" \
             -p "$_proto" --dport "$_port" -j DROP \
             -m comment --comment "NOTTHENET_HARDEN: block lateral movement → Kali"
@@ -141,6 +144,8 @@ for _proto in tcp udp; do
 done
 # NetBIOS name/datagram (UDP only)
 for _port in 137 138; do
+    iptables -C INPUT -i "$BRIDGE_IF" -s "$VICTIM_SUBNET" \
+        -p udp --dport "$_port" -j DROP 2>/dev/null || \
     iptables -A INPUT -i "$BRIDGE_IF" -s "$VICTIM_SUBNET" \
         -p udp --dport "$_port" -j DROP \
         -m comment --comment "NOTTHENET_HARDEN: block lateral movement → Kali"
