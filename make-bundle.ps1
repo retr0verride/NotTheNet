@@ -645,6 +645,24 @@ fi
         info "Zip created: $zipPath  ($zipMB MB)"
         Write-Host ""
         Write-Host "${GREEN}Zip ready: $zipPath${NC}"
+
+        # ── Create ISO from the zip using AnyBurn CLI ──────────────────
+        $abcmd = "U:\AnyBurn\abcmd.exe"
+        if (Test-Path $abcmd) {
+            $isoName = "NotTheNet-$ver.iso"
+            $isoPath = Join-Path ([Environment]::GetFolderPath('Desktop')) $isoName
+            info "Creating ISO: $isoPath"
+            & $abcmd create -o $isoPath -add $zipPath / -label "NOTTHENET" -y | Out-Null
+            if (Test-Path $isoPath) {
+                $isoMB = [math]::Round((Get-Item $isoPath).Length / 1MB, 1)
+                info "ISO created: $isoPath  ($isoMB MB)"
+                Write-Host "${GREEN}ISO ready: $isoPath${NC}"
+            } else {
+                Write-Warning "AnyBurn ran but ISO was not found at $isoPath"
+            }
+        } else {
+            Write-Warning "AnyBurn not found at $abcmd -- skipping ISO creation"
+        }
     }
 
 } finally {

@@ -128,7 +128,11 @@ echo 1 > /proc/sys/net/ipv4/ip_forward
 # Victims can still reach NotTheNet fake-internet ports (53,80,443,25,…) but
 # cannot attack Kali via Windows exploitation channels.
 # Purge ALL existing NOTTHENET_HARDEN INPUT rules before re-adding (prevents stacking).
-while iptables -L INPUT --line-numbers -n 2>/dev/null | awk '/NOTTHENET_HARDEN/{print $1}' | sort -rn | head -1 | xargs -r iptables -D INPUT 2>/dev/null; do :; done
+# Read all matching line numbers in reverse order, delete each (reverse = no renumber shift).
+iptables -L INPUT --line-numbers -n 2>/dev/null \
+    | awk '/NOTTHENET_HARDEN/{print $1}' \
+    | sort -rn \
+    | while read -r _num; do iptables -D INPUT "$_num" 2>/dev/null || true; done
 
 # Auto-read victim IP from config.json if not provided via --victim-ip
 if [[ -z "$VICTIM_IP" ]]; then
