@@ -19,10 +19,10 @@ dnslib==0.9.26 \
 cryptography==46.0.6 \
     --hash=sha256:9a693028b9cbe51b5a1136232ee8f2bc242e4e19d456ded3fa7c86e43c713b4a \
     --hash=sha256:22259338084d6ae497a19bae5d4c66b7ca1387d3264d1c2c0e72d9e9b6a77b97 \
-    --hash=sha256:d4e4aadb7fc1f88687f47ca20bb7227981b03afaae6927029da08096853b738 \
-    --hash=sha256:ed3775295fb91f70b4027aeba878d79b3e55c0b3e97eaa4de71f8f23af2eb77 \
-    --hash=sha256:063b67749f338ca9c5a0b7fe438a52c25f9526b851e24e6c9310e719aad3b4d \
-    --hash=sha256:341359d6c9e68834e204ceaf25936dffafea3829ab80e9503860dcc4f4dac58 \
+    --hash=sha256:d4e4aadb7fc1f88687f47ca20bb7227981b03afaae69287029da08096853b738 \
+    --hash=sha256:ed3775295fb91f70b4027aeba878d79b3e55c0b3e97eaa4de71f8f23a9f2eb77 \
+    --hash=sha256:063b67749f338ca9c5a0b7fe438a52c25f9526b851e24e6c9310e7195aad3b4d \
+    --hash=sha256:341359d6c9e68834e204ceaf25936dffeafea3829ab80e9503860dcc4f4dac58 \
     --hash=sha256:6739d56300662c468fddb0e5e291f9b4d084bead381667b9e654c7dd81705124
 
 # Optional: process title masquerade (renames process to kernel-thread-like name)
