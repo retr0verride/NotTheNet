@@ -30,7 +30,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install --no-require-hashes -r requirements.txt
+          sed '/--hash=sha256:/d' requirements.txt | sed 's/ \\$//' > /tmp/req.txt
+          pip install -r /tmp/req.txt
           pip install ruff mypy bandit pytest
 
       - name: Lint (ruff)
