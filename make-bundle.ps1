@@ -23,7 +23,8 @@
 [CmdletBinding()]
 param(
     [string]$Output = ".\dist\notthenet-bundle.sh",
-    [string]$ZipOutput = ""
+    [string]$ZipOutput = "",
+    [switch]$SkipChecks
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,6 +32,17 @@ $GREEN  = "`e[32m"; $YELLOW = "`e[33m"; $RED = "`e[31m"; $NC = "`e[0m"
 function info  { param($m) Write-Host "${GREEN}[*]${NC} $m" }
 function warn  { param($m) Write-Host "${YELLOW}[!]${NC} $m" }
 function fatal { param($m) Write-Host "${RED}[!]${NC} $m"; exit 1 }
+
+# ── Pre-build checks (predeploy) ─────────────────────────────────────────────
+if (-not $SkipChecks) {
+    info "Running predeploy checks..."
+    & .\predeploy.ps1
+    if ($LASTEXITCODE -ne 0) { fatal "Predeploy checks failed. Fix issues or use -SkipChecks." }
+    info "All checks passed."
+    Write-Host ""
+} else {
+    warn "Predeploy checks skipped (-SkipChecks)."
+}
 
 if (-not (Get-Command pip -ErrorAction SilentlyContinue)) {
     fatal "pip not found. Make sure Python is installed and in PATH."
@@ -506,7 +518,7 @@ else
 fi
 
 # â”€â”€ Done â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-_VER=$(grep -oP '(?<=APP_VERSION = ")[^"]+' "${INSTALL_DIR:-$SCRIPT_DIR}/notthenet.py" 2>/dev/null || echo "unknown")
+_VER=$(grep -oP '(?<=APP_VERSION = ")[^"]+' "${INSTALL_DIR:-$SCRIPT_DIR}/gui/widgets.py" 2>/dev/null || echo "unknown")
 echo ""
 if [[ "$MODE" == "update" ]]; then
 echo -e "${GREEN}+------------------------------------------------------+${NC}"
@@ -662,6 +674,43 @@ fi
             }
         } else {
             Write-Warning "AnyBurn not found at $abcmd -- skipping ISO creation"
+        }
+
+        # ── Git push + GitHub release ──────────────────────────────────
+        info "Pushing to GitHub..."
+        git add -A
+        $status = git status --porcelain
+        if ($status) {
+            git commit -m "release: v$ver" --quiet
+        }
+        git push origin master --quiet 2>&1 | Out-Null
+        git push origin master:main --quiet 2>&1 | Out-Null
+        info "Pushed to master + main."
+
+        # Create or update GitHub release (requires gh CLI)
+        if (Get-Command gh -ErrorAction SilentlyContinue) {
+            $tag = "v$ver"
+            info "Creating GitHub release $tag..."
+            # Delete existing release+tag if re-building same version
+            gh release delete $tag --yes 2>$null
+            git tag -d $tag 2>$null
+            git push origin ":refs/tags/$tag" 2>$null
+
+            # Collect assets
+            $assets = @($zipPath)
+            if (Test-Path $isoPath) { $assets += $isoPath }
+
+            gh release create $tag $assets `
+                --title "NotTheNet $ver" `
+                --notes "Release $ver`n`nSee [CHANGELOG.md](https://github.com/retr0verride/NotTheNet/blob/main/CHANGELOG.md) for details." `
+                --latest
+            if ($LASTEXITCODE -eq 0) {
+                info "GitHub release $tag created with $($assets.Count) asset(s)."
+            } else {
+                warn "gh release create failed (exit $LASTEXITCODE). Create manually."
+            }
+        } else {
+            warn "gh CLI not found -- skipping GitHub release. Install: winget install GitHub.cli"
         }
     }
 

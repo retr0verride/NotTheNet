@@ -143,23 +143,22 @@ Use this when your Kali machine has **no internet access** — which is the reco
 On your Windows machine, open PowerShell in the `NotTheNet` project folder:
 
 ```powershell
-# The all-in-one command: bumps version, runs checks, builds the bundle, copies to USB
-.\ship.ps1
+# Full pipeline: checks, builds bundle + zip + ISO, pushes to GitHub, creates release
+.\make-bundle.ps1
 
-# Skip the lint/type checks (use when you just need a quick rebuild)
-.\ship.ps1 -SkipPredeploy
-
-# Force a specific USB drive letter if auto-detection picks the wrong one
-.\ship.ps1 -Drive E:\
+# Skip the lint/type/security checks (quick rebuild only)
+.\make-bundle.ps1 -SkipChecks
 ```
 
-`ship.ps1` automatically finds your USB drive. If no USB is plugged in, it tells you.
+`make-bundle.ps1` runs all predeploy checks (ruff, mypy, bandit, pip-audit, pytest),
+builds the self-contained installer, creates a zip + ISO, pushes to GitHub, and
+creates a GitHub release with the artifacts attached.
 
-If you only want the zip file (without copying to USB):
+If you only want the bundle script without the full pipeline:
 
 ```powershell
-.\make-bundle.ps1 -Zip
-# Creates: NotTheNet-bundle.zip in the project folder
+.\make-bundle.ps1 -SkipChecks
+# Creates: dist\notthenet-bundle.sh + dist\NotTheNet-<ver>.zip
 ```
 
 > **What's inside the bundle:** All Python packages that NotTheNet needs (dnslib, cryptography, cffi, pycparser) are embedded directly in the installer script. Kali does not need internet access to install them.

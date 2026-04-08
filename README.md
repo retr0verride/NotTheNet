@@ -13,6 +13,10 @@
   <a href="https://github.com/retr0verride/NotTheNet/stargazers"><img src="https://img.shields.io/github/stars/retr0verride/NotTheNet?style=flat" alt="GitHub Stars"></a>
 </p>
 
+<p align="center">
+  <img src="assets/screenshot.png" alt="NotTheNet GUI" width="720">
+</p>
+
 > **For malware analysis and sandboxed environments only.**  
 > Never run on a production network or internet-connected interface.
 
