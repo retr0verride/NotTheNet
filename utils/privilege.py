@@ -11,6 +11,8 @@ Security notes (OpenSSF):
   effective UID is unprivileged during normal operation
 """
 
+from __future__ import annotations
+
 import logging
 import os
 

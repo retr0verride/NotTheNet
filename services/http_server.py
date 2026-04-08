@@ -330,7 +330,7 @@ _COMCAST_GEO = {
     "mobile": "false",
 }
 
-_IpCheckResult = tuple[bytes, str, dict[str, str] | None]
+_IpCheckResult = tuple[bytes, str, "dict[str, str] | None"]
 
 
 def _fmt_ipinfo(ip: str, _path: str) -> _IpCheckResult:

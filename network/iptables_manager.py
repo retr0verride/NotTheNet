@@ -16,11 +16,12 @@ Security notes (OpenSSF):
 - Privilege is checked before attempting iptables operations
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import shutil
 import subprocess
-from typing import Optional
 
 from utils.logging_utils import sanitize_log_string
 from utils.validators import validate_port
@@ -199,7 +200,7 @@ def _restore_filter_snapshot() -> bool:
 _IP_FORWARD_PATH = "/proc/sys/net/ipv4/ip_forward"
 
 
-def _read_ip_forward() -> Optional[str]:
+def _read_ip_forward() -> str | None:
     try:
         with open(_IP_FORWARD_PATH) as f:
             return f.read().strip()
@@ -251,7 +252,7 @@ class IPTablesManager:
         self._mangle_saved = False
         self._filter_saved = False
         self._filter_icmp_drop_applied = False
-        self._prev_ip_forward: Optional[str] = None  # restored on stop
+        self._prev_ip_forward: str | None = None  # restored on stop
 
     def _validate_interface(self, iface: str) -> bool:
         """Validate interface name against /proc/net/dev."""
