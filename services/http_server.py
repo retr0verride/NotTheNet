@@ -686,7 +686,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
             response_data = handle_doh_get(path, self._cfg.doh_redirect_ip)
         else:
             content_length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(content_length) if content_length > 0 else b""
+            body = self.rfile.read(min(content_length, _MAX_BODY_FILE_SIZE)) if content_length > 0 else b""
             response_data = handle_doh_post(body, self._cfg.doh_redirect_ip)
 
         if response_data:

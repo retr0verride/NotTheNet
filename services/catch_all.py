@@ -25,6 +25,8 @@ import socket
 import socketserver
 import ssl
 import threading
+import time
+from collections import defaultdict
 from typing import Optional
 
 from utils.json_logger import get_json_logger
@@ -33,7 +35,8 @@ from utils.logging_utils import sanitize_ip, sanitize_log_string
 logger = logging.getLogger(__name__)
 
 MAX_CONNECTIONS = 200
-SESSION_TIMEOUT = 10   # seconds â€” max lifetime of a single catch-all session
+MAX_PER_IP     = 20    # max simultaneous connections from a single IP
+SESSION_TIMEOUT = 10   # seconds — max lifetime of a single catch-all session
 PEEK_TIMEOUT    = 0.5  # seconds to wait for initial bytes before sending banner
 LOG_PREVIEW     = 256  # max bytes logged per received chunk (sanitized)
 
@@ -115,23 +118,47 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
     _sem = None  # BoundedSemaphore injected by CatchAllTCPService.start()
+    _per_ip: defaultdict  # {ip: int} — active connection count per IP
+    _per_ip_lock: threading.Lock
 
     def process_request(self, request, client_address):
-        """Drop the connection immediately when the semaphore is exhausted."""
+        """Drop the connection when global or per-IP limits are exceeded."""
+        ip = client_address[0]
+
+        # Global capacity check
         if self._sem is not None and not self._sem.acquire(blocking=False):
             logger.debug(
                 "Catch-all TCP at capacity, dropping %s",
-                sanitize_ip(client_address[0]),
+                sanitize_ip(ip),
             )
             self.shutdown_request(request)
             return
+
+        # Per-IP limit check
+        with self._per_ip_lock:
+            if self._per_ip[ip] >= MAX_PER_IP:
+                logger.debug(
+                    "Catch-all TCP per-IP limit (%d) hit for %s",
+                    MAX_PER_IP, sanitize_ip(ip),
+                )
+                if self._sem is not None:
+                    self._sem.release()
+                self.shutdown_request(request)
+                return
+            self._per_ip[ip] += 1
+
         super().process_request(request, client_address)
 
     def process_request_thread(self, request, client_address):
-        """Release the semaphore slot after the handler finishes."""
+        """Release the semaphore slot and per-IP counter after the handler finishes."""
         try:
             super().process_request_thread(request, client_address)
         finally:
+            ip = client_address[0]
+            with self._per_ip_lock:
+                self._per_ip[ip] -= 1
+                if self._per_ip[ip] <= 0:
+                    del self._per_ip[ip]
             if self._sem is not None:
                 self._sem.release()
 
@@ -283,6 +310,8 @@ class CatchAllTCPService:
             _CatchAllTCPHandler._tls_ctx  = tls_ctx
             self._server = _ReuseServer((self.bind_ip, self.port), _CatchAllTCPHandler)
             self._server._sem = threading.BoundedSemaphore(MAX_CONNECTIONS)
+            self._server._per_ip = defaultdict(int)
+            self._server._per_ip_lock = threading.Lock()
             self._thread = threading.Thread(
                 target=self._server.serve_forever,
                 kwargs={"poll_interval": 2.0},

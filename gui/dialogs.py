@@ -36,6 +36,7 @@ from gui.widgets import (
     _section_frame,
     tooltip,
 )
+from utils.validators import validate_bind_ip, validate_ip, validate_port
 
 if TYPE_CHECKING:
     from config import Config
@@ -173,7 +174,23 @@ class _GeneralPage(tk.Frame):
              info_panel=self._info_panel, default=_JSON_LOG_PATH, var=v_jp)
 
     def apply_to_config(self):
-        """Write all field values back to the Config object."""
+        """Validate, then write all field values back to the Config object."""
+        errors: list[str] = []
+        for key, var in self.vars.items():
+            val = var.get()
+            if key == "bind_ip":
+                ok, _ = validate_bind_ip(str(val))
+                if not ok:
+                    errors.append(f"Bind IP is invalid: {val}")
+            elif key in ("redirect_ip", "spoof_public_ip"):
+                sval = str(val).strip()
+                if sval:  # spoof_public_ip may be blank
+                    ok, _ = validate_ip(sval)
+                    if not ok:
+                        errors.append(f"{key.replace('_', ' ').title()} is invalid: {val}")
+        if errors:
+            messagebox.showerror("Validation Error", "\n".join(errors))
+            return
         for key, var in self.vars.items():
             self.cfg.set("general", key, var.get())
 
@@ -646,7 +663,21 @@ class _ServicePage(tk.Frame):
             tooltip(cb, tip)
 
     def apply_to_config(self):
-        """Write all field values back to the Config object."""
+        """Validate, then write all field values back to the Config object."""
+        errors: list[str] = []
+        for key, var in self.vars.items():
+            val = var.get()
+            if key == "port":
+                ok, _ = validate_port(val)
+                if not ok:
+                    errors.append(f"Port must be 1–65535, got: {val}")
+            elif key in ("resolve_to",):
+                ok, _ = validate_ip(str(val))
+                if not ok:
+                    errors.append(f"{key.replace('_', ' ').title()} is not a valid IP: {val}")
+        if errors:
+            messagebox.showerror("Validation Error", "\n".join(errors))
+            return
         for key, var in self.vars.items():
             self.cfg.set(self.section, key, var.get())
 
@@ -739,7 +770,7 @@ class _DNSPage(_ServicePage):
                   cursor="hand2", command=_save).pack(side="right")
 
     def apply_to_config(self):
-        """Write DNS fields and custom records to the Config object."""
+        """Validate then write DNS fields and custom records to the Config object."""
         super().apply_to_config()
         records = {}
         for line in self._custom_records_str.splitlines():
