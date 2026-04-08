@@ -610,11 +610,12 @@ fi
     # ── Optional zip ─────────────────────────────────────────────────────────
     $projectRoot = (Resolve-Path ".").Path
     if ($Zip) {
-        $zipPath     = if ($ZipOutput) { [System.IO.Path]::GetFullPath($ZipOutput) } else { (Resolve-Path "..").Path.TrimEnd('\') + "\NotTheNet-bundle.zip" }
+        $zipPath     = if ($ZipOutput) { [System.IO.Path]::GetFullPath($ZipOutput) } else { [System.IO.Path]::GetFullPath("dist\NotTheNet-bundle.zip") }
         $excludeDirs = @('.venv','.mypy_cache','.pytest_cache','.ruff_cache',
                          '__pycache__','build','dist','notthenet.egg-info','.git')
 
         info "Creating zip: $zipPath"
+        if (-not (Test-Path "dist")) { New-Item -ItemType Directory -Path "dist" | Out-Null }
         if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 
         $files = Get-ChildItem -Path $projectRoot -Recurse -File | Where-Object {
