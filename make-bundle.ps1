@@ -691,9 +691,11 @@ fi
             $tag = "v$ver"
             info "Creating GitHub release $tag..."
             # Delete existing release+tag if re-building same version
-            gh release delete $tag --yes 2>$null
-            git tag -d $tag 2>$null
-            git push origin ":refs/tags/$tag" 2>$null
+            $ErrorActionPreference = 'SilentlyContinue'
+            gh release delete $tag --yes 2>&1 | Out-Null
+            git tag -d $tag 2>&1 | Out-Null
+            git push origin ":refs/tags/$tag" 2>&1 | Out-Null
+            $ErrorActionPreference = 'Continue'
 
             # Collect assets
             $assets = @($zipPath)
