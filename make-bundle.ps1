@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Generates a single self-contained install script for air-gapped Kali Linux.
 
@@ -23,7 +23,6 @@
 [CmdletBinding()]
 param(
     [string]$Output = ".\dist\notthenet-bundle.sh",
-    [switch]$Zip,
     [string]$ZipOutput = ""
 )
 
@@ -607,8 +606,9 @@ fi
 
     # â”€â”€ Optional zip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     $projectRoot = (Resolve-Path ".").Path
-    if ($Zip) {
-        $zipPath     = if ($ZipOutput) { [System.IO.Path]::GetFullPath($ZipOutput) } else { [System.IO.Path]::GetFullPath("dist\NotTheNet-bundle.zip") }
+    $ver = (Select-String -Path (Join-Path $projectRoot 'gui\widgets.py') -Pattern 'APP_VERSION\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+    if ($true) {
+        $zipPath     = if ($ZipOutput) { [System.IO.Path]::GetFullPath($ZipOutput) } else { [System.IO.Path]::GetFullPath("dist\NotTheNet-" + $ver + ".zip") }
         $excludeDirs = @('.venv','.mypy_cache','.pytest_cache','.ruff_cache',
                          '__pycache__','build','dist','notthenet.egg-info','.git')
 
