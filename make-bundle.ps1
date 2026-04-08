@@ -270,7 +270,7 @@ if [[ "$MODE" == "update" ]]; then
 
         # Copy new source files; preserve user data in place
         info "Copying updated source files..."
-        rsync -a \
+        rsync -a --delete \
             --exclude='config.json' \
             --exclude='certs/' \
             --exclude='logs/' \
