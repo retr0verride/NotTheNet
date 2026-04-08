@@ -60,7 +60,7 @@ echo "════════════════════════�
 
 # ── 1. Stop conflicting services ──────────────────────────────────────────
 echo ""
-echo "[1/4] Stopping conflicting system services..."
+echo "[1/5] Stopping conflicting system services..."
 
 SERVICES=(
     apache2 nginx lighttpd
@@ -90,16 +90,14 @@ echo "  Done."
 
 # ── 2. iptables isolation rules ───────────────────────────────────────────
 echo ""
-echo "[2/4] Applying iptables isolation rules..."
+echo "[2/5] Applying iptables isolation rules..."
 
-# Flush any existing NotTheNet hardening rules (idempotent re-run)
-iptables -D FORWARD -i "$BRIDGE_IF" -o "$MGMT_IF" -j DROP 2>/dev/null || true
-iptables -D FORWARD -i "$MGMT_IF" -o "$BRIDGE_IF" -j DROP 2>/dev/null || true
-if [[ "$BRIDGE_IF" != "$MGMT_IF" ]]; then
-    iptables -D INPUT -i "$MGMT_IF" -s 10.0.0.0/8 -m conntrack --ctstate NEW -j DROP 2>/dev/null || true
-    # Legacy rule (no ctstate) — remove if present from older installs
-    iptables -D INPUT -i "$MGMT_IF" -s 10.0.0.0/8 -j DROP 2>/dev/null || true
-fi
+# Purge ALL existing NOTTHENET_HARDEN rules (INPUT, FORWARD, any chain) in one atomic pass.
+# This prevents rule stacking across re-runs and is instant regardless of rule count.
+iptables-save 2>/dev/null | grep -v 'NOTTHENET_HARDEN' | iptables-restore 2>/dev/null || true
+
+# Ensure IP forwarding is on for the bridge (so NAT redirect works)
+echo 1 > /proc/sys/net/ipv4/ip_forward
 
 # Block ALL forwarding between bridge (victim network) and management NIC.
 # Skip if bridge and mgmt are the same interface (single-NIC setups).
@@ -110,8 +108,6 @@ if [[ "$BRIDGE_IF" != "$MGMT_IF" ]]; then
         -m comment --comment "NOTTHENET_HARDEN: block pivot mgmt→bridge"
 
     # Block NEW inbound connections from the analysis subnet on the management NIC.
-    # Uses conntrack ctstate NEW so that ESTABLISHED/RELATED traffic (e.g. ping
-    # replies, SSH sessions initiated from Kali) is not dropped.
     iptables -A INPUT -i "$MGMT_IF" -s 10.0.0.0/8 -m conntrack --ctstate NEW -j DROP \
         -m comment --comment "NOTTHENET_HARDEN: block analysis subnet on mgmt"
 
@@ -121,54 +117,55 @@ else
     echo "  -- Single-NIC setup (bridge=$BRIDGE_IF == mgmt=$MGMT_IF): skipping pivot/mgmt isolation rules"
 fi
 
-# Ensure IP forwarding is on for the bridge (so NAT redirect works)
-echo 1 > /proc/sys/net/ipv4/ip_forward
-
 # ── Block lateral movement ports: victim subnet → Kali (vmbr1 INPUT) ─────
 # Victims can still reach NotTheNet fake-internet ports (53,80,443,25,…) but
 # cannot attack Kali via Windows exploitation channels.
-# Purge ALL existing NOTTHENET_HARDEN INPUT rules before re-adding (prevents stacking).
-# Atomic single-pass: save → strip matching lines → restore. Much faster than N x iptables -D.
-iptables-save | grep -v 'NOTTHENET_HARDEN' | iptables-restore
 
 # Auto-read victim IP from config.json if not provided via --victim-ip
 if [[ -z "$VICTIM_IP" ]]; then
     _CFG="$(dirname "$0")/config.json"
-    VICTIM_IP=$(python3 -c "import json,sys; d=json.load(open('$_CFG')); print(d.get('victim',{}).get('ip',''))" 2>/dev/null || true)
+    if [[ -f "$_CFG" ]]; then
+        VICTIM_IP=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d.get('victim',{}).get('ip',''))" "$_CFG" 2>/dev/null || true)
+    fi
 fi
+
+# Validate victim IP (each octet 0-255)
+_valid_ip() { [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] && \
+    python3 -c "import sys; sys.exit(0 if all(0<=int(o)<=255 for o in sys.argv[1].split('.')) else 1)" "$1" 2>/dev/null; }
 
 # Allow selected victim to reach Kali on WMI/DCOM/SMB ports (needed for Preflight checks).
 # These ACCEPTs are inserted BEFORE the subnet-wide DROPs so they take precedence.
-if [[ -n "$VICTIM_IP" && "$VICTIM_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+if [[ -n "$VICTIM_IP" ]] && _valid_ip "$VICTIM_IP"; then
     for _port in 135 139 445; do
         iptables -I INPUT 1 -i "$BRIDGE_IF" -s "$VICTIM_IP" \
             -p tcp --dport "$_port" -j ACCEPT \
-            -m comment --comment "NOTTHENET_HARDEN: allow victim WMI/SMB → Kali"
+            -m comment --comment "NOTTHENET_HARDEN: allow victim WMI/SMB -> Kali"
     done
     echo "  ✓ WMI/SMB INPUT from $VICTIM_IP: ALLOWED (Preflight checks)"
 else
-    echo "  -- No victim IP configured; skipping WMI/SMB ACCEPT rules"
+    echo "  -- No valid victim IP configured; skipping WMI/SMB ACCEPT rules"
 fi
 
-for _proto in tcp udp; do
-    for _port in 135 139 445 3389 5985 5986; do
-        iptables -C INPUT -i "$BRIDGE_IF" -s "$VICTIM_SUBNET" \
-            -p "$_proto" --dport "$_port" -j DROP 2>/dev/null || \
-        iptables -A INPUT -i "$BRIDGE_IF" -s "$VICTIM_SUBNET" \
-            -p "$_proto" --dport "$_port" -j DROP \
-            -m comment --comment "NOTTHENET_HARDEN: block lateral movement → Kali"
+# Validate CIDR subnet
+if ! [[ "$VICTIM_SUBNET" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$ ]]; then
+    echo "  ✗ Invalid VICTIM_SUBNET: $VICTIM_SUBNET — skipping lateral movement blocks"
+else
+    for _proto in tcp udp; do
+        for _port in 135 139 445 3389 5985 5986; do
+            iptables -A INPUT -i "$BRIDGE_IF" -s "$VICTIM_SUBNET" \
+                -p "$_proto" --dport "$_port" -j DROP \
+                -m comment --comment "NOTTHENET_HARDEN: block lateral movement -> Kali"
+        done
     done
-done
-# NetBIOS name/datagram (UDP only)
-for _port in 137 138; do
-    iptables -C INPUT -i "$BRIDGE_IF" -s "$VICTIM_SUBNET" \
-        -p udp --dport "$_port" -j DROP 2>/dev/null || \
-    iptables -A INPUT -i "$BRIDGE_IF" -s "$VICTIM_SUBNET" \
-        -p udp --dport "$_port" -j DROP \
-        -m comment --comment "NOTTHENET_HARDEN: block lateral movement → Kali"
-done
+    # NetBIOS name/datagram (UDP only)
+    for _port in 137 138; do
+        iptables -A INPUT -i "$BRIDGE_IF" -s "$VICTIM_SUBNET" \
+            -p udp --dport "$_port" -j DROP \
+            -m comment --comment "NOTTHENET_HARDEN: block lateral movement -> Kali"
+    done
 
-echo "  ✓ Lateral movement ports (SMB/RDP/WMI/WinRM) from $VICTIM_SUBNET: BLOCKED on $BRIDGE_IF${VICTIM_IP:+ (except $VICTIM_IP via ACCEPT)}"
+    echo "  ✓ Lateral movement ports (SMB/RDP/WMI/WinRM) from $VICTIM_SUBNET: BLOCKED on $BRIDGE_IF${VICTIM_IP:+ (except $VICTIM_IP via ACCEPT)}"
+fi
 echo "  Done."
 
 # ── 3. Mount logs/ as tmpfs (noexec) ─────────────────────────────────────
@@ -198,7 +195,7 @@ echo "  Done."
 
 # ── 4. Verify isolation ──────────────────────────────────────────────────
 echo ""
-echo "[4/5] Verify isolation..."
+echo "[4/5] Verifying isolation..."
 
 # Check bridge interface exists
 if ip link show "$BRIDGE_IF" &>/dev/null; then
