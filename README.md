@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/screenshot.png" alt="NotTheNet GUI" width="720">
+  <img src="assets/notthenet_screenshot.png" alt="NotTheNet GUI" width="720">
 </p>
 
 > **For malware analysis and sandboxed environments only.**  
