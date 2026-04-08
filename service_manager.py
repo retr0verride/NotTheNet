@@ -174,14 +174,29 @@ class ServiceManager:
 
         cmd = ["bash", script, "--bridge", interface, "--gateway-ip", gateway_ip, "--skip-mount"]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
-            if result.returncode == 0:
+            proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, start_new_session=True,
+            )
+            try:
+                _stdout, stderr = proc.communicate(timeout=30)
+            except subprocess.TimeoutExpired:
+                # Kill the entire process group so child processes don't hold
+                # the iptables lock after we give up waiting.
+                import signal
+                try:
+                    os.killpg(proc.pid, signal.SIGTERM)  # type: ignore[attr-defined]
+                except OSError:
+                    proc.kill()
+                proc.wait(timeout=5)
+                logger.warning("harden-lab.sh timed out after 30s (child killed)")
+                return
+
+            if proc.returncode == 0:
                 logger.info("Lab hardening applied (bridge=%s, gateway=%s)", interface, gateway_ip)
             else:
-                logger.warning("harden-lab.sh exited %d: %s", result.returncode,
-                               result.stderr.strip()[:200])
-        except subprocess.TimeoutExpired:
-            logger.warning("harden-lab.sh timed out after 30s")
+                logger.warning("harden-lab.sh exited %d: %s", proc.returncode,
+                               stderr.strip()[:200])
         except OSError as exc:
             logger.warning("Could not run harden-lab.sh: %s", exc)
 

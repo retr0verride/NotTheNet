@@ -72,21 +72,25 @@ class Config:
 
     def get(self, section: str, key: str, fallback=None):
         """Get a value from the config with an optional fallback."""
-        return self._data.get(section, {}).get(key, fallback)
+        with self._write_lock:
+            return self._data.get(section, {}).get(key, fallback)
 
     def set(self, section: str, key: str, value):
         """Set a value in the config."""
-        if section not in self._data:
-            self._data[section] = {}
-        self._data[section][key] = value
+        with self._write_lock:
+            if section not in self._data:
+                self._data[section] = {}
+            self._data[section][key] = value
 
     def get_section(self, section: str) -> dict:
         """Return an entire section as a dict."""
-        return self._data.get(section, {})
+        with self._write_lock:
+            return copy.deepcopy(self._data.get(section, {}))
 
     def set_section(self, section: str, data: dict):
         """Replace an entire section."""
-        self._data[section] = data
+        with self._write_lock:
+            self._data[section] = data
 
     def reset_to_defaults(self):
         """Reset the configuration to the built-in defaults."""

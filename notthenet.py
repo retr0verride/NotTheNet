@@ -13,13 +13,12 @@ Thin entry point. The full GUI and CLI logic live in the `gui` package:
 import os
 import sys
 
-APP_VERSION = "2026.04.07-6"
-
 # Ensure the project root is in sys.path so that `config`, `service_manager`,
 # `utils`, and `services` modules can be imported from the gui package.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from gui.app import main  # noqa: E402
+from gui.widgets import APP_VERSION  # noqa: E402, F401  — single source of truth
 
 if __name__ == "__main__":
     main()

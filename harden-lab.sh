@@ -94,7 +94,7 @@ echo "[2/5] Applying iptables isolation rules..."
 
 # Purge ALL existing NOTTHENET_HARDEN rules (INPUT, FORWARD, any chain) in one atomic pass.
 # This prevents rule stacking across re-runs and is instant regardless of rule count.
-iptables-save 2>/dev/null | grep -v 'NOTTHENET_HARDEN' | iptables-restore 2>/dev/null || true
+iptables-save 2>/dev/null | { grep -v 'NOTTHENET_HARDEN' || true; } | iptables-restore 2>/dev/null || true
 
 # Ensure IP forwarding is on for the bridge (so NAT redirect works)
 echo 1 > /proc/sys/net/ipv4/ip_forward

@@ -22,6 +22,7 @@ Security notes (OpenSSF):
 - Sessions are bounded to SESSION_TIMEOUT seconds
 """
 
+import hashlib
 import logging
 import socket
 import struct
@@ -154,8 +155,9 @@ class _MSSQLSession(threading.Thread):
                 sanitize_log_string(username),
             )
             if jl:
-                jl.log("mssql_auth", src_ip=self.addr[0],  # lgtm[py/clear-text-logging-sensitive-data]
-                       username=username, password=password)
+                pw_hash = hashlib.sha256(password.encode()).hexdigest()[:16] if password else ""
+                jl.log("mssql_auth", src_ip=self.addr[0],
+                       username=username, password_sha256_prefix=pw_hash)
 
         except OSError:
             logger.debug("MSSQL session error", exc_info=True)

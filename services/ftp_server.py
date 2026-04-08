@@ -25,10 +25,6 @@ from utils.logging_utils import sanitize_ip, sanitize_log_string
 
 logger = logging.getLogger(__name__)
 
-# Module-level lock: makes disk-usage check + file creation atomic so
-# concurrent uploads cannot all pass the cap check before any write commits.
-_upload_lock = threading.Lock()
-
 MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024   # 50 MB per file
 MAX_DISK_USAGE_BYTES = 200 * 1024 * 1024   # 200 MB total upload storage
 
@@ -85,13 +81,15 @@ def _get_disk_usage(directory: str) -> int:
 class _FTPSession(threading.Thread):
     """Handles one FTP control connection."""
 
-    def __init__(self, conn, addr, banner: str, upload_dir: Optional[str], bind_ip: str = "0.0.0.0"):
+    def __init__(self, conn, addr, banner: str, upload_dir: Optional[str], bind_ip: str = "0.0.0.0",
+                 upload_lock: Optional[threading.Lock] = None):
         super().__init__(daemon=True)
         self.conn = conn
         self.addr = addr
         self.banner = banner
         self.upload_dir = upload_dir
         self.bind_ip = bind_ip
+        self._upload_lock = upload_lock or threading.Lock()
         self._data_conn = None
         self._pasv_server = None
 
@@ -239,7 +237,7 @@ class _FTPSession(threading.Thread):
             self._send("226 Transfer complete (discarded)")
             return
 
-        with _upload_lock:
+        with self._upload_lock:
             if _get_disk_usage(self.upload_dir) > MAX_DISK_USAGE_BYTES:
                 logger.warning("FTP: upload storage cap reached; discarding file.")
                 self._drain_and_close(data_conn, "cap exceeded")
@@ -308,6 +306,7 @@ class FTPService:
         allow_uploads = config.get("allow_uploads", True)
         upload_dir = config.get("upload_dir", "logs/ftp_uploads")
         self.upload_dir = upload_dir if allow_uploads else None
+        self._upload_lock = threading.Lock()
         self._server = None
         self._thread = None
 
@@ -320,10 +319,12 @@ class FTPService:
         banner = self.banner
         upload_dir = self.upload_dir
         bind_ip = self.bind_ip
+        upload_lock = self._upload_lock
 
         class _Handler(socketserver.BaseRequestHandler):
             def handle(self):
-                sess = _FTPSession(self.request, self.client_address, banner, upload_dir, bind_ip)
+                sess = _FTPSession(self.request, self.client_address, banner, upload_dir, bind_ip,
+                                   upload_lock=upload_lock)
                 sess.run()
 
         try:
