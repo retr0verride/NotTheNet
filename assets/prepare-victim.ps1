@@ -8,6 +8,7 @@
 #   3. Sets LocalAccountTokenFilterPolicy (UAC remote admin fix)
 #   4. Ensures WMI and RPC services are running and set to auto-start
 #   5. Enables WMI firewall rules (belt-and-suspenders)
+#   6. Enables File and Printer Sharing / LanmanServer (required for SMB + WMI transport)
 # ─────────────────────────────────────────────────────────────────────────────
 #Requires -RunAsAdministrator
 $ErrorActionPreference = "Stop"
@@ -91,6 +92,40 @@ try {
     netsh advfirewall firewall set rule group="Windows Management Instrumentation (WMI)" new enable=yes 2>$null
     if ($LASTEXITCODE -eq 0) { Pass "WMI firewall rules enabled (netsh)" }
     else { Info "Could not set WMI rules (firewall is off -- OK)" }
+}
+
+# ── 6. Enable File and Printer Sharing (LanmanServer / SMB) ─────────────────
+Info "Enabling File and Printer Sharing (LanmanServer)..."
+# Ensure admin shares (C$, ADMIN$) are created automatically
+reg add "HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" /v AutoShareWks /t REG_DWORD /d 1 /f 2>$null
+$smb = Get-Service -Name LanmanServer -ErrorAction SilentlyContinue
+if (-not $smb) {
+    Fail "LanmanServer service not found"
+} else {
+    Set-Service -Name LanmanServer -StartupType Automatic -ErrorAction SilentlyContinue
+    # Restart to pick up AutoShareWks registry change
+    Restart-Service -Name LanmanServer -ErrorAction SilentlyContinue
+    $smb = Get-Service -Name LanmanServer
+    if ($smb.Status -eq "Running") {
+        Pass "LanmanServer is running (auto-start, admin shares enabled)"
+    } else {
+        Fail "LanmanServer status: $($smb.Status)"
+    }
+}
+
+Info "Enabling File and Printer Sharing firewall rules..."
+try {
+    $rules = Get-NetFirewallRule -Group "File and Printer Sharing" -ErrorAction SilentlyContinue
+    if ($rules) {
+        $rules | Set-NetFirewallRule -Enabled True
+        Pass "File and Printer Sharing firewall rules enabled ($($rules.Count) rules)"
+    } else {
+        Info "No File and Printer Sharing rule group found (firewall is off -- OK)"
+    }
+} catch {
+    netsh advfirewall firewall set rule group="File and Printer Sharing" new enable=Yes 2>$null
+    if ($LASTEXITCODE -eq 0) { Pass "File and Printer Sharing firewall rules enabled (netsh)" }
+    else { Info "Could not set File and Printer Sharing rules (firewall is off -- OK)" }
 }
 
 # ── Done ─────────────────────────────────────────────────────────────────────

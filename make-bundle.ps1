@@ -535,11 +535,44 @@ fi
 
 _PREP_DIR="${INSTALL_DIR:-$SCRIPT_DIR}/assets"
 _GW_IP=$(python3 -c "import json; c=json.load(open('${INSTALL_DIR:-$SCRIPT_DIR}/config.json')); print(c.get('general',{}).get('bind_ip','10.10.10.1'))" 2>/dev/null || echo '10.10.10.1')
+_VICTIM_IP=$(python3 -c "import json; c=json.load(open('${INSTALL_DIR:-$SCRIPT_DIR}/config.json')); print(c.get('victim',{}).get('ip',''))" 2>/dev/null || true)
+_VICTIM_USER=$(python3 -c "import json; c=json.load(open('${INSTALL_DIR:-$SCRIPT_DIR}/config.json')); print(c.get('victim',{}).get('username',''))" 2>/dev/null || true)
 if [[ -f "${_PREP_DIR}/prepare-victim.ps1" ]]; then
 echo ""
 echo -e "${YELLOW}+------------------------------------------------------+${NC}"
-echo -e "${YELLOW}|  VICTIM PREP - run once on FlareVM (Admin PowerShell)|${NC}"
+echo -e "${YELLOW}|  VICTIM PREP                                         |${NC}"
 echo -e "${YELLOW}+------------------------------------------------------+${NC}"
+if command -v smbclient &>/dev/null; then
+    read -rp "  Push prepare-victim.ps1 to victim via SMB? [y/N]: " _do_push
+    if [[ "${_do_push,,}" == "y" ]]; then
+        [[ -n "$_VICTIM_IP" ]]   || read -rp "  Victim IP   : " _VICTIM_IP
+        [[ -n "$_VICTIM_USER" ]] || read -rp "  Victim user : " _VICTIM_USER
+        read -rsp "  Victim password: " _VICTIM_PASS; echo ""
+        # Reachability check before attempting SMB
+        if ! ping -c 1 -W 2 "$_VICTIM_IP" &>/dev/null; then
+            echo -e "  ${YELLOW}⚠ Cannot reach ${_VICTIM_IP} (ping failed). Is the victim powered on and on the lab network?${NC}"
+            echo -e "  ${YELLOW}  Skipping push. Run prepare-victim.ps1 manually when the victim is reachable.${NC}"
+        else
+            echo "  Pushing prepare-victim.ps1..."
+            if smbclient "//${_VICTIM_IP}/C\$" -U "${_VICTIM_USER}%${_VICTIM_PASS}" \
+                -c "put \"${_PREP_DIR}/prepare-victim.ps1\" \"Users\\\\${_VICTIM_USER}\\\\Desktop\\\\prepare-victim.ps1\"" 2>/dev/null; then
+                echo -e "  ${GREEN}✓ Pushed to C:\\Users\\${_VICTIM_USER}\\Desktop\\prepare-victim.ps1${NC}"
+                echo -e "  ${YELLOW}  Run it on FlareVM as Administrator, then take a baseline snapshot.${NC}"
+            else
+                echo -e "  ${YELLOW}⚠ SMB push failed (wrong credentials, or C\$ not shared). Manual steps below:${NC}"
+                echo -e "${YELLOW}    On Kali: python3 -m http.server 8080 --directory ${_PREP_DIR}${NC}"
+                echo -e "${YELLOW}    On FlareVM (Admin PS): curl.exe -o C:\\prepare-victim.ps1 http://${_GW_IP}:8080/prepare-victim.ps1${NC}"
+                echo -e "${YELLOW}    Set-ExecutionPolicy Bypass -Scope Process -Force${NC}"
+                echo -e "${YELLOW}    & C:\\prepare-victim.ps1${NC}"
+            fi
+        fi
+    else
+        echo -e "${YELLOW}  Skipped. Manual steps if needed:${NC}"
+        echo -e "${YELLOW}    On Kali: python3 -m http.server 8080 --directory ${_PREP_DIR}${NC}"
+        echo -e "${YELLOW}    On FlareVM (Admin PS): curl.exe -o C:\\prepare-victim.ps1 http://${_GW_IP}:8080/prepare-victim.ps1${NC}"
+        echo -e "${YELLOW}    & C:\\prepare-victim.ps1${NC}"
+    fi
+else
 echo -e "${YELLOW}  On Kali:${NC}"
 echo -e "${YELLOW}    cd ${_PREP_DIR}${NC}"
 echo -e "${YELLOW}    python3 -m http.server 8080${NC}"
@@ -548,6 +581,7 @@ echo -e "${YELLOW}  On FlareVM (Admin PowerShell):${NC}"
 echo -e "${YELLOW}    curl.exe -o C:\\prepare-victim.ps1 http://${_GW_IP}:8080/prepare-victim.ps1${NC}"
 echo -e "${YELLOW}    Set-ExecutionPolicy Bypass -Scope Process -Force${NC}"
 echo -e "${YELLOW}    & C:\\prepare-victim.ps1${NC}"
+fi
 echo ""
 echo -e "${YELLOW}  Then take a baseline snapshot.${NC}"
 echo -e "${YELLOW}+------------------------------------------------------+${NC}"

@@ -35,6 +35,7 @@ _RULE_COMMENT = "NOTTHENET"
 _SNAPSHOT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
 _IPTABLES_SAVE_FILE = os.path.join(_SNAPSHOT_DIR, ".iptables_save.rules")
 _MANGLE_SAVE_FILE = os.path.join(_SNAPSHOT_DIR, ".mangle_save.rules")
+_FILTER_SAVE_FILE = os.path.join(_SNAPSHOT_DIR, ".filter_save.rules")
 
 
 def _run(args: list[str]) -> tuple[int, str, str]:
@@ -153,6 +154,48 @@ def _restore_mangle_snapshot() -> bool:
     return False
 
 
+def _save_filter_snapshot() -> bool:
+    """Snapshot the current filter table before harden-lab rules are applied."""
+    if not shutil.which("iptables-save"):
+        return False
+    code, out, _ = _run(["iptables-save", "-t", "filter"])
+    if code == 0:
+        try:
+            fd = os.open(
+                _FILTER_SAVE_FILE,
+                os.O_CREAT | os.O_WRONLY | os.O_TRUNC,
+                0o600,
+            )
+            try:
+                os.write(fd, out.encode())
+            finally:
+                os.close(fd)
+            logger.debug("filter table snapshot saved to %s", _FILTER_SAVE_FILE)
+            return True
+        except Exception as e:
+            logger.error("Failed to save filter snapshot: %s", e)
+    return False
+
+
+def _restore_filter_snapshot() -> bool:
+    """Restore the filter table from its pre-start snapshot."""
+    if not os.path.exists(_FILTER_SAVE_FILE):
+        return False
+    if not shutil.which("iptables-restore"):
+        return False
+    _run(["iptables", "-t", "filter", "-F"])
+    code, _, err = _run(["iptables-restore", _FILTER_SAVE_FILE])
+    if code == 0:
+        logger.info("filter table restored from pre-start snapshot.")
+        try:
+            os.unlink(_FILTER_SAVE_FILE)
+        except Exception:
+            logger.debug("Filter snapshot cleanup failed", exc_info=True)
+        return True
+    logger.error("filter restore failed: %s", err)
+    return False
+
+
 _IP_FORWARD_PATH = "/proc/sys/net/ipv4/ip_forward"
 
 
@@ -206,6 +249,7 @@ class IPTablesManager:
         self._saved = False
         self._ttl_rule_applied = False
         self._mangle_saved = False
+        self._filter_saved = False
         self._filter_icmp_drop_applied = False
         self._prev_ip_forward: Optional[str] = None  # restored on stop
 
@@ -289,6 +333,7 @@ class IPTablesManager:
             return False
 
         self._saved = _save_nat_snapshot()
+        self._filter_saved = _save_filter_snapshot()
 
         chain = "PREROUTING" if self.mode == "gateway" else "OUTPUT"
         table_flag = ["-t", "nat"]
@@ -502,6 +547,11 @@ class IPTablesManager:
                 _run(["iptables", "-t", "nat", "-F"])
                 self._rules_applied.clear()
                 logger.info("nat table flushed.")
+
+            if self._filter_saved and _restore_filter_snapshot():
+                self._filter_saved = False
+            else:
+                logger.debug("No filter snapshot available; skipping filter restore.")
 
             # Restore ip_forward
             if self._prev_ip_forward is not None:

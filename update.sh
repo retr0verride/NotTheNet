@@ -175,19 +175,20 @@ VERSION=$("$PYTHON" -c "import notthenet; print(notthenet.APP_VERSION)" 2>/dev/n
 echo ""
 echo "[✓] NotTheNet updated to version: $VERSION"
 echo "    Start it with:  sudo notthenet"
+echo ""
 
-# ── Lab hardening ─────────────────────────────────────────────────────────────
-if [[ $EUID -eq 0 ]] && [[ "$SKIP_HARDEN" -eq 0 ]]; then
-    echo "[*] Re-applying lab hardening (use --skip-harden to skip)..."
-    _harden_args=()
-    if [[ -f "${SCRIPT_DIR}/config.json" ]] && command -v python3 &>/dev/null; then
-        _bridge=$(python3 -c "import json; c=json.load(open('${SCRIPT_DIR}/config.json')); print(c.get('general',{}).get('interface','vmbr1'))" 2>/dev/null || echo 'vmbr1')
-        _gw=$(python3 -c "import json; c=json.load(open('${SCRIPT_DIR}/config.json')); print(c.get('general',{}).get('redirect_ip','10.10.10.1'))" 2>/dev/null || echo '10.10.10.1')
-        _harden_args+=("--bridge" "$_bridge" "--gateway-ip" "$_gw")
+# ── 8. Remind user to re-push prepare-victim.ps1 to the victim ───────────────
+_VICTIM_IP=$(python3 -c "import json; c=json.load(open('${SCRIPT_DIR}/config.json')); print(c.get('victim',{}).get('ip',''))" 2>/dev/null || true)
+_VICTIM_USER=$(python3 -c "import json; c=json.load(open('${SCRIPT_DIR}/config.json')); print(c.get('victim',{}).get('username',''))" 2>/dev/null || true)
+_PREP_SCRIPT="${SCRIPT_DIR}/assets/prepare-victim.ps1"
+
+if [[ -f "$_PREP_SCRIPT" ]]; then
+    if [[ -n "$_VICTIM_IP" && -n "$_VICTIM_USER" ]]; then
+        echo "[i] prepare-victim.ps1 was updated. Push it to the victim:"
+        echo "    smbclient //${_VICTIM_IP}/C\$ -U ${_VICTIM_USER}%PASSWORD -c 'put \"${_PREP_SCRIPT}\" \"Users\\\\${_VICTIM_USER}\\\\Desktop\\\\prepare-victim.ps1\"'"
+        echo "    Then run it on the victim as Administrator."
+    else
+        echo "[i] prepare-victim.ps1 was updated. Copy it to the victim and re-run as Administrator."
+        echo "    (Set victim.ip and victim.username in config.json for a ready-to-paste command.)"
     fi
-    bash "${SCRIPT_DIR}/harden-lab.sh" "${_harden_args[@]}" || echo "[!] Hardening step failed — run manually: sudo bash harden-lab.sh"
-elif [[ "$SKIP_HARDEN" -eq 1 ]]; then
-    echo "[!] Lab hardening skipped (--skip-harden). Run manually: sudo bash harden-lab.sh"
-else
-    echo "[!] Not root — skipping lab hardening. Run manually: sudo bash harden-lab.sh"
 fi

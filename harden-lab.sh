@@ -92,27 +92,34 @@ echo "[2/4] Applying iptables isolation rules..."
 # Flush any existing NotTheNet hardening rules (idempotent re-run)
 iptables -D FORWARD -i "$BRIDGE_IF" -o "$MGMT_IF" -j DROP 2>/dev/null || true
 iptables -D FORWARD -i "$MGMT_IF" -o "$BRIDGE_IF" -j DROP 2>/dev/null || true
-iptables -D INPUT   -i "$MGMT_IF" -s 10.0.0.0/8 -m conntrack --ctstate NEW -j DROP 2>/dev/null || true
-# Legacy rule (no ctstate) — remove if present from older installs
-iptables -D INPUT   -i "$MGMT_IF" -s 10.0.0.0/8 -j DROP 2>/dev/null || true
+if [[ "$BRIDGE_IF" != "$MGMT_IF" ]]; then
+    iptables -D INPUT -i "$MGMT_IF" -s 10.0.0.0/8 -m conntrack --ctstate NEW -j DROP 2>/dev/null || true
+    # Legacy rule (no ctstate) — remove if present from older installs
+    iptables -D INPUT -i "$MGMT_IF" -s 10.0.0.0/8 -j DROP 2>/dev/null || true
+fi
 
-# Block ALL forwarding between bridge (victim network) and management NIC
-iptables -I FORWARD 1 -i "$BRIDGE_IF" -o "$MGMT_IF" -j DROP \
-    -m comment --comment "NOTTHENET_HARDEN: block pivot bridge→mgmt"
-iptables -I FORWARD 2 -i "$MGMT_IF" -o "$BRIDGE_IF" -j DROP \
-    -m comment --comment "NOTTHENET_HARDEN: block pivot mgmt→bridge"
+# Block ALL forwarding between bridge (victim network) and management NIC.
+# Skip if bridge and mgmt are the same interface (single-NIC setups).
+if [[ "$BRIDGE_IF" != "$MGMT_IF" ]]; then
+    iptables -I FORWARD 1 -i "$BRIDGE_IF" -o "$MGMT_IF" -j DROP \
+        -m comment --comment "NOTTHENET_HARDEN: block pivot bridge→mgmt"
+    iptables -I FORWARD 2 -i "$MGMT_IF" -o "$BRIDGE_IF" -j DROP \
+        -m comment --comment "NOTTHENET_HARDEN: block pivot mgmt→bridge"
 
-# Block NEW inbound connections from the analysis subnet on the management NIC.
-# Uses conntrack ctstate NEW so that ESTABLISHED/RELATED traffic (e.g. ping
-# replies, SSH sessions initiated from Kali) is not dropped.
-iptables -A INPUT -i "$MGMT_IF" -s 10.0.0.0/8 -m conntrack --ctstate NEW -j DROP \
-    -m comment --comment "NOTTHENET_HARDEN: block analysis subnet on mgmt"
+    # Block NEW inbound connections from the analysis subnet on the management NIC.
+    # Uses conntrack ctstate NEW so that ESTABLISHED/RELATED traffic (e.g. ping
+    # replies, SSH sessions initiated from Kali) is not dropped.
+    iptables -A INPUT -i "$MGMT_IF" -s 10.0.0.0/8 -m conntrack --ctstate NEW -j DROP \
+        -m comment --comment "NOTTHENET_HARDEN: block analysis subnet on mgmt"
+
+    echo "  ✓ FORWARD $BRIDGE_IF ↔ $MGMT_IF: BLOCKED"
+    echo "  ✓ INPUT from 10.0.0.0/8 on $MGMT_IF: BLOCKED"
+else
+    echo "  -- Single-NIC setup (bridge=$BRIDGE_IF == mgmt=$MGMT_IF): skipping pivot/mgmt isolation rules"
+fi
 
 # Ensure IP forwarding is on for the bridge (so NAT redirect works)
 echo 1 > /proc/sys/net/ipv4/ip_forward
-
-echo "  ✓ FORWARD $BRIDGE_IF ↔ $MGMT_IF: BLOCKED"
-echo "  ✓ INPUT from 10.0.0.0/8 on $MGMT_IF: BLOCKED"
 
 # ── Block lateral movement ports: victim subnet → Kali (vmbr1 INPUT) ─────
 # Victims can still reach NotTheNet fake-internet ports (53,80,443,25,…) but

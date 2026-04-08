@@ -395,6 +395,33 @@ def fix_set_gateway(ip: str, user: str, password: str,
         return RemoteCheckResult("fail", f"Gateway fix failed: {e}")
 
 
+def push_prepare_script(ip: str, user: str, password: str) -> RemoteCheckResult:
+    """Push and run the latest prepare-victim.ps1 on the victim via SMB + WMI."""
+    script_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "assets", "prepare-victim.ps1",
+    )
+    if not os.path.exists(script_path):
+        return RemoteCheckResult("fail", "assets/prepare-victim.ps1 not found locally")
+    if not _has_smbclient():
+        return RemoteCheckResult("fail", "smbclient not installed (apt install smbclient)")
+
+    try:
+        _wmi_cmd(ip, user, password, "if not exist C:\\temp mkdir C:\\temp")
+        r = _smb_upload(ip, user, password, os.path.abspath(script_path),
+                        "C:\\temp\\prepare-victim.ps1")
+        if r.returncode != 0:
+            return RemoteCheckResult("fail", f"SMB upload failed: {r.stderr.strip()[:120]}")
+        r = _wmi_cmd(ip, user, password,
+                     "powershell -ExecutionPolicy Bypass -File C:\\temp\\prepare-victim.ps1",
+                     timeout=60)
+        if r.returncode == 0:
+            return RemoteCheckResult("ok", "prepare-victim.ps1 pushed and executed successfully")
+        return RemoteCheckResult("fail", f"Script execution failed: {r.stdout.strip()[:120]}")
+    except Exception as e:
+        return RemoteCheckResult("fail", f"push_prepare_script failed: {e}")
+
+
 def run_fixes(ip: str, user: str, password: str, cfg: Config,
               fix_keys: list[str]) -> list[RemoteCheckResult]:
     """Execute a list of fix actions on the victim."""
@@ -405,6 +432,7 @@ def run_fixes(ip: str, user: str, password: str, cfg: Config,
         "install_ca": lambda: fix_install_ca(ip, user, password),
         "set_dns": lambda: fix_set_dns(ip, user, password, bind_ip),
         "set_gateway": lambda: fix_set_gateway(ip, user, password, bind_ip),
+        "push_prepare": lambda: push_prepare_script(ip, user, password),
     }
 
     for key in fix_keys:
