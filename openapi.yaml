@@ -1,0 +1,269 @@
+openapi: "3.1.0"
+
+info:
+  title: NotTheNet Health & Admin API
+  version: "1.0"
+  description: |
+    Internal HTTP API exposed by the NotTheNet health server (`infrastructure/health/server.py`).
+
+    Binds to `127.0.0.1:8080` by default.  Override with `NTN_HEALTH_BIND` /
+    `NTN_HEALTH_PORT` environment variables.
+
+    **Authentication** — the `/health/status` endpoint requires the
+    `X-Admin-Token` header when `NTN_HEALTH_TOKEN` is set.
+    Unauthenticated liveness and readiness probes never require a token.
+
+    **Rate limiting** — 60 requests per 60 s per source IP (token bucket).
+    Exceeding the limit returns HTTP 429.
+
+    **CORS** — configured via `NTN_HEALTH_CORS_ORIGINS` (comma-separated).
+
+  contact:
+    name: NotTheNet Security
+    url: https://github.com/retr0verride/NotTheNet/security/advisories
+
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://127.0.0.1:8080
+    description: Local health server (default)
+
+tags:
+  - name: health
+    description: Liveness and readiness probes
+  - name: admin
+    description: Authenticated administrative endpoints
+  - name: observability
+    description: Metrics scraping
+
+paths:
+  /health/live:
+    get:
+      operationId: getLiveness
+      summary: Liveness probe
+      description: |
+        Returns 200 as long as the process is alive and not deadlocked.
+        Used by Kubernetes `livenessProbe` and uptime monitors.
+        Never requires authentication.
+      tags: [health]
+      responses:
+        "200":
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LivenessResponse"
+              example:
+                status: ok
+                uptime_seconds: 3661.4
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /health/ready:
+    get:
+      operationId: getReadiness
+      summary: Readiness probe
+      description: |
+        Returns 200 when all core services (dns, http, https) are running.
+        Returns 503 when one or more core services are not in RUNNING state.
+        Used by load balancers and Kubernetes `readinessProbe`.
+      tags: [health]
+      responses:
+        "200":
+          description: All core services are running
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessResponse"
+              example:
+                status: ready
+                core_services_required: [dns, http, https]
+                core_services_missing: []
+                uptime_seconds: 3661.4
+        "503":
+          description: One or more core services are not running
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessResponse"
+              example:
+                status: degraded
+                core_services_required: [dns, http, https]
+                core_services_missing: [dns]
+                uptime_seconds: 42.1
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /health/status:
+    get:
+      operationId: getStatus
+      summary: Detailed service status
+      description: |
+        Returns the full status of every registered service.
+        Requires `X-Admin-Token` header when `NTN_HEALTH_TOKEN` is set.
+      tags: [admin]
+      security:
+        - adminToken: []
+      responses:
+        "200":
+          description: Full service status snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /metrics:
+    get:
+      operationId: getMetrics
+      summary: Prometheus text metrics
+      description: |
+        Exposes service counters and gauges in the Prometheus text exposition
+        format.  Intended for scraping by an OTel Collector or Prometheus
+        instance running on the same host.
+      tags: [observability]
+      responses:
+        "200":
+          description: Prometheus text format metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: |
+                # HELP notthenet_services_running Number of services currently running
+                # TYPE notthenet_services_running gauge
+                notthenet_services_running 24
+                # HELP notthenet_services_total Total registered services
+                # TYPE notthenet_services_total gauge
+                notthenet_services_total 27
+                # HELP notthenet_services_failed Services in FAILED state
+                # TYPE notthenet_services_failed gauge
+                notthenet_services_failed 0
+                # HELP notthenet_uptime_seconds Seconds since last start
+                # TYPE notthenet_uptime_seconds counter
+                notthenet_uptime_seconds 3661.4
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+components:
+  securitySchemes:
+    adminToken:
+      type: apiKey
+      in: header
+      name: X-Admin-Token
+      description: |
+        Set `NTN_HEALTH_TOKEN` environment variable to require this token.
+        If the variable is empty, the endpoint is unauthenticated.
+
+  schemas:
+    LivenessResponse:
+      type: object
+      required: [status, uptime_seconds]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        uptime_seconds:
+          type: number
+          format: float
+          minimum: 0
+
+    ReadinessResponse:
+      type: object
+      required: [status, core_services_required, core_services_missing, uptime_seconds]
+      properties:
+        status:
+          type: string
+          enum: [ready, degraded]
+        core_services_required:
+          type: array
+          items:
+            type: string
+          example: [dns, http, https]
+        core_services_missing:
+          type: array
+          items:
+            type: string
+          example: []
+        uptime_seconds:
+          type: number
+          format: float
+
+    ServiceEntry:
+      type: object
+      required: [name, state, port, protocol]
+      properties:
+        name:
+          type: string
+          example: dns
+        state:
+          type: string
+          enum: [stopped, starting, running, degraded, stopping, failed]
+        port:
+          type: integer
+          minimum: 0
+          maximum: 65535
+          example: 53
+        protocol:
+          type: string
+          enum: [tcp, udp, both, icmp]
+        connections_total:
+          type: integer
+          minimum: 0
+        error:
+          type: string
+          nullable: true
+
+    StatusResponse:
+      type: object
+      required: [status, services_total, services_running, services_failed, services]
+      properties:
+        uptime_seconds:
+          type: number
+          nullable: true
+        services_total:
+          type: integer
+        services_running:
+          type: integer
+        services_failed:
+          type: integer
+        services:
+          type: array
+          items:
+            $ref: "#/components/schemas/ServiceEntry"
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid X-Admin-Token
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: unauthorized
+
+    RateLimited:
+      description: Too many requests — back off and retry
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds until the rate limit window resets
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: rate_limit_exceeded

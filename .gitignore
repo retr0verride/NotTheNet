@@ -1,8 +1,8 @@
 # NotTheNet
 # ─────────────────────────────────────────────────────────────────────────────
-# Do NOT commit private keys, captured emails or malware uploads.
+# Do NOT commit private keys, captured emails, secrets, or malware uploads.
 
-# Python
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *.so
@@ -14,12 +14,19 @@ build/
 *.pyo
 *.pyd
 
-# Virtualenv
+# ── Virtualenv ────────────────────────────────────────────────────────────────
 venv/
 .venv/
 env/
+.env/
 
-# Secrets / TLS keys and generated certs (NEVER commit)
+# ── Twelve-Factor secrets (NEVER commit) ─────────────────────────────────────
+.env
+.env.*
+!.env.example        # template is safe to commit
+*.secret
+
+# ── TLS keys and generated certs (NEVER commit) ──────────────────────────────
 certs/server.key
 certs/server.crt
 certs/ca.crt
@@ -29,24 +36,43 @@ certs/*.crt
 certs/*.p12
 certs/*.pfx
 
-# Captured data (may contain malware artifacts)
+# ── Captured data (may contain malware artifacts) ────────────────────────────
 logs/
 *.eml
 *.bin
 
-# Editor / OS
+# ── Editor / OS ───────────────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 .DS_Store
 Thumbs.db
 
-# iptables save
+# ── Testing / coverage ────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+*.lcov
+.tox/
+bandit-results.sarif
+
+# ── iptables state snapshots (runtime, contain rule details) ─────────────────
+logs/.iptables_save.rules
+logs/.mangle_save.rules
+logs/.filter_save.rules
 /tmp/notthenet_iptables_save.rules
 
-# Offline install wheelhouse (populated by prepare-usb.ps1)
+# ── Offline install wheelhouse (populated by prepare-usb.ps1) ────────────────
 wheelhouse/
+
+# ── Docker build artefacts ────────────────────────────────────────────────────
+*.tar
+
+# ── mypy cache ────────────────────────────────────────────────────────────────
+.mypy_cache/
 
 # Generated single-file bundle (produced by make-bundle.ps1)
 notthenet-bundle.sh

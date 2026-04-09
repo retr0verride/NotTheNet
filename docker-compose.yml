@@ -1,0 +1,124 @@
+# docker-compose.yml — local development and lab deployment
+#
+# Requires:
+#   docker compose v2 (plugin), NOT docker-compose v1
+#
+# Usage:
+#   docker compose up --build        # build + start
+#   docker compose logs -f           # tail logs
+#   docker compose down              # stop + remove containers
+#   docker compose down -v           # also remove named volumes
+#
+# Security note: notthenet MUST run as root (or with CAP_NET_ADMIN +
+# CAP_NET_BIND_SERVICE) to bind privileged ports and manage iptables.
+# Restrict the host network to an isolated lab bridge (see 'networks').
+
+version: "3.9"
+
+services:
+  notthenet:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: notthenet:local
+    container_name: notthenet
+
+    # ── Privileges ────────────────────────────────────────────────────────────
+    cap_add:
+      - NET_ADMIN        # iptables / ip rule
+      - NET_BIND_SERVICE # bind ports < 1024
+    # Do NOT run as privileged; use the minimal capability set above.
+    # privileged: true  ← intentionally commented out
+
+    # ── Environment ───────────────────────────────────────────────────────────
+    env_file:
+      - .env             # create from .env.example — never commit .env
+    environment:
+      NTN_HEADLESS: "1"
+      NTN_LOG_LEVEL: "${NTN_LOG_LEVEL:-INFO}"
+      NTN_JSON_LOGS: "1"
+      NTN_HEALTH_BIND: "0.0.0.0"   # expose health port to host for scraping
+      NTN_HEALTH_PORT: "8080"
+
+    # ── Volumes ───────────────────────────────────────────────────────────────
+    volumes:
+      - notthenet-logs:/app/logs          # JSONL event logs
+      - notthenet-certs:/app/certs        # generated TLS certs
+      - ./config.json:/app/config.json:ro # mount host config read-only
+
+    # ── Ports ─────────────────────────────────────────────────────────────────
+    # Only expose the health/metrics port to the host.
+    # Protocol services are accessed via the lab network.
+    ports:
+      - "127.0.0.1:8080:8080"  # health + metrics
+
+    # ── Health check ──────────────────────────────────────────────────────────
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8080/health/live')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+    # ── Network ───────────────────────────────────────────────────────────────
+    networks:
+      - lab
+
+    # ── Restart policy ────────────────────────────────────────────────────────
+    restart: unless-stopped
+
+    # ── Logging ───────────────────────────────────────────────────────────────
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+
+# ── Optional: Prometheus + Grafana for local SLI dashboarding ────────────────
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: notthenet-prometheus
+    profiles: [observability]   # only starts with: docker compose --profile observability up
+    volumes:
+      - ./docs/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:9090:9090"
+    networks:
+      - lab
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: notthenet-grafana
+    profiles: [observability]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_PASSWORD:-changeme}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks:
+      - lab
+    restart: unless-stopped
+
+
+# ── Named volumes ─────────────────────────────────────────────────────────────
+
+volumes:
+  notthenet-logs:
+  notthenet-certs:
+
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+
+networks:
+  lab:
+    # Isolated bridge for the detonation lab.
+    # Set driver_opts.com.docker.network.bridge.name to a known name
+    # so iptables rules can reference it explicitly.
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: "br-ntn-lab"

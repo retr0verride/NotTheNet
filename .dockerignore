@@ -1,0 +1,64 @@
+# syntax=docker/dockerfile:1
+# Files and directories to exclude from the Docker build context.
+# Keep this in sync with .gitignore — the rule of thumb: if you would not
+# commit it, you should not send it to the Docker daemon.
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+*.lcov
+.tox/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets / credentials — NEVER in image
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+.env
+.env.*
+!.env.example
+
+# Logs produced during development
+logs/*.jsonl
+logs/*.rules
+logs/*.log
+
+# Git / CI artefacts
+.git/
+.github/
+*.md
+
+# Build bundles and installers
+*.zip
+*.tar.gz
+notthenet-bundle.sh

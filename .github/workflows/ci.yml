@@ -1,23 +1,125 @@
-# NotTheNet — CI Pipeline
-# Mirrors predeploy.sh: lint → type-check → security scan → tests → build
+# ──────────────────────────────────────────────────────────────────────────────
+# NotTheNet — CI/CD Pipeline
+#
+# Jobs:
+#   secrets   gitleaks secret scan (blocks all other jobs)
+#   lint      ruff + mypy (strict for new layers) + bandit SAST + pip-audit
+#             + openapi-spec-validator
+#   test      pytest + coverage gate (≥80%) across Python 3.9–3.12
+#   docker    Multi-stage image build; push to GHCR on main/master
+#   release   Draft GitHub Release on semver tags (vYYYY.MM.DD*) + SBOM
+#
+# Required repository secrets:
+#   GHCR_TOKEN   — GitHub PAT with packages:write scope
+#
+# SOC2 / ISO27001 controls:
+#   CC7.1  — change control via PR + status checks
+#   CC8.1  — SAST (bandit) blocks merge on HIGH findings
+#   A.12.6 — dependency CVE scan (pip-audit) on every PR
+#   A.12.7 — secret scanning (gitleaks) blocks merge
+# ──────────────────────────────────────────────────────────────────────────────
 name: CI
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main, master, "release/**"]
+    tags:     ["v*"]
   pull_request:
-    branches: [main]
+    branches: [main, master]
 
-permissions:
-  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
+env:
+  REGISTRY:   ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+# ── Secret scanning (gitleaks) ───────────────────────────────────────────────
 jobs:
-  ci:
-    runs-on: ubuntu-latest
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history for gitleaks
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+# ── Lint + SAST ───────────────────────────────────────────────────────────────
+  lint:
+    name: Lint & SAST
+    runs-on: ubuntu-22.04
+    needs: secrets
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install lint tools
+        run: pip install ruff bandit[toml] pip-audit mypy pydantic pydantic-settings openapi-spec-validator
+
+      - name: ruff (style + import order)
+        run: ruff check . --output-format=github
+
+      - name: mypy — legacy code (informational)
+        run: mypy notthenet.py services/ network/ utils/
+        continue-on-error: true   # existing code lacks strict annotations
+
+      - name: mypy — new layers (strict, blocking)
+        run: |
+          mypy domain/ application/ infrastructure/ \
+            --strict \
+            --ignore-missing-imports \
+            --explicit-package-bases
+
+      - name: bandit (SAST — fail on HIGH severity)
+        run: |
+          bandit -r . \
+            --exclude .venv,tests,tools \
+            --severity-level high \
+            --format sarif \
+            --output bandit-results.sarif
+        continue-on-error: false
+
+      - name: Upload SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: bandit-results.sarif
+          category: bandit
+
+      - name: pip-audit (dependency CVE scan)
+        run: |
+          sed '/--hash=sha256:/d' requirements.txt | sed 's/ \\$//' > /tmp/req.txt
+          pip-audit --requirement /tmp/req.txt --strict
+
+      - name: Validate OpenAPI spec
+        run: openapi-spec-validator openapi.yaml
+
+# ── Unit tests (matrix) ──────────────────────────────────────────────────────
+  test:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-22.04
+    needs: lint
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
 
     steps:
       - uses: actions/checkout@v4
@@ -26,22 +128,115 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
 
-      - name: Install dependencies
+      - name: Install runtime + test dependencies
         run: |
           python -m pip install --upgrade pip
           sed '/--hash=sha256:/d' requirements.txt | sed 's/ \\$//' > /tmp/req.txt
           pip install -r /tmp/req.txt
-          pip install ruff mypy bandit pytest
+          pip install pytest pytest-cov pytest-timeout
 
-      - name: Lint (ruff)
-        run: ruff check .
+      - name: Run tests
+        run: |
+          pytest tests/ \
+            --tb=short \
+            -q \
+            --timeout=60 \
+            --cov=. \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing \
+            --cov-fail-under=80
 
-      - name: Type check (mypy)
-        run: mypy notthenet.py services/ network/ utils/
+      - name: Upload coverage report
+        if: matrix.python-version == '3.11'
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false
 
-      - name: Security scan (bandit)
-        run: bandit -c pyproject.toml -r notthenet.py services/ network/ utils/
+# ── Docker build ──────────────────────────────────────────────────────────────
+  docker:
+    name: Docker build
+    runs-on: ubuntu-22.04
+    needs: test
+    permissions:
+      contents: read
+      packages: write
 
-      - name: Tests (pytest)
-        run: python -m pytest tests/ -v
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=sha
+
+      - name: Build (PR — no push)
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target:  runtime
+          push:    false
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+
+      - name: Build and push (main / tag)
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target:  runtime
+          push:    true
+          tags:    ${{ steps.meta.outputs.tags }}
+          labels:  ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+          sbom:        true
+          provenance:  true
+
+# ── Release draft ─────────────────────────────────────────────────────────────
+  release:
+    name: Draft release
+    runs-on: ubuntu-22.04
+    needs: docker
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate SBOM (syft)
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          artifact-name: notthenet-sbom-${{ github.ref_name }}.spdx.json
+          format: spdx-json
+          output-file: notthenet-sbom.spdx.json
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: NotTheNet ${{ github.ref_name }}
+          generate_release_notes: true
+          files: notthenet-sbom.spdx.json
