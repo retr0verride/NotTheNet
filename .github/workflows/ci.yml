@@ -6,7 +6,7 @@
 #   lint      ruff + mypy (strict for new layers) + bandit SAST + pip-audit
 #             + openapi-spec-validator
 #   test      pytest + coverage gate (≥80%) across Python 3.9–3.12
-#   docker    Multi-stage image build; push to GHCR on main/master
+#   docker    Multi-stage image build; push to GHCR on main
 #   release   Draft GitHub Release on semver tags (vYYYY.MM.DD*) + SBOM
 #
 # Required repository secrets:
@@ -22,10 +22,10 @@ name: CI
 
 on:
   push:
-    branches: [main, master, "release/**"]
+    branches: [main, "release/**"]
     tags:     ["v*"]
   pull_request:
-    branches: [main, master]
+    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
