@@ -3,14 +3,9 @@
 <p align="center">
   <a href="https://github.com/retr0verride/NotTheNet/actions/workflows/ci.yml"><img src="https://github.com/retr0verride/NotTheNet/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/retr0verride/NotTheNet/actions/workflows/codeql.yml"><img src="https://github.com/retr0verride/NotTheNet/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
-  <a href="https://github.com/retr0verride/NotTheNet/actions/workflows/sca.yml"><img src="https://github.com/retr0verride/NotTheNet/actions/workflows/sca.yml/badge.svg" alt="SCA"></a>
-  <a href="https://github.com/retr0verride/NotTheNet/actions/workflows/snyk.yml"><img src="https://github.com/retr0verride/NotTheNet/actions/workflows/snyk.yml/badge.svg" alt="Snyk"></a>
-  <a href="https://www.bestpractices.dev/projects/12084"><img src="https://www.bestpractices.dev/projects/12084/badge" alt="OpenSSF Best Practices"></a>
   <a href="https://securityscorecards.dev/viewer/?uri=github.com/retr0verride/NotTheNet"><img src="https://api.securityscorecards.dev/projects/github.com/retr0verride/NotTheNet/badge" alt="OpenSSF Scorecard"></a>
   <a href="https://github.com/retr0verride/NotTheNet/releases/latest"><img src="https://img.shields.io/github/v/release/retr0verride/NotTheNet" alt="Latest Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/retr0verride/NotTheNet" alt="License"></a>
-  <img src="https://img.shields.io/badge/python-3.9%2B-blue" alt="Python 3.9+">
-  <a href="https://github.com/retr0verride/NotTheNet/stargazers"><img src="https://img.shields.io/github/stars/retr0verride/NotTheNet?style=flat" alt="GitHub Stars"></a>
 </p>
 
 <p align="center">

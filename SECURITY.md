@@ -71,7 +71,7 @@ This project aims to achieve a high [OpenSSF Scorecard](https://securityscorecar
 | Check | Status |
 |-------|--------|
 | CI / SAST | ✅ GitHub Actions (ruff + mypy + bandit + pytest) on every push & PR |
-| Branch protection | Recommended: protect `master` |
+| Branch protection | Recommended: protect `main` |
 | Code review | Recommended: require PRs |
 | Dependency update tool | ✅ Dependabot enabled for pip + GitHub Actions |
 | Pinned dependencies | ✅ `requirements.txt` pinned |
