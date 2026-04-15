@@ -31,6 +31,8 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions: read-all  # baseline; individual jobs escalate only what they need
+
 env:
   REGISTRY:   ghcr.io
   IMAGE_NAME: ${{ github.repository }}
