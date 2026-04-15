@@ -29,7 +29,15 @@ Usage::
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from application.health import HealthCheckService
+    from application.orchestrator import ServiceOrchestrator
+    from infrastructure.adapters.service_repo_adapter import ServiceRepoAdapter
+    from infrastructure.config.env_config import EnvConfigStore
+    from infrastructure.event_sink import JsonlEventSink
+    from infrastructure.health.server import HealthServer
 
 logger = logging.getLogger(__name__)
 
@@ -43,12 +51,12 @@ class Container:
 
     def __init__(
         self,
-        config,          # infrastructure.config.env_config.EnvConfigStore
-        event_sink,      # infrastructure.event_sink.JsonlEventSink
-        service_repo,    # infrastructure.adapters.service_repo_adapter.ServiceRepoAdapter
-        orchestrator,    # application.orchestrator.ServiceOrchestrator
-        health_svc,      # application.health.HealthCheckService
-        health_server,   # infrastructure.health.server.HealthServer
+        config: EnvConfigStore,
+        event_sink: JsonlEventSink,
+        service_repo: ServiceRepoAdapter,
+        orchestrator: ServiceOrchestrator,
+        health_svc: HealthCheckService,
+        health_server: HealthServer,
     ) -> None:
         self.config = config
         self.event_sink = event_sink
@@ -60,7 +68,7 @@ class Container:
     # ── Factory ───────────────────────────────────────────────────────────────
 
     @classmethod
-    def build(cls, config_path: Optional[str] = None) -> "Container":
+    def build(cls, config_path: str | None = None) -> Container:
         """Assemble the full object graph.
 
         This is the *only* factory method for the production application.

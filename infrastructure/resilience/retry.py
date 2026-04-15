@@ -20,7 +20,7 @@ import functools
 import logging
 import random
 import time
-from typing import Any, Callable, TypeVar, Type
+from typing import Any, Callable, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ T = TypeVar("T")
 
 
 # Re-export from canonical location so existing imports keep working.
-from domain.exceptions import RetryExhausted as RetryExhausted  # noqa: F401
+from domain.exceptions import RetryExhausted as RetryExhausted  # noqa: E402, F401
 
 
 def retry_with_backoff(
@@ -67,7 +67,7 @@ def retry_with_backoff(
                         break
                     delay = min(base_delay * (multiplier ** (attempt - 1)), max_delay)
                     if jitter:
-                        delay *= 0.75 + random.random() * 0.5  # ±25%
+                        delay *= 0.75 + random.random() * 0.5  # ±25% jitter  # noqa: S311
                     logger.warning(
                         "Attempt %d/%d for %s failed (%s). Retrying in %.2fs",
                         attempt, max_attempts, fn.__qualname__, exc, delay,
@@ -76,6 +76,6 @@ def retry_with_backoff(
 
             raise RetryExhausted(max_attempts, last_exc)
 
-        return wrapper  # type: ignore[return-value]
+        return wrapper
 
     return decorator

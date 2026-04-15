@@ -182,6 +182,16 @@ class JsonEventLogger:
             except OSError as e:
                 logger.error("JSON event write error: %s", e)
 
+    def flush(self) -> None:
+        """Flush buffered data to disk without closing the log."""
+        with self._lock:
+            if self._file:
+                try:
+                    self._file.flush()
+                    self._last_flush = time.monotonic()
+                except OSError as e:
+                    logger.error("JSON event flush error: %s", e)
+
     def close(self):
         """Flush and close the event log file."""
         with self._lock:

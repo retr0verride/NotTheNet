@@ -34,9 +34,9 @@ def _headless_main() -> None:
     """Run in headless / container mode: no GUI, health endpoint active."""
     import logging
 
-    from infrastructure.logging.setup import configure_logging
-    from infrastructure.logging.otel import initialise as otel_init
     from infrastructure.di.container import Container
+    from infrastructure.logging.otel import initialise as otel_init
+    from infrastructure.logging.setup import configure_logging
 
     log_level = os.environ.get("NTN_LOG_LEVEL", "INFO")
     configure_logging(level=log_level)

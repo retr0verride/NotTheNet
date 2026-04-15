@@ -24,13 +24,13 @@ from __future__ import annotations
 import ipaddress
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class NTNSettings(BaseSettings):
+class NTNSettings(BaseSettings):  # type: ignore[misc]
     """Validated configuration backed by environment variables.
 
     All NTN_* env vars are read from the environment (or a .env file).
@@ -92,7 +92,7 @@ class NTNSettings(BaseSettings):
         default="127.0.0.1",
         description="Address for the health server (never expose externally).",
     )
-    admin_token: Optional[SecretStr] = Field(
+    admin_token: SecretStr | None = Field(
         default=None,
         description="Bearer token for /health/status and /metrics (optional).",
     )
@@ -125,7 +125,7 @@ class NTNSettings(BaseSettings):
 
     # ── Validators ──────────────────────────────────────────────────────────
 
-    @field_validator("bind_ip", "health_bind", mode="before")
+    @field_validator("bind_ip", "health_bind", mode="before")  # type: ignore[untyped-decorator]
     @classmethod
     def _valid_ip(cls, v: object) -> str:
         if not isinstance(v, str):
@@ -136,22 +136,22 @@ class NTNSettings(BaseSettings):
             raise ValueError(f"'{v}' is not a valid IP address") from exc
         return v
 
-    @field_validator("log_level", mode="before")
+    @field_validator("log_level", mode="before")  # type: ignore[untyped-decorator]
     @classmethod
     def _upper_log_level(cls, v: object) -> object:
         if isinstance(v, str):
             return v.upper()
         return v
 
-    @field_validator("config_path", "log_dir", mode="before")
+    @field_validator("config_path", "log_dir", mode="before")  # type: ignore[untyped-decorator]
     @classmethod
     def _expand_paths(cls, v: object) -> object:
         if isinstance(v, str):
             return Path(v).expanduser()
         return v
 
-    @model_validator(mode="after")
-    def _log_dir_accessible(self) -> "NTNSettings":
+    @model_validator(mode="after")  # type: ignore[untyped-decorator]
+    def _log_dir_accessible(self) -> NTNSettings:
         """Warn (don't fail) if log_dir cannot be created."""
         try:
             self.log_dir.mkdir(parents=True, exist_ok=True)

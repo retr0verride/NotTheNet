@@ -8,9 +8,13 @@ Bridges the application layer's ``IServiceRepository`` port to the existing
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import TYPE_CHECKING
 
 from domain.entities.service_status import ServiceState, ServiceStatus
+from domain.ports.config_store import IConfigStore
+
+if TYPE_CHECKING:
+    from service_manager import ServiceManager
 
 logger = logging.getLogger(__name__)
 
@@ -23,18 +27,18 @@ class ServiceRepoAdapter:
     (iptables writes, raw sockets) during testing.
     """
 
-    def __init__(self, config_store) -> None:  # config_store: IConfigStore
+    def __init__(self, config_store: IConfigStore) -> None:
         self._config = config_store
-        self._manager: Optional[object] = None  # ServiceManager, typed as object to avoid circular import
+        # ServiceManager, typed as object to avoid circular import
+        self._manager: ServiceManager | None = None
 
-    def _get_manager(self):
+    def _get_manager(self) -> ServiceManager:
         if self._manager is None:
             from service_manager import ServiceManager
-            from config import Config
 
             # Unwrap EnvConfigStore → base Config for ServiceManager
             base = getattr(self._config, "_base", self._config)
-            self._manager = ServiceManager(base)
+            self._manager = ServiceManager(base)  # type: ignore[arg-type]
         return self._manager
 
     # ── IServiceRepository ────────────────────────────────────────────────────
@@ -52,7 +56,7 @@ class ServiceRepoAdapter:
         if self._manager is None:
             return
         try:
-            self._manager.stop()
+            self._manager.stop()  # type: ignore[no-untyped-call]
         except Exception as exc:
             logger.error("ServiceManager.stop() failed: %s", exc, exc_info=True)
 

@@ -20,7 +20,7 @@ import os
 import sys
 import time
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 # ── Trace ID context ─────────────────────────────────────────────────────────
 # Each request / connection handler calls set_trace_id() at entry.
@@ -66,7 +66,7 @@ class _JsonFormatter(logging.Formatter):
         logging.LogRecord("", 0, "", 0, "", (), None).__dict__.keys()
     )
 
-    def format(self, record: logging.LogRecord) -> str:  # type: ignore[override]
+    def format(self, record: logging.LogRecord) -> str:
         tid = _trace_id_var.get()
         payload: dict[str, Any] = {
             "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
@@ -104,7 +104,7 @@ class _HumanFormatter(logging.Formatter):
     }
     _RESET = "\033[0m"
 
-    def format(self, record: logging.LogRecord) -> str:  # type: ignore[override]
+    def format(self, record: logging.LogRecord) -> str:
         colour = self._LEVEL_COLOURS.get(record.levelname, "")
         ts = time.strftime("%H:%M:%S")
         prefix = f"{ts} {colour}{record.levelname:<8}{self._RESET} [{record.name}]"
@@ -113,8 +113,8 @@ class _HumanFormatter(logging.Formatter):
 
 def configure_logging(
     level: str = "INFO",
-    json_output: Optional[bool] = None,
-    log_file: Optional[str] = None,
+    json_output: bool | None = None,
+    log_file: str | None = None,
 ) -> None:
     """Configure root logger.
 

@@ -27,7 +27,7 @@ import os
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 from urllib.parse import urlsplit
 
 from infrastructure.logging.setup import get_trace_id, set_trace_id
@@ -89,9 +89,9 @@ class _HealthHandler(BaseHTTPRequestHandler):
     """Minimal HTTP/1.1 handler; all business logic delegated to HealthServer."""
 
     # Injected by HealthServer.start()
-    health_server_ref: "HealthServer"
+    health_server_ref: HealthServer
 
-    def log_message(self, fmt: str, *args: Any) -> None:  # type: ignore[override]
+    def log_message(self, fmt: str, *args: Any) -> None:
         logger.debug("health: " + fmt, *args)
 
     def do_OPTIONS(self) -> None:  # noqa: N802
@@ -121,7 +121,7 @@ class _HealthHandler(BaseHTTPRequestHandler):
         self,
         status: int,
         body: str,
-        headers: Optional[dict[str, str]] = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         encoded = body.encode("utf-8")
         self.send_response(status)
@@ -159,10 +159,10 @@ class HealthServer:
         self._bind_ip = os.environ.get("NTN_HEALTH_BIND", bind_ip)
         self._port = int(os.environ.get("NTN_HEALTH_PORT", port))
         self._admin_token = os.environ.get("NTN_HEALTH_TOKEN", "")
-        self._server: Optional[HTTPServer] = None
-        self._thread: Optional[threading.Thread] = None
+        self._server: HTTPServer | None = None
+        self._thread: threading.Thread | None = None
 
-        self._routes: dict[str, Callable] = {
+        self._routes: dict[str, Callable[..., tuple[str, int]]] = {
             "/health/live":    self._handle_live,
             "/health/ready":   self._handle_ready,
             "/health/status":  self._handle_status,
@@ -179,7 +179,10 @@ class HealthServer:
         try:
             self._server = HTTPServer((self._bind_ip, self._port), handler_class)
         except OSError as exc:
-            logger.warning("Health server could not bind %s:%d — %s", self._bind_ip, self._port, exc)
+            logger.warning(
+                "Health server could not bind %s:%d — %s",
+                self._bind_ip, self._port, exc,
+            )
             return
 
         self._thread = threading.Thread(

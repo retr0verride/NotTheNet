@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Any
 
 
 class ServiceState(str, Enum):
@@ -25,8 +25,8 @@ class ServiceStatus:
     state: ServiceState = ServiceState.STOPPED
     port: int = 0
     protocol: str = "tcp"
-    started_at: Optional[float] = None   # epoch seconds
-    error: Optional[str] = None
+    started_at: float | None = None   # epoch seconds
+    error: str | None = None
     connections_total: int = 0
 
     def mark_running(self, port: int, protocol: str) -> None:
@@ -60,4 +60,4 @@ class ConnectionRecord:
     service: str
     payload_bytes: int = 0
     tls: bool = False
-    extra: dict = field(default_factory=dict)
+    extra: dict[str, Any] = field(default_factory=dict)

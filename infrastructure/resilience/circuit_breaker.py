@@ -24,9 +24,10 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections.abc import Generator
 from contextlib import contextmanager
 from enum import Enum
-from typing import Any, Callable, Generator, Optional, TypeVar
+from typing import Any, Callable, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ class CircuitState(str, Enum):
 
 
 # Re-export from canonical location so existing imports keep working.
-from domain.exceptions import CircuitOpenError as CircuitOpenError  # noqa: F401
+from domain.exceptions import CircuitOpenError as CircuitOpenError  # noqa: E402, F401
 
 
 class CircuitBreaker:
@@ -68,7 +69,7 @@ class CircuitBreaker:
         self._state = CircuitState.CLOSED
         self._failure_count = 0
         self._success_count = 0
-        self._last_failure_time: Optional[float] = None
+        self._last_failure_time: float | None = None
         self._lock = threading.Lock()
 
     # ── Public API ────────────────────────────────────────────────────────────

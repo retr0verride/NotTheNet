@@ -6,7 +6,7 @@ only this interface, never the concrete implementation.
 
 from __future__ import annotations
 
-from typing import Any, Optional, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -29,6 +29,6 @@ class IConfigStore(Protocol):
         """Return the full config as a plain dict (deep copy)."""
         ...
 
-    def save(self, path: Optional[str] = None) -> bool:
+    def save(self, path: str | None = None) -> bool:
         """Flush current state to persistent storage; return success."""
         ...

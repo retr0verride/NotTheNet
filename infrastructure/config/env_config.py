@@ -27,10 +27,12 @@ secrets into version-controlled files.
 
 from __future__ import annotations
 
-import copy
 import logging
 import os
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +65,7 @@ class EnvConfigStore:
     This class satisfies the ``IConfigStore`` Protocol by delegation.
     """
 
-    def __init__(self, base_config) -> None:  # base_config: Config (avoid circular import)
+    def __init__(self, base_config: Config) -> None:
         self._base = base_config
         self._overrides: dict[tuple[str, str], Any] = {}
         self._load_env_overrides()
@@ -99,17 +101,17 @@ class EnvConfigStore:
         self._base.set(section, key, value)
 
     def get_section(self, section: str) -> dict[str, Any]:
-        data = self._base.get_section(section)
+        data: dict[str, Any] = self._base.get_section(section)
         for (s, k), v in self._overrides.items():
             if s == section:
                 data[k] = v
         return data
 
     def as_dict(self) -> dict[str, Any]:
-        data = self._base.as_dict()
+        data: dict[str, Any] = self._base.as_dict()
         for (section, key), value in self._overrides.items():
             data.setdefault(section, {})[key] = value
         return data
 
-    def save(self, path: Optional[str] = None) -> bool:
+    def save(self, path: str | None = None) -> bool:
         return self._base.save(path)

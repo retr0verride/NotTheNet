@@ -545,7 +545,9 @@ class IPTablesManager:
             from utils.privilege import restore_privileges
             escalated = restore_privileges()
             if not escalated:
-                logger.warning("Cannot remove iptables rules: not root and cannot restore privileges.")
+                logger.warning(
+                    "Cannot remove iptables rules: not root and cannot restore privileges."
+                )
                 return
 
         try:

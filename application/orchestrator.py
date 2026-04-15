@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Optional
+from typing import Any
 
 from domain.entities.service_status import ServiceState, ServiceStatus
 from domain.ports.config_store import IConfigStore
@@ -35,7 +35,7 @@ class ServiceOrchestrator:
         self._config = config
         self._repo = service_repo
         self._sink = event_sink
-        self._started_at: Optional[float] = None
+        self._started_at: float | None = None
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -85,7 +85,7 @@ class ServiceOrchestrator:
         """Return a point-in-time snapshot of all service states."""
         return self._repo.get_status()
 
-    def uptime_seconds(self) -> Optional[float]:
+    def uptime_seconds(self) -> float | None:
         """Seconds since the orchestrator last called ``start()``, or None."""
         return round(time.time() - self._started_at, 1) if self._started_at else None
 

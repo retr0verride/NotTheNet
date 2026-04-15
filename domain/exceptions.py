@@ -22,9 +22,6 @@ Rules enforced throughout the codebase:
 
 from __future__ import annotations
 
-from typing import Optional
-
-
 # ── Base ─────────────────────────────────────────────────────────────────────
 
 class NotTheNetError(Exception):
@@ -37,7 +34,7 @@ class NotTheNetError(Exception):
 
     code: str = "ERR_INTERNAL"
 
-    def __init__(self, message: str, code: Optional[str] = None) -> None:
+    def __init__(self, message: str, code: str | None = None) -> None:
         super().__init__(message)
         self.message = message
         if code is not None:
@@ -88,7 +85,7 @@ class ServiceError(NotTheNetError):
 
     code = "ERR_SERVICE"
 
-    def __init__(self, message: str, service_name: str = "", code: Optional[str] = None) -> None:
+    def __init__(self, message: str, service_name: str = "", code: str | None = None) -> None:
         super().__init__(message, code)
         self.service_name = service_name
 

@@ -87,7 +87,8 @@ class _GeneralPage(tk.Frame):
             ("iptables Mode", "iptables_mode", "gateway",
              "How iptables REDIRECT rules are applied.\n"
              "loopback \u2014 OUTPUT chain, intercepts traffic from this machine only (default).\n"
-             "gateway  \u2014 PREROUTING chain, intercepts traffic from other hosts on the network.\n"
+             "gateway  \u2014 PREROUTING chain, intercepts traffic from other hosts"
+             " on the network.\n"
              "Use gateway when NotTheNet is acting as a network gateway for a malware VM.",
              ["loopback", "gateway"]),
             ("Log Directory", "log_dir",      "logs",

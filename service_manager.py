@@ -354,7 +354,11 @@ class ServiceManager:
         if builder is not None:
             cfg, extra_kwargs = builder
             return spec.factory(cfg, **extra_kwargs)
-        cfg = self._tls_cfg(spec.config_section) if spec.tls else self.config.get_section(spec.config_section)
+        cfg = (
+            self._tls_cfg(spec.config_section)
+            if spec.tls
+            else self.config.get_section(spec.config_section)
+        )
         return spec.factory(cfg, bind_ip=bind_ip) if spec.bind_ip else spec.factory(cfg)
 
     def _special_builders(
