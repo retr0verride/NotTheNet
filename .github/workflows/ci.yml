@@ -223,6 +223,8 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
+      id-token: write    # required for SLSA provenance attestation
+      attestations: write # required for SLSA provenance attestation
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -234,6 +236,11 @@ jobs:
           artifact-name: notthenet-sbom-${{ github.ref_name }}.spdx.json
           format: spdx-json
           output-file: notthenet-sbom.spdx.json
+
+      - name: Attest SBOM provenance (SLSA)
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: notthenet-sbom.spdx.json
 
       - name: Create release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2

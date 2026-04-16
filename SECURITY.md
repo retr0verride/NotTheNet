@@ -71,14 +71,14 @@ This project aims to achieve a high [OpenSSF Scorecard](https://securityscorecar
 | Check | Status |
 |-------|--------|
 | CI / SAST | ✅ GitHub Actions (ruff + mypy + bandit + pytest) on every push & PR |
-| Branch protection | Recommended: protect `main` |
-| Code review | Recommended: require PRs |
+| Branch protection | ✅ `main` protected — require PR + 1 review, no force-push, no deletion |
+| Code review | ✅ Enforced via branch protection (1 required approving review) |
 | Dependency update tool | ✅ Dependabot enabled for pip + GitHub Actions |
-| Pinned dependencies | ✅ `requirements.txt` pinned |
+| Pinned dependencies | ✅ `requirements.txt` pinned; all CI Actions SHA-pinned; Dockerfile base image digest-pinned |
 | Vulnerability disclosure | ✅ This `SECURITY.md` |
 | Contribution process | ✅ `CONTRIBUTING.md` with PR process, code style, and test policy |
 | Changelog | ✅ `CHANGELOG.md` following Keep a Changelog format |
-| Signed releases | Recommended: GPG-sign tags |
+| Signed releases | ✅ SLSA provenance attestation via `actions/attest-build-provenance` on every release |
 
 ## Recommended Deployment Hardening
 

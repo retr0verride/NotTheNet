@@ -23,11 +23,9 @@
 #   - read-only root filesystem compatible (logs volume required)
 # ──────────────────────────────────────────────────────────────────────────────
 
-ARG PYTHON_VERSION=3.11
-ARG DEBIAN_CODENAME=bookworm
-
-# ── base ──────────────────────────────────────────────────────────────────────
-FROM python:${PYTHON_VERSION}-slim-${DEBIAN_CODENAME} AS base
+# Base image pinned to digest for supply-chain security (Scorecard: Pinned-Dependencies).
+# To update: docker manifest inspect python:3.11-slim-bookworm --verbose | grep Digest
+FROM python:3.11-slim-bookworm@sha256:9c6f90801e6b68e772b7c0ca74260cbf7af9f320acec894e26fccdaccfbe3b47 AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
