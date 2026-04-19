@@ -240,6 +240,7 @@ def _free_port() -> int:
     return port
 
 
+@pytest.mark.limit_memory("20 MB")
 class TestHTTPIntegration:
     def test_normal_response(self):
         port = _free_port()

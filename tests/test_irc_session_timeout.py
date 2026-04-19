@@ -12,6 +12,8 @@ import time
 import unittest
 from unittest.mock import patch
 
+import pytest
+
 from services.irc_server import _IRCClientThread
 
 
@@ -40,6 +42,7 @@ def _make_thread(conn, addr, sem=None):
     )
 
 
+@pytest.mark.limit_memory("10 MB")
 class TestIRCPingTimeout(unittest.TestCase):
 
     def test_server_sends_ping_on_idle(self):

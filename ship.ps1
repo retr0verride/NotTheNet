@@ -16,12 +16,13 @@ function Fail($msg) { Write-Host "    FAIL: $msg" -ForegroundColor Red; exit 1 }
 
 # ── Bump version: YYYY.MM.DD-N (same day → N+1, new day → 1) ─────────────────
 # Read from BOTH files and take the higher build number to avoid rollback when
-# they drift (e.g. notthenet.py was manually bumped without updating pyproject.toml).
+# they drift (e.g. gui/widgets.py was manually bumped without updating pyproject.toml).
+# Note: notthenet.py imports APP_VERSION from gui.widgets — it is not the source of truth.
 $pyprojectVer = (Select-String -Path pyproject.toml -Pattern '^version\s*=\s*"(.+)"').Matches[0].Groups[1].Value
 if (-not $pyprojectVer) { Fail "Could not read version from pyproject.toml" }
 
-$appVerLine = (Select-String -Path notthenet.py -Pattern '^APP_VERSION\s*=\s*"(.+)"').Matches[0].Groups[1].Value
-if (-not $appVerLine) { Fail "Could not read APP_VERSION from notthenet.py" }
+$appVerLine = (Select-String -Path gui/widgets.py -Pattern '^APP_VERSION\s*=\s*"(.+)"').Matches[0].Groups[1].Value
+if (-not $appVerLine) { Fail "Could not read APP_VERSION from gui/widgets.py" }
 
 # Normalise post-style (2026.3.19.post9) → dash-style (2026.03.19-9) for comparison
 function ConvertTo-DashVer($v) {
@@ -42,7 +43,7 @@ $buildA = Get-BuildNumber $pyprojectVer
 $buildB = Get-BuildNumber $appVerLine
 $curVer = if ($buildB -gt $buildA) { $appVerLine } else { $pyprojectVer }
 if ($buildB -gt $buildA) {
-    Write-Host "    NOTE: notthenet.py ($appVerLine) was ahead of pyproject.toml ($pyprojectVer); using higher." -ForegroundColor Yellow
+    Write-Host "    NOTE: gui/widgets.py ($appVerLine) was ahead of pyproject.toml ($pyprojectVer); using higher." -ForegroundColor Yellow
 }
 
 $today   = (Get-Date).ToString("yyyy.MM.dd")
@@ -62,10 +63,6 @@ if ($curVer -match '^(\d{4}\.\d{2}\.\d{2})-(\d+)$') {
 (Get-Content pyproject.toml) -replace "^version\s*=\s*`".*`"", "version = `"$ver`"" |
     Set-Content pyproject.toml
 
-# Patch notthenet.py
-(Get-Content notthenet.py) -replace '^APP_VERSION\s*=\s*".*"', "APP_VERSION = `"$ver`"" |
-    Set-Content notthenet.py
-
 # Patch gui/widgets.py
 (Get-Content gui/widgets.py) -replace '^APP_VERSION\s*=\s*".*"', "APP_VERSION = `"$ver`"" |
     Set-Content gui/widgets.py
@@ -83,35 +80,21 @@ if (-not $SkipPredeploy) {
 }
 
 # ── Offline bundle (wheels baked in) ─────────────────────────────────────────
+# make-bundle.ps1 always writes dist\NotTheNet-<ver>.zip; -SkipChecks avoids
+# re-running predeploy (we already ran it above).
 Step "Building offline installer bundle"
-& .\make-bundle.ps1 -Zip
+& .\make-bundle.ps1 -SkipChecks
 if ($LASTEXITCODE -ne 0) { Fail "make-bundle.ps1 failed" }
 
-# Locate the zip make-bundle.ps1 produced (relative to CWD)
-$bundleSrc = Join-Path (Split-Path $PSScriptRoot -Parent) "NotTheNet-bundle.zip"
-if (-not (Test-Path $bundleSrc)) {
-    # Fallback: try the CWD parent (when run from repo root the zip lands one level up)
-    $bundleSrc = Join-Path (Split-Path (Get-Location) -Parent) "NotTheNet-bundle.zip"
-}
-if (-not (Test-Path $bundleSrc)) { Fail "Cannot find NotTheNet-bundle.zip" }
-
-# ── Move artifacts to dist/ ──────────────────────────────────────────────────
-$distDir = Join-Path (Get-Location) "dist"
-if (-not (Test-Path $distDir)) { New-Item -ItemType Directory -Path $distDir | Out-Null }
-
-# Remove any previous bundle zips before writing the new one
-Get-ChildItem -Path $distDir -Filter "NotTheNet_*_bundle.zip" | ForEach-Object {
-    Remove-Item -Force $_.FullName
-    Write-Host "    Removed old artifact: $($_.Name)" -ForegroundColor DarkGray
-}
-
-$bundleDst = Join-Path $distDir "NotTheNet_${ver}_bundle.zip"
-Move-Item -Force $bundleSrc $bundleDst
+# Locate the zip make-bundle.ps1 wrote to dist/
+$distDir  = Join-Path (Get-Location) "dist"
+$bundleDst = Join-Path $distDir "NotTheNet-${ver}.zip"
+if (-not (Test-Path $bundleDst)) { Fail "Cannot find $bundleDst" }
 Pass "Zip → $bundleDst ($( '{0:N1}' -f ((Get-Item $bundleDst).Length/1MB) ) MB)"
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 Write-Host ""
 Write-Host "NotTheNet $ver ready in dist/" -ForegroundColor Green
-Write-Host "  NotTheNet_${ver}_bundle.zip" -ForegroundColor Green
+Write-Host "  NotTheNet-${ver}.zip" -ForegroundColor Green
 Write-Host ""
 Write-Host "To create an ISO, add these files to your ISO tool (e.g. AnyBurn)." -ForegroundColor Yellow

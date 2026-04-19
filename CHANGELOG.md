@@ -9,6 +9,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ---
 
+## [2026.04.19-1] — 2026-04-19
+
+### Added
+- **Memory leak detection** — `tests/conftest.py` implements a cross-platform `limit_memory` marker backed by `stdlib tracemalloc` (Windows dev) and `pytest-memray` (Linux/CI); `TestHTTPIntegration` (20 MB), `TestIRCPingTimeout` (10 MB), and `TestPeriodicFlush` (10 MB) are gated; `pytest-memray>=1.5` added to `requirements-dev.txt` with `sys_platform != "win32"` guard
+
+### Changed
+- **`docs/` removed from repository** — documentation is no longer published to the repo; `docs/` added to `.gitignore`; README updated to remove docs table and inline man page reference
+- **`ship.ps1` fixed** — version source switched from `notthenet.py` (now imports `APP_VERSION`) to `gui/widgets.py` (source of truth); bundle step updated to use `make-bundle.ps1 -SkipChecks` (correct switch)
+- **`predeploy.ps1` step 8 removed** — memory gate was redundant; `limit_memory` markers enforced inline in step 5 on both Windows (`tracemalloc`) and Linux (`pytest-memray`)
+- **README**: updated offline bundle command to `make-bundle.ps1 -SkipChecks`; removed stale docs link table
+
+---
+
+## [2026.04.08-2] — 2026-04-19
+
+### Added
+- **HTTP: File-hosting payload-staging handler** — new `_FILE_HOSTING_HOSTS` frozenset and `_route_file_hosting` handler covers `catbox.moe`, `files.catbox.moe`, `litterbox.catbox.moe`, `anonfiles.com`, `gofile.io`, `transfer.sh`, `file.io`, and `tmpfiles.org`; returns HTTP 200 `application/octet-stream` with a minimal stub body so Agent Tesla's pre-detonation connectivity check passes and the fetch is logged as `file_hosting_fetch` in the JSON event log.
+
+### Fixed
+- **DNS: `nxdomain_entropy_threshold` too high to catch short canary domains** — default config was `4.0`; canonical 8-9 character DGA canary domains (e.g. `asdfg123.com`, Shannon entropy ≈ 3.0) resolved instead of returning NXDOMAIN, allowing LockBit-style "fake network" detection to succeed; lowered to `3.2` (matches the value documented in CHANGELOG since the `3.8→3.2` tuning commit).
+- **predeploy: pip-audit hash mismatch on Windows** — `requirements.txt` contains Linux-only wheel hashes (deployment target is Kali); pip-audit's temp-venv strategy resolved the Windows `win_amd64` wheel whose hash is absent, failing the check; step 4 now audits the active venv directly (`pip_audit --skip-editable`) instead of re-installing from requirements.txt.
+
+---
+
 ## [2026.04.15-1] — 2026-04-15
 
 ### Fixed

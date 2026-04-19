@@ -20,9 +20,12 @@ import threading
 import time
 import unittest
 
+import pytest
+
 from utils.json_logger import _FLUSH_INTERVAL, JsonEventLogger
 
 
+@pytest.mark.limit_memory("10 MB")
 class TestPeriodicFlush(unittest.TestCase):
 
     def _make_logger(self, tmp_path: str) -> JsonEventLogger:

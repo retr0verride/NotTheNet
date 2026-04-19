@@ -39,7 +39,9 @@ if ($banditExit -ne 0) { Fail "bandit found issues" } else { Pass "bandit" }
 Step "4/7  SCA (pip-audit)"
 $prevEAP = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
-& $Python -m pip_audit --requirement requirements.txt --skip-editable 2>&1 | Write-Host
+# Audit the active venv directly -- requirements.txt hashes are Linux-only
+# (deployment target is Kali), so re-installing on Windows fails hash checks.
+& $Python -m pip_audit --skip-editable 2>&1 | Write-Host
 $auditExit = $LASTEXITCODE
 $ErrorActionPreference = $prevEAP
 if ($auditExit -ne 0) { Fail "pip-audit found vulnerabilities" } else { Pass "pip-audit" }

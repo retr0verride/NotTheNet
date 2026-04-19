@@ -166,6 +166,19 @@ _GITHUB_RAW_HOSTS = frozenset({
     "objects.githubusercontent.com",
 })
 
+# File-hosting sites used by Agent Tesla and similar stealers to stage
+# second-stage payloads before activating C2.  Returning HTTP 200 prevents
+# the "no connectivity" pre-check from aborting detonation.
+_FILE_HOSTING_HOSTS = frozenset({
+    "catbox.moe", "files.catbox.moe",
+    "litterbox.catbox.moe",
+    "anonfiles.com",          # legacy, still seen in older samples
+    "gofile.io",
+    "transfer.sh",
+    "file.io",
+    "tmpfiles.org",
+})
+
 # Google Docs/Drive hosts used by Emotet, Qakbot, IcedID, etc. for
 # payload staging and config dead-drops.
 _GOOGLE_CONTENT_HOSTS = frozenset({
@@ -1104,6 +1117,47 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
             pass
         return True
 
+    # ── File-hosting / payload-staging route ───────────────────────────────
+    def _route_file_hosting(self, host: str):
+        """Return a plausible 200 response for file-hosting payload fetches.
+
+        Agent Tesla (and similar stealers) check that they can reach a
+        file-hosting site before fetching their second-stage payload.  If
+        DNS resolves the host but the HTTP response is an error or our
+        default HTML page, the malware detects a fake network and aborts.
+        Returning HTTP 200 with a minimal octet-stream body keeps the
+        pre-check alive so detonation proceeds and the request is logged.
+        """
+        src_ip = sanitize_ip(self.client_address[0])
+        path = sanitize_log_string(self.path or "/", max_length=256)
+
+        logger.warning(
+            "FileHost  Payload fetch from %s | host=%s path=%s",
+            src_ip, host, path,
+        )
+        jl = get_json_logger()
+        if jl:
+            jl.log("file_hosting_fetch",
+                   src_ip=self.client_address[0],
+                   host=host,
+                   path=self.path or "/")
+
+        # Minimal stub body — enough for the connectivity pre-check to pass.
+        body = b"\x00" * 64
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Server", "nginx")
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Connection", "keep-alive")
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(body)
+        except OSError:
+            pass
+        return True
+
     # ── Google Docs/Drive route ───────────────────────────────────────────
     def _route_google_content(self, host: str):
         """Return plausible content for Google Docs/Sheets/Drive dead-drops."""
@@ -1369,6 +1423,7 @@ FakeHTTPHandler._ROUTES = [
     (lambda s, h: h in _TEAMS_HOSTS or _TEAMS_WEBHOOK_RE.search(h),
                                                                 FakeHTTPHandler._route_teams),
     (lambda s, h: h in _GITHUB_RAW_HOSTS,                       FakeHTTPHandler._route_github_raw),
+    (lambda s, h: h in _FILE_HOSTING_HOSTS,                     FakeHTTPHandler._route_file_hosting),
     (lambda s, h: h in _GOOGLE_CONTENT_HOSTS,                   FakeHTTPHandler._route_google_content),
 ]
 

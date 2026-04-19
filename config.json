@@ -35,7 +35,7 @@
       "xxlvbrloxvriy2c5.onion": "10.0.0.1",
       "76jdd2ir2embyv47.onion": "10.0.0.1"
     },
-    "nxdomain_entropy_threshold": 4.0,
+    "nxdomain_entropy_threshold": 3.2,
     "nxdomain_label_min_length": 8,
     "public_response_ips": [
       "142.250.80.1",

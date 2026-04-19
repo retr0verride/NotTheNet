@@ -77,6 +77,10 @@ wheelhouse/
 # Generated single-file bundle (produced by make-bundle.ps1)
 notthenet-bundle.sh
 
-# mypy cache
+# ── mypy cache
+.mypy_cache/
+
+# ── Documentation (kept locally, not published to repo)
+docs/
 .mypy_cache/
 
