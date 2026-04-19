@@ -48,7 +48,7 @@ sudo notthenet
 
 **Air-gapped / offline install** (build on Windows, copy via USB):
 ```powershell
-.\make-bundle.ps1 -SkipChecks    # → dist/NotTheNet-<ver>.zip
+.\make-bundle.ps1 -Zip     # → NotTheNet-bundle.zip
 ```
 ```bash
 # On Kali — unzip and run
@@ -243,7 +243,7 @@ docker build --target runtime -t notthenet:local .
 
 ```powershell
 # On Windows build host (has internet):
-.\make-bundle.ps1 -SkipChecks    # → dist/NotTheNet-<ver>.zip
+.\make-bundle.ps1 -Zip    # produces NotTheNet-bundle.zip
 ```
 
 ```bash
@@ -355,6 +355,25 @@ sudo NTN_LOG_LEVEL=DEBUG notthenet --headless     # verbose headless
 
 ---
 
+## Docs
+
+| Guide | |
+|---|---|
+| [Installation](docs/installation.md) | Install, update, uninstall, offline USB bundle |
+| [Configuration](docs/configuration.md) | Every `config.json` field with examples |
+| [Usage](docs/usage.md) | GUI walkthrough, CLI mode, analysis workflow |
+| [Services](docs/services.md) | Per-service technical reference |
+| [Network & iptables](docs/network.md) | Traffic redirection, loopback vs gateway, TTL mangle |
+| [Security Hardening](docs/security-hardening.md) | Lab isolation, privilege model, OpenSSF practices |
+| [Safe Detonation](docs/safe-detonation.md) | Proxmox snapshots, KVM cloaking, artifact handling |
+| [Lab Setup](docs/lab-setup.md) | Proxmox + Kali + FlareVM wiring guide |
+| [Troubleshooting](docs/troubleshooting.md) | Common errors and fixes |
+| [Changelog](CHANGELOG.md) | Full release history |
+
+Man page: [`man/notthenet.1`](man/notthenet.1) — installed automatically by `notthenet-install.sh`.
+
+---
+
 ## Development
 
 ```bash
@@ -362,8 +381,6 @@ pytest tests/ -v              # 253 tests — pure Python, no root, no network
 ruff check .                  # lint
 bandit -r . --exclude .venv   # SAST
 ```
-
-Man page: [`man/notthenet.1`](man/notthenet.1) — installed automatically by `notthenet-install.sh`.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) to submit a PR.
 

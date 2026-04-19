@@ -15,10 +15,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 - **Memory leak detection** — `tests/conftest.py` implements a cross-platform `limit_memory` marker backed by `stdlib tracemalloc` (Windows dev) and `pytest-memray` (Linux/CI); `TestHTTPIntegration` (20 MB), `TestIRCPingTimeout` (10 MB), and `TestPeriodicFlush` (10 MB) are gated; `pytest-memray>=1.5` added to `requirements-dev.txt` with `sys_platform != "win32"` guard
 
 ### Changed
-- **`docs/` removed from repository** — documentation is no longer published to the repo; `docs/` added to `.gitignore`; README updated to remove docs table and inline man page reference
 - **`ship.ps1` fixed** — version source switched from `notthenet.py` (now imports `APP_VERSION`) to `gui/widgets.py` (source of truth); bundle step updated to use `make-bundle.ps1 -SkipChecks` (correct switch)
 - **`predeploy.ps1` step 8 removed** — memory gate was redundant; `limit_memory` markers enforced inline in step 5 on both Windows (`tracemalloc`) and Linux (`pytest-memray`)
-- **README**: updated offline bundle command to `make-bundle.ps1 -SkipChecks`; removed stale docs link table
+- **README**: updated offline bundle command to `make-bundle.ps1 -SkipChecks`
+
+### Fixed
+- **HTTP: hardcoded fallback spoof IP replaced** — `services/http_server.py` and `tests/test_http_server.py` used a real public IP (`98.245.112.43`) as the default spoof-IP fallback; replaced with `203.0.113.1` (RFC 5737 TEST-NET-3, reserved for documentation and examples)
 
 ---
 

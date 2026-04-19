@@ -34,7 +34,7 @@ from services.http_server import (
 # ── IP-check formatters (pure functions) ─────────────────────────────────────
 
 class TestIPCheckFormatters:
-    _IP = "98.245.112.43"
+    _IP = "203.0.113.1"
 
     def test_ipinfo(self):
         body, ct, headers = _fmt_ipinfo(self._IP, "/")

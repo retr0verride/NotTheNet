@@ -530,7 +530,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
     def _send_ip_check_response(self, host: str):
         """Return the spoofed public IP for known IP-check services."""
         path = self.path or "/"
-        ip = self._cfg.spoof_ip or "98.245.112.43"
+        ip = self._cfg.spoof_ip or "203.0.113.1"
 
         formatter = _IP_CHECK_FORMATTERS.get(host)
         if formatter:
