@@ -683,7 +683,7 @@ fi
         if ($status) {
             git commit -m "release: v$ver" --quiet
         }
-        git push origin master:main --quiet 2>&1 | Out-Null
+        git push origin HEAD:main --quiet 2>&1 | Out-Null
         info "Pushed to main."
 
         # Create or update GitHub release (requires gh CLI)

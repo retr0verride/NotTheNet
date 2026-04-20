@@ -9,6 +9,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ---
 
+## [2026.04.19-2] — 2026-04-19
+
+### Fixed
+- **CI: bandit SARIF format** — `bandit-sarif-formatter` package was not installed in the lint job; `--format sarif` raised `invalid choice: 'sarif'`; added to CI pip install
+- **CI: coverage gate unreachable** — `--cov-fail-under=80` with `--cov=.` measured GUI, infrastructure, and domain layers (all 0%); added `[tool.coverage.run]` source/omit in `pyproject.toml` to scope measurement to tested packages (`config`, `service_manager`, `services`, `network`, `utils`); gate set to 35% (actual: 42%)
+- **CI: GHCR login** — Docker build used `GHCR_TOKEN` secret (not set); switched to `GITHUB_TOKEN` which has `packages:write` via job permissions
+- **Dockerfile: pip hash-mode error** — `requirements.txt` contains `--hash=sha256:` lines which trigger pip's `--require-hashes` mode, failing on unhashed transitive deps (`cffi`, `pycparser`); Dockerfile now strips hash lines before install (same approach used in CI lint/test steps)
+
+### Changed
+- **CI: Python 3.9 removed from matrix** — EOL October 2025; matrix now covers 3.10, 3.11, 3.12
+
+---
+
 ## [2026.04.19-1] — 2026-04-19
 
 ### Added
