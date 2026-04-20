@@ -34,6 +34,12 @@ ExecStartPre=-/usr/bin/mkdir -p /opt/NotTheNet/logs/emails /opt/NotTheNet/logs/f
 ExecStart=/opt/NotTheNet/.venv/bin/python /opt/NotTheNet/notthenet.py --nogui --config /opt/NotTheNet/config.json
 
 # ── Cleanup on stop ──────────────────────────────────────────
+# Restore iptables from pre-start snapshots if the process didn't clean up
+# (e.g. SIGKILL, OOM, crash).  The '-' prefix means "don't fail the unit
+# if the file doesn't exist".
+ExecStopPost=-/bin/sh -c 'test -f /opt/NotTheNet/logs/.iptables_save.rules && iptables -t nat -F && iptables-restore /opt/NotTheNet/logs/.iptables_save.rules && rm -f /opt/NotTheNet/logs/.iptables_save.rules'
+ExecStopPost=-/bin/sh -c 'test -f /opt/NotTheNet/logs/.mangle_save.rules && iptables -t mangle -F && iptables-restore /opt/NotTheNet/logs/.mangle_save.rules && rm -f /opt/NotTheNet/logs/.mangle_save.rules'
+ExecStopPost=-/bin/sh -c 'test -f /opt/NotTheNet/logs/.filter_save.rules && iptables -t filter -F && iptables-restore /opt/NotTheNet/logs/.filter_save.rules && rm -f /opt/NotTheNet/logs/.filter_save.rules'
 ExecStopPost=-/usr/bin/umount /opt/NotTheNet/logs
 
 Restart=on-failure

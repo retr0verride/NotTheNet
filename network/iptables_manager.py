@@ -18,6 +18,7 @@ Security notes (OpenSSF):
 
 from __future__ import annotations
 
+import atexit
 import logging
 import os
 import shutil
@@ -37,6 +38,33 @@ _SNAPSHOT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__f
 _IPTABLES_SAVE_FILE = os.path.join(_SNAPSHOT_DIR, ".iptables_save.rules")
 _MANGLE_SAVE_FILE = os.path.join(_SNAPSHOT_DIR, ".mangle_save.rules")
 _FILTER_SAVE_FILE = os.path.join(_SNAPSHOT_DIR, ".filter_save.rules")
+
+
+def _atexit_restore_snapshots() -> None:
+    """Last-resort iptables cleanup when the process exits without a clean shutdown.
+
+    If snapshot files still exist at exit, the normal remove_rules() path
+    was never called (e.g. unhandled exception, SIGABRT).  Restore them
+    now so the lab doesn't keep stale NAT redirects pointing at dead ports.
+    SIGKILL cannot be caught — the systemd ExecStopPost handles that case.
+    """
+    for table, path in [("nat", _IPTABLES_SAVE_FILE),
+                        ("mangle", _MANGLE_SAVE_FILE),
+                        ("filter", _FILTER_SAVE_FILE)]:
+        if os.path.exists(path) and shutil.which("iptables-restore"):
+            _run(["iptables", "-t", table, "-F"])
+            code, _, err = _run(["iptables-restore", path])
+            if code == 0:
+                logger.info("atexit: %s table restored from snapshot.", table)
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+            else:
+                logger.error("atexit: %s restore failed: %s", table, err)
+
+
+atexit.register(_atexit_restore_snapshots)
 
 
 def _run(args: list[str]) -> tuple[int, str, str]:
