@@ -1,5 +1,5 @@
 # NotTheNet — Python Dependencies
-# Pinned with SHA-256 hashes for supply-chain integrity (OpenSSF SLSA).
+# Pinned with SHA-256 hashes for supply-chain integrity.
 # Install: pip install --require-hashes -r requirements.txt
 #
 # To regenerate hashes after version bumps:

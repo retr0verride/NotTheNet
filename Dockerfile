@@ -59,7 +59,7 @@ COPY requirements.txt pyproject.toml ./
 
 # Strip --hash lines: hashes trigger --require-hashes mode which demands hashes
 # for ALL transitive deps (cffi, pycparser, etc).  Supply-chain integrity is
-# provided by the digest-pinned base image + SLSA provenance attestation instead.
+# provided by the digest-pinned base image.
 RUN python -m venv /venv \
     && /venv/bin/pip install --upgrade pip \
     && sed '/--hash=sha256:/d' requirements.txt | sed 's/ \\$//' > /tmp/req.txt \

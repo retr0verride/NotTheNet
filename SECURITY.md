@@ -78,7 +78,7 @@ This project aims to achieve a high [OpenSSF Scorecard](https://securityscorecar
 | Vulnerability disclosure | ✅ This `SECURITY.md` |
 | Contribution process | ✅ `CONTRIBUTING.md` with PR process, code style, and test policy |
 | Changelog | ✅ `CHANGELOG.md` following Keep a Changelog format |
-| Signed releases | ✅ SLSA provenance attestation via `actions/attest-build-provenance` on every release |
+| Signed releases | ✅ Draft GitHub Release with auto-generated release notes on CalVer tags |
 
 ## Recommended Deployment Hardening
 
