@@ -10,7 +10,7 @@
 #   release   Draft GitHub Release on semver tags (vYYYY.MM.DD*) + SBOM
 #
 # Required repository secrets:
-#   GHCR_TOKEN   — GitHub PAT with packages:write scope
+#   (none — GITHUB_TOKEN provides packages:write via job permissions)
 #
 # SOC2 / ISO27001 controls:
 #   CC7.1  — change control via PR + status checks
@@ -178,7 +178,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GHCR_TOKEN }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract Docker metadata
         id: meta
