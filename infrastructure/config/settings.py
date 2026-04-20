@@ -30,7 +30,7 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class NTNSettings(BaseSettings):  # type: ignore[misc]
+class NTNSettings(BaseSettings):
     """Validated configuration backed by environment variables.
 
     All NTN_* env vars are read from the environment (or a .env file).
@@ -125,7 +125,7 @@ class NTNSettings(BaseSettings):  # type: ignore[misc]
 
     # ── Validators ──────────────────────────────────────────────────────────
 
-    @field_validator("bind_ip", "health_bind", mode="before")  # type: ignore[untyped-decorator]
+    @field_validator("bind_ip", "health_bind", mode="before")
     @classmethod
     def _valid_ip(cls, v: object) -> str:
         if not isinstance(v, str):
@@ -136,21 +136,21 @@ class NTNSettings(BaseSettings):  # type: ignore[misc]
             raise ValueError(f"'{v}' is not a valid IP address") from exc
         return v
 
-    @field_validator("log_level", mode="before")  # type: ignore[untyped-decorator]
+    @field_validator("log_level", mode="before")
     @classmethod
     def _upper_log_level(cls, v: object) -> object:
         if isinstance(v, str):
             return v.upper()
         return v
 
-    @field_validator("config_path", "log_dir", mode="before")  # type: ignore[untyped-decorator]
+    @field_validator("config_path", "log_dir", mode="before")
     @classmethod
     def _expand_paths(cls, v: object) -> object:
         if isinstance(v, str):
             return Path(v).expanduser()
         return v
 
-    @model_validator(mode="after")  # type: ignore[untyped-decorator]
+    @model_validator(mode="after")
     def _log_dir_accessible(self) -> NTNSettings:
         """Warn (don't fail) if log_dir cannot be created."""
         try:
