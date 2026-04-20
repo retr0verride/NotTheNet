@@ -296,6 +296,7 @@ class IPTablesManager:
             # Fail-closed: if we can't verify the interface exists, reject it.
             # A security tool should not apply iptables rules to a potentially
             # non-existent interface.
+            logger.warning("Cannot read /proc/net/dev to verify interface '%s'", iface)
             return False
 
     def _add_rule(self, rule: list[str]) -> bool:
@@ -555,16 +556,22 @@ class IPTablesManager:
                 "-j", "TTL", "--ttl-set", str(self.spoof_ttl),
                 "-m", "comment", "--comment", _RULE_COMMENT,
             ]
-            _run(["iptables"] + ttl_del)
-            self._ttl_rule_applied = False
-            logger.info("TTL mangle rule removed.")
+            code, _, err = _run(["iptables"] + ttl_del)
+            if code == 0:
+                self._ttl_rule_applied = False
+                logger.info("TTL mangle rule removed.")
+            else:
+                logger.warning("Failed to remove TTL mangle rule: %s", err.strip())
         if self._filter_icmp_drop_applied:
-            _run(["iptables", "-t", "filter", "-D", "OUTPUT",
+            code, _, err = _run(["iptables", "-t", "filter", "-D", "OUTPUT",
                   "-p", "icmp", "--icmp-type", "destination-unreachable",
                   "-j", "DROP",
                   "-m", "comment", "--comment", _RULE_COMMENT])
-            self._filter_icmp_drop_applied = False
-            logger.info("ICMP destination-unreachable DROP rule removed.")
+            if code == 0:
+                self._filter_icmp_drop_applied = False
+                logger.info("ICMP destination-unreachable DROP rule removed.")
+            else:
+                logger.warning("Failed to remove ICMP DROP rule: %s", err.strip())
 
     def remove_rules(self):
         """Stop: restore the nat table to its pre-start state."""
