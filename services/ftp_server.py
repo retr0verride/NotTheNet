@@ -81,8 +81,22 @@ def _get_disk_usage(directory: str) -> int:
 class _FTPSession(threading.Thread):
     """Handles one FTP control connection."""
 
-    def __init__(self, conn, addr, banner: str, upload_dir: Optional[str], bind_ip: str = "0.0.0.0",
-                 upload_lock: Optional[threading.Lock] = None):
+    def __init__(
+        self,
+        conn,
+        addr,
+        banner: str,
+        upload_dir: Optional[str],
+        bind_ip: str = "0.0.0.0",
+        upload_lock: Optional[threading.Lock] = None,
+        control_timeout: float = 30.0,
+        data_timeout: float = 30.0,
+        pasv_timeout: float = 10.0,
+        max_upload_size_bytes: int = MAX_UPLOAD_SIZE_BYTES,
+        max_disk_usage_bytes: int = MAX_DISK_USAGE_BYTES,
+        pasv_port_low: int = PASV_PORT_LOW,
+        pasv_port_high: int = PASV_PORT_HIGH,
+    ):
         super().__init__(daemon=True)
         self.conn = conn
         self.addr = addr
@@ -90,6 +104,13 @@ class _FTPSession(threading.Thread):
         self.upload_dir = upload_dir
         self.bind_ip = bind_ip
         self._upload_lock = upload_lock or threading.Lock()
+        self.control_timeout = control_timeout
+        self.data_timeout = data_timeout
+        self.pasv_timeout = pasv_timeout
+        self.max_upload_size_bytes = max_upload_size_bytes
+        self.max_disk_usage_bytes = max_disk_usage_bytes
+        self.pasv_port_low = pasv_port_low
+        self.pasv_port_high = pasv_port_high
         self._data_conn = None
         self._pasv_server = None
 
@@ -101,7 +122,7 @@ class _FTPSession(threading.Thread):
 
     def _open_pasv(self) -> Optional[str]:
         """Open a passive-mode data socket and return the PASV response string."""
-        ports = list(range(PASV_PORT_LOW, PASV_PORT_HIGH))
+        ports = list(range(self.pasv_port_low, self.pasv_port_high))
         random.shuffle(ports)
         for port in ports:
             try:
@@ -109,7 +130,7 @@ class _FTPSession(threading.Thread):
                 srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 srv.bind((self.bind_ip, port))
                 srv.listen(1)
-                srv.settimeout(10)
+                srv.settimeout(self.pasv_timeout)
                 self._pasv_server = srv
                 # Encode IP as comma-separated octets per RFC 959
                 local_ip = self.conn.getsockname()[0]
@@ -118,7 +139,11 @@ class _FTPSession(threading.Thread):
                 return f"227 Entering Passive Mode ({ip_parts},{p1},{p2})"
             except OSError:
                 continue
-        logger.warning("FTP PASV: no free ports in range %dâ€“%d", PASV_PORT_LOW, PASV_PORT_HIGH)
+        logger.warning(
+            "FTP PASV: no free ports in range %d-%d",
+            self.pasv_port_low,
+            self.pasv_port_high,
+        )
         return None
 
     def _accept_data(self) -> Optional[socket.socket]:
@@ -140,7 +165,7 @@ class _FTPSession(threading.Thread):
             jl.log("ftp_connection", src_ip=self.addr[0])
         try:
             self._send(sanitize_log_string(self.banner, max_length=200))
-            self.conn.settimeout(30)
+            self.conn.settimeout(self.control_timeout)
             buf = b""
             while True:
                 chunk = self.conn.recv(1024)
@@ -230,7 +255,7 @@ class _FTPSession(threading.Thread):
             self._send("425 Can't open data connection")
             return
 
-        data_conn.settimeout(30)
+        data_conn.settimeout(self.data_timeout)
 
         if not self.upload_dir:
             self._drain_and_close(data_conn, "uploads disabled")
@@ -238,7 +263,7 @@ class _FTPSession(threading.Thread):
             return
 
         with self._upload_lock:
-            if _get_disk_usage(self.upload_dir) > MAX_DISK_USAGE_BYTES:
+            if _get_disk_usage(self.upload_dir) > self.max_disk_usage_bytes:
                 logger.warning("FTP: upload storage cap reached; discarding file.")
                 self._drain_and_close(data_conn, "cap exceeded")
                 self._send("452 Insufficient storage space")
@@ -279,7 +304,7 @@ class _FTPSession(threading.Thread):
                 if not chunk:
                     break
                 received += len(chunk)
-                if received > MAX_UPLOAD_SIZE_BYTES:
+                if received > self.max_upload_size_bytes:
                     logger.warning(
                         "FTP: upload from %s exceeded size cap; truncating.", safe_addr
                     )
@@ -306,6 +331,14 @@ class FTPService:
         allow_uploads = config.get("allow_uploads", True)
         upload_dir = config.get("upload_dir", "logs/ftp_uploads")
         self.upload_dir = upload_dir if allow_uploads else None
+        self.max_connections = int(config.get("max_connections", _MAX_CONNECTIONS))
+        self.control_timeout = float(config.get("control_timeout_sec", 30))
+        self.data_timeout = float(config.get("data_timeout_sec", 30))
+        self.pasv_timeout = float(config.get("pasv_timeout_sec", 10))
+        self.max_upload_size_bytes = int(config.get("max_upload_size_bytes", MAX_UPLOAD_SIZE_BYTES))
+        self.max_disk_usage_bytes = int(config.get("max_disk_usage_bytes", MAX_DISK_USAGE_BYTES))
+        self.pasv_port_low = int(config.get("pasv_port_low", PASV_PORT_LOW))
+        self.pasv_port_high = int(config.get("pasv_port_high", PASV_PORT_HIGH))
         self._upload_lock = threading.Lock()
         self._server = None
         self._thread = None
@@ -320,15 +353,36 @@ class FTPService:
         upload_dir = self.upload_dir
         bind_ip = self.bind_ip
         upload_lock = self._upload_lock
+        control_timeout = self.control_timeout
+        data_timeout = self.data_timeout
+        pasv_timeout = self.pasv_timeout
+        max_upload_size_bytes = self.max_upload_size_bytes
+        max_disk_usage_bytes = self.max_disk_usage_bytes
+        pasv_port_low = self.pasv_port_low
+        pasv_port_high = self.pasv_port_high
 
         class _Handler(socketserver.BaseRequestHandler):
             def handle(self):
-                sess = _FTPSession(self.request, self.client_address, banner, upload_dir, bind_ip,
-                                   upload_lock=upload_lock)
+                sess = _FTPSession(
+                    self.request,
+                    self.client_address,
+                    banner,
+                    upload_dir,
+                    bind_ip,
+                    upload_lock=upload_lock,
+                    control_timeout=control_timeout,
+                    data_timeout=data_timeout,
+                    pasv_timeout=pasv_timeout,
+                    max_upload_size_bytes=max_upload_size_bytes,
+                    max_disk_usage_bytes=max_disk_usage_bytes,
+                    pasv_port_low=pasv_port_low,
+                    pasv_port_high=pasv_port_high,
+                )
                 sess.run()
 
         try:
             self._server = _ReuseServer((self.bind_ip, self.port), _Handler)
+            self._server._sem = threading.BoundedSemaphore(self.max_connections)
             self._thread = threading.Thread(
                 target=self._server.serve_forever,
                 kwargs={"poll_interval": 2.0},

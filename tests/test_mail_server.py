@@ -48,10 +48,10 @@ def test_auth_login_state_machine() -> None:
     assert b"235 2.7.0 Authentication successful" in b"".join(smtp.conn.sent)
 
 
-def test_data_mode_enforces_message_size(monkeypatch) -> None:
+def test_data_mode_enforces_message_size() -> None:
     smtp = _smtp()
     smtp.data_mode = True
-    monkeypatch.setattr(mail_server, "MAX_EMAIL_SIZE_BYTES", 10)
+    smtp.max_email_size_bytes = 10
 
     smtp._handle_line("12345", "127.0.0.1")
     smtp._handle_line("67890", "127.0.0.1")
@@ -72,10 +72,10 @@ def test_save_email_writes_eml_file(tmp_path: Path) -> None:
     assert "Subject: test" in files[0].read_text(encoding="utf-8")
 
 
-def test_save_email_skips_when_disk_cap_exceeded(tmp_path: Path, monkeypatch) -> None:
+def test_save_email_skips_when_disk_cap_exceeded(tmp_path: Path) -> None:
     (tmp_path / "existing.eml").write_bytes(b"12345")
-    monkeypatch.setattr(mail_server, "MAX_DISK_USAGE_BYTES", 4)
     smtp = _smtp(save_dir=str(tmp_path))
+    smtp.max_disk_usage_bytes = 4
     smtp.mail_data = ["new message"]
 
     smtp._save_email()
@@ -84,3 +84,25 @@ def test_save_email_skips_when_disk_cap_exceeded(tmp_path: Path, monkeypatch) ->
     # Only the pre-existing file should remain.
     assert len(files) == 1
     assert files[0].name == "existing.eml"
+
+
+def test_smtp_service_reads_configurable_limits() -> None:
+    svc = mail_server.SMTPService({
+        "conn_timeout_sec": 17,
+        "max_connections": 19,
+        "max_email_size_bytes": 2222,
+        "max_disk_usage_bytes": 3333,
+    })
+    assert svc.conn_timeout == 17
+    assert svc.max_connections == 19
+    assert svc.max_email_size_bytes == 2222
+    assert svc.max_disk_usage_bytes == 3333
+
+
+def test_pop3_imap_service_reads_timeout_and_connections() -> None:
+    pop3 = mail_server.POP3Service({"conn_timeout_sec": 21, "max_connections": 9})
+    imap = mail_server.IMAPService({"conn_timeout_sec": 22, "max_connections": 8})
+    assert pop3.conn_timeout == 21
+    assert pop3.max_connections == 9
+    assert imap.conn_timeout == 22
+    assert imap.max_connections == 8

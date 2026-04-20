@@ -83,6 +83,9 @@ class _SMTPClientThread(threading.Thread):
     def __init__(
         self, conn, addr, hostname: str, banner: str, save_dir: Optional[str],
         cert_path: str = "", key_path: str = "",
+        conn_timeout: float = 30.0,
+        max_email_size_bytes: int = MAX_EMAIL_SIZE_BYTES,
+        max_disk_usage_bytes: int = MAX_DISK_USAGE_BYTES,
     ):
         super().__init__(daemon=True)
         self.conn = conn
@@ -92,6 +95,9 @@ class _SMTPClientThread(threading.Thread):
         self.save_dir = save_dir
         self.cert_path = cert_path
         self.key_path = key_path
+        self.conn_timeout = conn_timeout
+        self.max_email_size_bytes = max_email_size_bytes
+        self.max_disk_usage_bytes = max_disk_usage_bytes
         self.data_mode = False
         self.mail_data: list = []
         self.current_size = 0
@@ -115,7 +121,7 @@ class _SMTPClientThread(threading.Thread):
         try:
             banner = sanitize_log_string(self.banner, max_length=200)
             self._send(banner)
-            self.conn.settimeout(30)
+            self.conn.settimeout(self.conn_timeout)
             buf = b""
             while True:
                 chunk = self.conn.recv(4096)
@@ -144,7 +150,7 @@ class _SMTPClientThread(threading.Thread):
                 self.current_size = 0
             else:
                 # Limit individual message size
-                if self.current_size < MAX_EMAIL_SIZE_BYTES:
+                if self.current_size < self.max_email_size_bytes:
                     self.mail_data.append(line)
                     self.current_size += len(line)
             return
@@ -285,7 +291,7 @@ class _SMTPClientThread(threading.Thread):
                 for f in os.listdir(self.save_dir)
                 if os.path.isfile(os.path.join(self.save_dir, f))
             )
-            if total > MAX_DISK_USAGE_BYTES:
+            if total > self.max_disk_usage_bytes:
                 logger.warning("SMTP: email storage cap reached; discarding message.")
                 return
         except Exception:
@@ -306,16 +312,26 @@ class _SMTPServer(socketserver.ThreadingTCPServer):
     daemon_threads = True
 
     def __init__(self, address, hostname, banner, save_dir,
-                 cert_path: str = "", key_path: str = ""):
+                 cert_path: str = "", key_path: str = "",
+                 conn_timeout: float = 30.0,
+                 max_email_size_bytes: int = MAX_EMAIL_SIZE_BYTES,
+                 max_disk_usage_bytes: int = MAX_DISK_USAGE_BYTES,
+                 max_connections: int | None = None):
         self.smtp_hostname = hostname
         self.smtp_banner = banner
         self.smtp_save_dir = save_dir
         self.smtp_cert_path = cert_path
         self.smtp_key_path = key_path
+        self.smtp_conn_timeout = conn_timeout
+        self.smtp_max_email_size_bytes = max_email_size_bytes
+        self.smtp_max_disk_usage_bytes = max_disk_usage_bytes
+        self.smtp_max_connections = int(
+            _MAX_CONNECTIONS if max_connections is None else max_connections
+        )
         super().__init__(address, None)
 
     def server_bind(self):
-        self._sem = threading.BoundedSemaphore(_MAX_CONNECTIONS)
+        self._sem = threading.BoundedSemaphore(self.smtp_max_connections)
         super().server_bind()
 
     def process_request(self, request, client_address):
@@ -337,6 +353,9 @@ class _SMTPServer(socketserver.ThreadingTCPServer):
             request, client_address,
             self.smtp_hostname, self.smtp_banner, self.smtp_save_dir,
             cert_path=self.smtp_cert_path, key_path=self.smtp_key_path,
+            conn_timeout=self.smtp_conn_timeout,
+            max_email_size_bytes=self.smtp_max_email_size_bytes,
+            max_disk_usage_bytes=self.smtp_max_disk_usage_bytes,
         )
         # Wrap run() so the semaphore is released and the socket is closed
         # when the session ends â€” the server lifecycle never touches it.
@@ -360,9 +379,29 @@ class _SMTPServer(socketserver.ThreadingTCPServer):
 class _SMTPSServer(_SMTPServer):
     """SMTPS variant â€” wraps each accepted socket in TLS before handing off."""
 
-    def __init__(self, address, hostname, banner, save_dir, ssl_ctx: ssl.SSLContext):
+    def __init__(
+        self,
+        address,
+        hostname,
+        banner,
+        save_dir,
+        ssl_ctx: ssl.SSLContext,
+        conn_timeout: float = 30.0,
+        max_email_size_bytes: int = MAX_EMAIL_SIZE_BYTES,
+        max_disk_usage_bytes: int = MAX_DISK_USAGE_BYTES,
+        max_connections: int | None = None,
+    ):
         self._ssl_ctx = ssl_ctx
-        super().__init__(address, hostname, banner, save_dir)
+        super().__init__(
+            address,
+            hostname,
+            banner,
+            save_dir,
+            conn_timeout=conn_timeout,
+            max_email_size_bytes=max_email_size_bytes,
+            max_disk_usage_bytes=max_disk_usage_bytes,
+            max_connections=max_connections,
+        )
 
     def get_request(self):
         conn, addr = self.socket.accept()
@@ -404,6 +443,10 @@ class SMTPService:
         self.key_file  = config.get("key_file",  _DEFAULT_KEY)
         save_emails = config.get("save_emails", True)
         self.save_dir = "logs/emails" if save_emails else None
+        self.conn_timeout = float(config.get("conn_timeout_sec", 30))
+        self.max_email_size_bytes = int(config.get("max_email_size_bytes", MAX_EMAIL_SIZE_BYTES))
+        self.max_disk_usage_bytes = int(config.get("max_disk_usage_bytes", MAX_DISK_USAGE_BYTES))
+        self.max_connections = int(config.get("max_connections", _MAX_CONNECTIONS))
         self._server: Optional[_SMTPServer] = None
         self._thread: Optional[threading.Thread] = None
 
@@ -417,6 +460,10 @@ class SMTPService:
             self._server = _SMTPServer(
                 (self.bind_ip, self.port), self.hostname, self.banner, self.save_dir,
                 cert_path=self.cert_file, key_path=self.key_file,
+                conn_timeout=self.conn_timeout,
+                max_email_size_bytes=self.max_email_size_bytes,
+                max_disk_usage_bytes=self.max_disk_usage_bytes,
+                max_connections=self.max_connections,
             )
             self._thread = threading.Thread(
                 target=self._server.serve_forever,
@@ -463,6 +510,10 @@ class SMTPSService:
         self.key_file = config.get("key_file", _DEFAULT_KEY)
         save_emails = config.get("save_emails", True)
         self.save_dir = "logs/emails" if save_emails else None
+        self.conn_timeout = float(config.get("conn_timeout_sec", 30))
+        self.max_email_size_bytes = int(config.get("max_email_size_bytes", MAX_EMAIL_SIZE_BYTES))
+        self.max_disk_usage_bytes = int(config.get("max_disk_usage_bytes", MAX_DISK_USAGE_BYTES))
+        self.max_connections = int(config.get("max_connections", _MAX_CONNECTIONS))
         self._server: Optional[_SMTPSServer] = None
         self._thread: Optional[threading.Thread] = None
 
@@ -485,7 +536,14 @@ class SMTPSService:
             ssl_ctx = self._build_ssl_context()
             self._server = _SMTPSServer(
                 (self.bind_ip, self.port),
-                self.hostname, self.banner, self.save_dir, ssl_ctx
+                self.hostname,
+                self.banner,
+                self.save_dir,
+                ssl_ctx,
+                conn_timeout=self.conn_timeout,
+                max_email_size_bytes=self.max_email_size_bytes,
+                max_disk_usage_bytes=self.max_disk_usage_bytes,
+                max_connections=self.max_connections,
             )
             self._thread = threading.Thread(
                 target=self._server.serve_forever,
@@ -532,6 +590,7 @@ class POP3Handler(socketserver.BaseRequestHandler):
             self._hostname = getattr(srv, '_mail_hostname', _DEFAULT_HOSTNAME)
             self._cert_path = getattr(srv, '_mail_cert_path', '')
             self._key_path = getattr(srv, '_mail_key_path', '')
+            self._conn_timeout = float(getattr(srv, '_conn_timeout', 30))
             self._tls_ready = (
                 self._cert_path
                 and self._key_path
@@ -539,7 +598,7 @@ class POP3Handler(socketserver.BaseRequestHandler):
                 and os.path.exists(self._key_path)
             )
             self._send(f"+OK {self._hostname} POP3 server ready")
-            self.request.settimeout(30)
+            self.request.settimeout(self._conn_timeout)
             self._read_loop(safe_addr)
         except Exception as e:
             logger.debug("POP3 %s error: %s", safe_addr, e)
@@ -638,6 +697,8 @@ class POP3Service:
         self.hostname  = config.get("hostname",  _DEFAULT_HOSTNAME)
         self.cert_file = config.get("cert_file", _DEFAULT_CERT)
         self.key_file  = config.get("key_file",  _DEFAULT_KEY)
+        self.conn_timeout = float(config.get("conn_timeout_sec", 30))
+        self.max_connections = int(config.get("max_connections", _MAX_CONNECTIONS))
         self._server = None
         self._thread = None
 
@@ -647,9 +708,11 @@ class POP3Service:
         try:
             ensure_certs(self.cert_file, self.key_file)
             self._server = _ReuseServer((self.bind_ip, self.port), POP3Handler)
+            self._server._sem = threading.BoundedSemaphore(self.max_connections)
             self._server._mail_hostname = self.hostname
             self._server._mail_cert_path = self.cert_file
             self._server._mail_key_path = self.key_file
+            self._server._conn_timeout = self.conn_timeout
             self._thread = threading.Thread(
                 target=self._server.serve_forever,
                 kwargs={"poll_interval": 2.0},
@@ -687,6 +750,8 @@ class POP3SService:
         self.hostname = config.get("hostname", _DEFAULT_HOSTNAME)
         self.cert_file = config.get("cert_file", _DEFAULT_CERT)
         self.key_file = config.get("key_file", _DEFAULT_KEY)
+        self.conn_timeout = float(config.get("conn_timeout_sec", 30))
+        self.max_connections = int(config.get("max_connections", _MAX_CONNECTIONS))
         self._server = None
         self._thread = None
 
@@ -706,9 +771,11 @@ class POP3SService:
         try:
             ssl_ctx = self._build_ssl_context()
             self._server = _SSLReuseServer((self.bind_ip, self.port), POP3Handler, ssl_ctx)
+            self._server._sem = threading.BoundedSemaphore(self.max_connections)
             self._server._mail_hostname = self.hostname
             self._server._mail_cert_path = ''
             self._server._mail_key_path = ''
+            self._server._conn_timeout = self.conn_timeout
             self._thread = threading.Thread(
                 target=self._server.serve_forever,
                 kwargs={"poll_interval": 2.0},
@@ -754,6 +821,7 @@ class IMAPHandler(socketserver.BaseRequestHandler):
             self._hostname = getattr(srv, '_mail_hostname', _DEFAULT_HOSTNAME)
             self._cert_path = getattr(srv, '_mail_cert_path', '')
             self._key_path = getattr(srv, '_mail_key_path', '')
+            self._conn_timeout = float(getattr(srv, '_conn_timeout', 30))
             self._tls_ready = (
                 self._cert_path
                 and self._key_path
@@ -761,7 +829,7 @@ class IMAPHandler(socketserver.BaseRequestHandler):
                 and os.path.exists(self._key_path)
             )
             self._send(f"* OK {self._hostname} IMAP4rev1 ready")
-            self.request.settimeout(30)
+            self.request.settimeout(self._conn_timeout)
             self._read_loop(safe_addr)
         except Exception as e:
             logger.debug("IMAP %s error: %s", safe_addr, e)
@@ -889,6 +957,8 @@ class IMAPService:
         self.hostname  = config.get("hostname",  _DEFAULT_HOSTNAME)
         self.cert_file = config.get("cert_file", _DEFAULT_CERT)
         self.key_file  = config.get("key_file",  _DEFAULT_KEY)
+        self.conn_timeout = float(config.get("conn_timeout_sec", 30))
+        self.max_connections = int(config.get("max_connections", _MAX_CONNECTIONS))
         self._server = None
         self._thread = None
 
@@ -898,9 +968,11 @@ class IMAPService:
         try:
             ensure_certs(self.cert_file, self.key_file)
             self._server = _ReuseServer((self.bind_ip, self.port), IMAPHandler)
+            self._server._sem = threading.BoundedSemaphore(self.max_connections)
             self._server._mail_hostname = self.hostname
             self._server._mail_cert_path = self.cert_file
             self._server._mail_key_path = self.key_file
+            self._server._conn_timeout = self.conn_timeout
             self._thread = threading.Thread(
                 target=self._server.serve_forever,
                 kwargs={"poll_interval": 2.0},
@@ -938,6 +1010,8 @@ class IMAPSService:
         self.hostname = config.get("hostname", _DEFAULT_HOSTNAME)
         self.cert_file = config.get("cert_file", _DEFAULT_CERT)
         self.key_file = config.get("key_file", _DEFAULT_KEY)
+        self.conn_timeout = float(config.get("conn_timeout_sec", 30))
+        self.max_connections = int(config.get("max_connections", _MAX_CONNECTIONS))
         self._server = None
         self._thread = None
 
@@ -957,9 +1031,11 @@ class IMAPSService:
         try:
             ssl_ctx = self._build_ssl_context()
             self._server = _SSLReuseServer((self.bind_ip, self.port), IMAPHandler, ssl_ctx)
+            self._server._sem = threading.BoundedSemaphore(self.max_connections)
             self._server._mail_hostname = self.hostname
             self._server._mail_cert_path = ''
             self._server._mail_key_path = ''
+            self._server._conn_timeout = self.conn_timeout
             self._thread = threading.Thread(
                 target=self._server.serve_forever,
                 kwargs={"poll_interval": 2.0},

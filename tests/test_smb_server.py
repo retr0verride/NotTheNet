@@ -79,3 +79,9 @@ def test_read_smb_message_rejects_oversized_payload() -> None:
     sock = _FakeSocket([b"\x00\x01\x00\x00"])
     session = smb_server._SMBSession(sock, ("127.0.0.1", 445))
     assert session._read_smb_message() is None
+
+
+def test_smb_service_reads_configurable_limits() -> None:
+    svc = smb_server.SMBService({"max_connections": 13, "session_timeout_sec": 6})
+    assert svc.max_connections == 13
+    assert svc.session_timeout == 6

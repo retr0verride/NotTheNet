@@ -65,9 +65,9 @@ def test_recv_file_discards_when_uploads_disabled(monkeypatch) -> None:
     assert data_conn.closed
 
 
-def test_write_upload_enforces_size_cap(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(ftp_server, "MAX_UPLOAD_SIZE_BYTES", 10)
+def test_write_upload_enforces_size_cap(tmp_path: Path) -> None:
     sess = _session(upload_dir=str(tmp_path))
+    sess.max_upload_size_bytes = 10
     data_conn = _FakeDataConn([b"12345", b"67890", b""])
     save_path = tmp_path / "saved.bin"
 
@@ -82,3 +82,24 @@ def test_write_upload_enforces_size_cap(tmp_path: Path, monkeypatch) -> None:
     # Counter includes bytes read from the wire, but file write truncates at cap.
     assert received == 10
     assert save_path.read_bytes() == b"1234567890"
+
+
+def test_ftp_service_reads_configurable_limits() -> None:
+    svc = ftp_server.FTPService({
+        "max_connections": 12,
+        "control_timeout_sec": 11,
+        "data_timeout_sec": 9,
+        "pasv_timeout_sec": 7,
+        "max_upload_size_bytes": 1234,
+        "max_disk_usage_bytes": 5678,
+        "pasv_port_low": 51010,
+        "pasv_port_high": 51020,
+    })
+    assert svc.max_connections == 12
+    assert svc.control_timeout == 11
+    assert svc.data_timeout == 9
+    assert svc.pasv_timeout == 7
+    assert svc.max_upload_size_bytes == 1234
+    assert svc.max_disk_usage_bytes == 5678
+    assert svc.pasv_port_low == 51010
+    assert svc.pasv_port_high == 51020

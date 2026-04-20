@@ -117,6 +117,7 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
     _sem = None  # BoundedSemaphore injected by CatchAllTCPService.start()
+    _max_per_ip = MAX_PER_IP
     _per_ip: defaultdict  # {ip: int} — active connection count per IP
     _per_ip_lock: threading.Lock
 
@@ -135,10 +136,10 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
 
         # Per-IP limit check
         with self._per_ip_lock:
-            if self._per_ip[ip] >= MAX_PER_IP:
+            if self._per_ip[ip] >= self._max_per_ip:
                 logger.debug(
                     "Catch-all TCP per-IP limit (%d) hit for %s",
-                    MAX_PER_IP, sanitize_ip(ip),
+                    self._max_per_ip, sanitize_ip(ip),
                 )
                 if self._sem is not None:
                     self._sem.release()
@@ -167,6 +168,8 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
     cert_path: str = ""
     key_path:  str = ""
     _tls_ctx: "Optional[ssl.SSLContext]" = None
+    session_timeout: float = SESSION_TIMEOUT
+    peek_timeout: float = PEEK_TIMEOUT
 
     def _upgrade_tls(
         self, sock: socket.socket, safe_addr: str, src_port: int,
@@ -198,7 +201,7 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
 
         try:
             # â”€â”€ 1. Peek at first bytes to detect protocol â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-            sock.settimeout(PEEK_TIMEOUT)
+            sock.settimeout(self.peek_timeout)
             try:
                 peek = sock.recv(8, socket.MSG_PEEK)
             except OSError:
@@ -217,7 +220,7 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
                 safe_addr, src_port, protocol.upper(),
             )
 
-            sock.settimeout(SESSION_TIMEOUT)
+            sock.settimeout(self.session_timeout)
 
             # â”€â”€ 3. Read the first request payload â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             #    For plain sockets, MSG_PEEK left the data in the buffer so
@@ -294,6 +297,10 @@ class CatchAllTCPService:
         self.bind_ip  = bind_ip
         self.cert_path = str(config.get("cert_file", "certs/server.crt"))
         self.key_path  = str(config.get("key_file",  "certs/server.key"))
+        self.max_connections = int(config.get("max_connections", MAX_CONNECTIONS))
+        self.max_per_ip = int(config.get("max_per_ip", MAX_PER_IP))
+        self.session_timeout = float(config.get("session_timeout_sec", SESSION_TIMEOUT))
+        self.peek_timeout = float(config.get("peek_timeout_sec", PEEK_TIMEOUT))
         self._server  = None
         self._thread  = None
 
@@ -307,8 +314,11 @@ class CatchAllTCPService:
             _CatchAllTCPHandler.cert_path = self.cert_path
             _CatchAllTCPHandler.key_path  = self.key_path
             _CatchAllTCPHandler._tls_ctx  = tls_ctx
+            _CatchAllTCPHandler.session_timeout = self.session_timeout
+            _CatchAllTCPHandler.peek_timeout = self.peek_timeout
             self._server = _ReuseServer((self.bind_ip, self.port), _CatchAllTCPHandler)
-            self._server._sem = threading.BoundedSemaphore(MAX_CONNECTIONS)
+            self._server._sem = threading.BoundedSemaphore(self.max_connections)
+            self._server._max_per_ip = self.max_per_ip
             self._server._per_ip = defaultdict(int)
             self._server._per_ip_lock = threading.Lock()
             self._thread = threading.Thread(

@@ -77,11 +77,18 @@ def _smb2_error_response(message_id: int) -> bytes:
 class _SMBSession(threading.Thread):
     """Handles one SMB client session."""
 
-    def __init__(self, conn: socket.socket, addr: tuple, sem: Optional[threading.BoundedSemaphore] = None):
+    def __init__(
+        self,
+        conn: socket.socket,
+        addr: tuple,
+        sem: Optional[threading.BoundedSemaphore] = None,
+        session_timeout: float = SESSION_TIMEOUT,
+    ):
         super().__init__(daemon=True)
         self.conn = conn
         self.addr = addr
         self._sem = sem
+        self.session_timeout = session_timeout
 
     def _read_smb_message(self) -> "bytes | None":
         """Read a complete NetBIOS/SMB message. Returns data or None."""
@@ -127,7 +134,7 @@ class _SMBSession(threading.Thread):
         safe_addr = sanitize_ip(self.addr[0])
         jl = get_json_logger()
         try:
-            self.conn.settimeout(SESSION_TIMEOUT)
+            self.conn.settimeout(self.session_timeout)
             data = self._read_smb_message()
             if data is None:
                 return
@@ -166,7 +173,9 @@ class SMBService:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 445))
         self.bind_ip = bind_ip
-        self._sem = threading.BoundedSemaphore(int(config.get("max_connections", _MAX_CONNECTIONS)))
+        self.max_connections = int(config.get("max_connections", _MAX_CONNECTIONS))
+        self.session_timeout = float(config.get("session_timeout_sec", SESSION_TIMEOUT))
+        self._sem = threading.BoundedSemaphore(self.max_connections)
         self._sock: Optional[socket.socket] = None
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
@@ -204,7 +213,12 @@ class SMBService:
                 logger.debug("SMB at capacity, dropping %s", sanitize_ip(addr[0]))
                 conn.close()
                 continue
-            _SMBSession(conn, addr, sem=self._sem).start()
+            _SMBSession(
+                conn,
+                addr,
+                sem=self._sem,
+                session_timeout=self.session_timeout,
+            ).start()
 
     def stop(self) -> None:
         self._stop.set()

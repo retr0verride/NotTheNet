@@ -132,6 +132,18 @@ class TestCatchAllTCPConfig:
         svc = CatchAllTCPService({"tcp_port": 8888})
         assert svc.port == 8888
 
+    def test_custom_limits_and_timeouts(self):
+        svc = CatchAllTCPService({
+            "max_connections": 42,
+            "max_per_ip": 7,
+            "session_timeout_sec": 15,
+            "peek_timeout_sec": 0.25,
+        })
+        assert svc.max_connections == 42
+        assert svc.max_per_ip == 7
+        assert svc.session_timeout == 15
+        assert svc.peek_timeout == 0.25
+
     def test_running_false_when_not_started(self):
         svc = CatchAllTCPService({})
         assert not svc.running

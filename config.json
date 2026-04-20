@@ -132,41 +132,65 @@
     "port": 25,
     "hostname": "mail.example.com",
     "banner": "220 mail.example.com ESMTP Postfix",
-    "save_emails": true
+    "save_emails": true,
+    "conn_timeout_sec": 30,
+    "max_connections": 50,
+    "max_email_size_bytes": 5242880,
+    "max_disk_usage_bytes": 104857600
   },
   "smtps": {
     "enabled": true,
     "port": 465,
     "hostname": "mail.example.com",
     "banner": "220 mail.example.com ESMTP Postfix",
-    "save_emails": true
+    "save_emails": true,
+    "conn_timeout_sec": 30,
+    "max_connections": 50,
+    "max_email_size_bytes": 5242880,
+    "max_disk_usage_bytes": 104857600
   },
   "pop3": {
     "enabled": true,
     "port": 110,
-    "hostname": "mail.example.com"
+    "hostname": "mail.example.com",
+    "conn_timeout_sec": 30,
+    "max_connections": 50
   },
   "pop3s": {
     "enabled": true,
     "port": 995,
-    "hostname": "mail.example.com"
+    "hostname": "mail.example.com",
+    "conn_timeout_sec": 30,
+    "max_connections": 50
   },
   "imap": {
     "enabled": true,
     "port": 143,
-    "hostname": "mail.example.com"
+    "hostname": "mail.example.com",
+    "conn_timeout_sec": 30,
+    "max_connections": 50
   },
   "imaps": {
     "enabled": true,
     "port": 993,
-    "hostname": "mail.example.com"
+    "hostname": "mail.example.com",
+    "conn_timeout_sec": 30,
+    "max_connections": 50
   },
   "ftp": {
     "enabled": true,
     "port": 21,
     "banner": "220 Microsoft FTP Service",
     "allow_uploads": true,
-    "upload_dir": "logs/ftp_uploads"
+    "upload_dir": "logs/ftp_uploads",
+    "max_connections": 50,
+    "control_timeout_sec": 30,
+    "data_timeout_sec": 30,
+    "pasv_timeout_sec": 10,
+    "max_upload_size_bytes": 52428800,
+    "max_disk_usage_bytes": 209715200,
+    "pasv_port_low": 50000,
+    "pasv_port_high": 51000
   },
   "catch_all": {
     "enabled": true,
@@ -174,6 +198,10 @@
     "udp_port": 9998,
     "redirect_tcp": true,
     "redirect_udp": true,
+    "max_connections": 200,
+    "max_per_ip": 20,
+    "session_timeout_sec": 10,
+    "peek_timeout_sec": 0.5,
     "excluded_ports": [21, 22, 23, 25, 53, 69, 80, 110, 123, 143, 389, 443, 445, 465, 853, 993, 995, 1080, 1433, 3306, 3389, 5900, 6379, 6667, 6697, 9998, 9999]
   },
   "ntp": {
@@ -229,7 +257,9 @@
   },
   "smb": {
     "enabled": true,
-    "port": 445
+    "port": 445,
+    "max_connections": 50,
+    "session_timeout_sec": 10
   },
   "vnc": {
     "enabled": true,
