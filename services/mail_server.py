@@ -56,7 +56,7 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
             try:
                 request.close()
             except OSError:
-                pass
+                logger.debug("Mail request close failed at connection-cap limit", exc_info=True)
             return
         sem = self._sem
 
@@ -330,7 +330,7 @@ class _SMTPServer(socketserver.ThreadingTCPServer):
             try:
                 request.close()
             except OSError:
-                pass
+                logger.debug("SMTP request close failed at connection-cap limit", exc_info=True)
             return
         sem = self._sem
         t = _SMTPClientThread(
@@ -350,7 +350,7 @@ class _SMTPServer(socketserver.ThreadingTCPServer):
                 try:
                     request.close()
                 except OSError:
-                    pass
+                    logger.debug("SMTP request close failed after session", exc_info=True)
 
         t.run = _guarded_run
         t.daemon = True
@@ -435,7 +435,7 @@ class SMTPService:
             try:
                 self._server.socket.shutdown(socket.SHUT_RDWR)
             except OSError:
-                pass
+                logger.debug("SMTP server socket shutdown failed", exc_info=True)
             self._server.shutdown()
             self._server = None
         logger.info("SMTP service stopped.")
@@ -504,7 +504,7 @@ class SMTPSService:
             try:
                 self._server.socket.shutdown(socket.SHUT_RDWR)
             except OSError:
-                pass
+                logger.debug("SMTPS server socket shutdown failed", exc_info=True)
             self._server.shutdown()
             self._server = None
         logger.info("SMTPS service stopped.")
@@ -667,7 +667,7 @@ class POP3Service:
             try:
                 self._server.socket.shutdown(socket.SHUT_RDWR)
             except OSError:
-                pass
+                logger.debug("POP3 server socket shutdown failed", exc_info=True)
             self._server.shutdown()
             self._server = None
         logger.info("POP3 service stopped.")
@@ -726,7 +726,7 @@ class POP3SService:
             try:
                 self._server.socket.shutdown(socket.SHUT_RDWR)
             except OSError:
-                pass
+                logger.debug("POP3S server socket shutdown failed", exc_info=True)
             self._server.shutdown()
             self._server = None
         logger.info("POP3S service stopped.")
@@ -918,7 +918,7 @@ class IMAPService:
             try:
                 self._server.socket.shutdown(socket.SHUT_RDWR)
             except OSError:
-                pass
+                logger.debug("IMAP server socket shutdown failed", exc_info=True)
             self._server.shutdown()
             self._server = None
         logger.info("IMAP service stopped.")
@@ -977,7 +977,7 @@ class IMAPSService:
             try:
                 self._server.socket.shutdown(socket.SHUT_RDWR)
             except OSError:
-                pass
+                logger.debug("IMAPS server socket shutdown failed", exc_info=True)
             self._server.shutdown()
             self._server = None
         logger.info("IMAPS service stopped.")

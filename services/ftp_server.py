@@ -49,7 +49,7 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
             try:
                 request.close()
             except OSError:
-                pass
+                logger.debug("FTP request close failed at connection-cap limit", exc_info=True)
             return
         sem = self._sem
 
@@ -163,7 +163,7 @@ class _FTPSession(threading.Thread):
                 try:
                     self._pasv_server.close()
                 except OSError:
-                    pass
+                    logger.debug("FTP PASV server close failed", exc_info=True)
                 self._pasv_server = None
 
     # Static command â†’ response mapping (commands that just send a fixed reply)
@@ -346,7 +346,7 @@ class FTPService:
             try:
                 self._server.socket.shutdown(socket.SHUT_RDWR)
             except OSError:
-                pass
+                logger.debug("FTP server socket shutdown failed", exc_info=True)
             self._server.shutdown()
             self._server = None
         logger.info("FTP service stopped.")
