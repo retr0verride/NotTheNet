@@ -15,7 +15,7 @@
 > **For malware analysis and sandboxed environments only.**
 > Never run on a production network or internet-connected interface.
 
-NotTheNet simulates the internet for malware being detonated in an isolated lab. It replaces INetSim and FakeNet-NG with a single Python application and a live GUI — no race conditions, no socket leaks, no opaque config files.
+NotTheNet simulates the internet for malware being detonated in an isolated lab. A single Python application with a live GUI — no race conditions, no socket leaks, no opaque config files.
 
 ---
 

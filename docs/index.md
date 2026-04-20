@@ -60,9 +60,9 @@ That's it. From this moment, any program on your analysis machine that tries to 
 
 ---
 
-## Why NotTheNet Instead of INetSim / FakeNet-NG?
+## How NotTheNet Compares to INetSim / FakeNet-NG
 
-INetSim and FakeNet-NG are older tools that do a similar job. The table below compares them — don't worry if you don't understand every row, the important takeaway is that NotTheNet handles many edge cases automatically.
+INetSim and FakeNet-NG are established tools that do a similar job. The table below shows how the implementations differ — it's not a verdict, just a feature map.
 
 | Issue | INetSim | FakeNet-NG | NotTheNet |
 |-------|---------|-----------|-----------|
