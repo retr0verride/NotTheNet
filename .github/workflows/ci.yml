@@ -73,7 +73,7 @@ jobs:
           cache: pip
 
       - name: Install lint tools
-        run: pip install ruff bandit[toml] pip-audit mypy pydantic pydantic-settings openapi-spec-validator
+        run: pip install ruff bandit[toml] bandit-sarif-formatter pip-audit mypy pydantic pydantic-settings openapi-spec-validator
 
       - name: ruff (style + import order)
         run: ruff check . --output-format=github
