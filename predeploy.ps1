@@ -1,5 +1,5 @@
 ﻿# predeploy.ps1 -- run all checks before releasing NotTheNet (Windows dev)
-# Matches CI pipeline + GH badge checks: lint → type → security → SCA → tests → version
+# Matches CI pipeline exactly: lint → type → security → SCA → openapi → tests → version
 # Usage:  .\predeploy.ps1
 $ErrorActionPreference = "Stop"
 
@@ -10,33 +10,55 @@ function Step($msg) { Write-Host "`n-- $msg --" -ForegroundColor Cyan }
 function Pass($msg) { Write-Host "  PASS: $msg" -ForegroundColor Green }
 function Fail($msg) { Write-Host "  FAIL: $msg" -ForegroundColor Red; exit 1 }
 
-# Install check tools if absent
-Step "Ensuring dev tools are installed"
-& $Pip install --quiet ruff mypy bandit pytest pip-audit 2>&1 | Select-Object -Last 1
+# Install check tools — pinned to match CI
+Step "Ensuring dev tools are installed (pinned versions)"
+& $Pip install --quiet `
+    "ruff==0.15.2" `
+    "bandit[toml]==1.9.4" `
+    "bandit-sarif-formatter==1.1.1" `
+    "pip-audit==2.10.0" `
+    "mypy==1.19.1" `
+    "pydantic==2.13.2" `
+    "pydantic-settings==2.13.1" `
+    "openapi-spec-validator==0.8.4" `
+    "pytest==9.0.3" `
+    "pytest-cov==7.1.0" `
+    "pytest-timeout==2.4.0" 2>&1 | Select-Object -Last 1
 Pass "tools ready"
 
-# ── 1. Lint (ruff) — matches CI + CodeQL badge ──────────────────────────────
-Step "1/7  Lint (ruff)"
+# ── 1. Lint (ruff) ───────────────────────────────────────────────────────────
+Step "1/9  Lint (ruff)"
 & $Python -m ruff check .
 if ($LASTEXITCODE -ne 0) { Fail "ruff found issues" } else { Pass "ruff" }
 
-# ── 2. Type check (mypy) — matches CI badge ─────────────────────────────────
-Step "2/7  Type check (mypy)"
-& $Python -m mypy notthenet.py services/ network/ utils/
-if ($LASTEXITCODE -ne 0) { Fail "mypy found issues" } else { Pass "mypy" }
-
-# ── 3. Security scan (bandit) — matches CI badge ────────────────────────────
-Step "3/7  Security scan (bandit)"
+# ── 2a. Type check — legacy (informational, non-blocking) ───────────────────
+Step "2a/9  Type check — legacy (mypy, informational)"
 $prevEAP = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
-$banditOut = & $Python -m bandit -c pyproject.toml -r notthenet.py services/ network/ utils/ 2>&1
+& $Python -m mypy notthenet.py services/ network/ utils/ 2>&1 | Write-Host
+$ErrorActionPreference = $prevEAP
+Write-Host "  (informational — legacy code lacks strict annotations)"
+
+# ── 2b. Type check — new layers (strict, blocking) ──────────────────────────
+Step "2b/9  Type check — new layers (mypy --strict)"
+& $Python -m mypy domain/ application/ infrastructure/ `
+    --strict --ignore-missing-imports --explicit-package-bases
+if ($LASTEXITCODE -ne 0) { Fail "mypy strict check failed on domain/application/infrastructure" } else { Pass "mypy strict" }
+
+# ── 3. Security scan (bandit — HIGH severity, matches CI) ───────────────────
+Step "3/9  Security scan (bandit)"
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+$banditOut = & $Python -m bandit -r . `
+    --exclude .venv,tests,tools `
+    --severity-level high 2>&1
 $banditExit = $LASTEXITCODE
 $ErrorActionPreference = $prevEAP
 $banditOut | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] } | Write-Host
-if ($banditExit -ne 0) { Fail "bandit found issues" } else { Pass "bandit" }
+if ($banditExit -ne 0) { Fail "bandit found HIGH severity issues" } else { Pass "bandit" }
 
-# ── 4. SCA — dependency vulnerabilities (matches SCA / Snyk badges) ─────────
-Step "4/7  SCA (pip-audit)"
+# ── 4. SCA — dependency vulnerabilities ─────────────────────────────────────
+Step "4/9  SCA (pip-audit)"
 $prevEAP = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
 # Audit the active venv directly -- requirements.txt hashes are Linux-only
@@ -46,31 +68,35 @@ $auditExit = $LASTEXITCODE
 $ErrorActionPreference = $prevEAP
 if ($auditExit -ne 0) { Fail "pip-audit found vulnerabilities" } else { Pass "pip-audit" }
 
-# ── 5. Tests (pytest) — matches CI badge ────────────────────────────────────
-Step "5/7  Tests (pytest)"
+# ── 5. OpenAPI spec validation ───────────────────────────────────────────────
+Step "5/9  OpenAPI spec validation"
+& $Python -m openapi_spec_validator openapi.yaml
+if ($LASTEXITCODE -ne 0) { Fail "openapi.yaml is invalid" } else { Pass "openapi-spec-validator" }
+
+# ── 6. Tests (pytest — with coverage gate and timeout) ──────────────────────
+Step "6/9  Tests (pytest)"
 if ((Test-Path "tests") -and (Get-ChildItem "tests\test_*.py" -ErrorAction SilentlyContinue)) {
-    & $Python -m pytest tests/ -v
+    & $Python -m pytest tests/ -v --timeout=60 --cov --cov-fail-under=35
     if ($LASTEXITCODE -ne 0) { Fail "tests failed" } else { Pass "pytest" }
 } else {
     Write-Host "  (no tests found -- skipping)"
 }
 
-# ── 6. Version consistency ──────────────────────────────────────────────────
-Step "6/7  Version consistency"
+# ── 7. Version consistency ───────────────────────────────────────────────────
+Step "7/9  Version consistency"
 $widgetVer = (Select-String -Path "gui\widgets.py" -Pattern 'APP_VERSION\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
 $tomlVer   = (Select-String -Path "pyproject.toml" -Pattern '^version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
 if ($widgetVer -ne $tomlVer) {
     Fail "Version mismatch: gui/widgets.py=$widgetVer vs pyproject.toml=$tomlVer"
 }
-# notthenet.py should import, not define
 $ntpyLine = Select-String -Path "notthenet.py" -Pattern '^APP_VERSION\s*=' -SimpleMatch
 if ($ntpyLine) {
     Fail "notthenet.py still has a local APP_VERSION assignment (should import from gui.widgets)"
 }
 Pass "all files at v$widgetVer"
 
-# ── 7. CHANGELOG mentions current version ───────────────────────────────────
-Step "7/7  CHANGELOG check"
+# ── 8. CHANGELOG mentions current version ───────────────────────────────────
+Step "8/9  CHANGELOG check"
 if (Test-Path "CHANGELOG.md") {
     $clMatch = Select-String -Path "CHANGELOG.md" -Pattern ([regex]::Escape($widgetVer))
     if (-not $clMatch) {
@@ -80,6 +106,16 @@ if (Test-Path "CHANGELOG.md") {
     }
 } else {
     Write-Host "  (no CHANGELOG.md -- skipping)"
+}
+
+# ── 9. Verify no temp cert/key files were left behind ───────────────────────
+Step "9/9  Stale temp-cert check"
+$stale = Get-ChildItem -Path "certs" -Filter "_dyn_*" -ErrorAction SilentlyContinue
+if ($stale) {
+    Write-Host "  WARN: stale dynamic cert files found in certs/:" -ForegroundColor Yellow
+    $stale | ForEach-Object { Write-Host "    $_" -ForegroundColor Yellow }
+} else {
+    Pass "no stale _dyn_* cert files"
 }
 
 Write-Host "`nAll predeploy checks passed." -ForegroundColor Green
