@@ -130,6 +130,7 @@ if TYPE_CHECKING:
         _log_widget: scrolledtext.ScrolledText
         _btn_start: tk.Button
         _btn_stop: tk.Button
+        _btn_check_updates: tk.Button
         _status_label: tk.Label
 else:
     _DashboardHost = object
@@ -341,6 +342,19 @@ class DashboardMixin(_DashboardHost):
         btn_zoom_in.pack(side="left")
         _hover_bind(btn_zoom_in, C_HOVER, C_SELECTED)
         tooltip(btn_zoom_in, "Zoom in  (Ctrl+=)")
+
+        # Check for Updates button (right-aligned)
+        self._btn_check_updates = tk.Button(
+            inner, text="\u27f3  Updates",
+            bg=C_HOVER, fg=C_SUBTLE, relief="flat",
+            padx=8, pady=3, font=_f(8), cursor="hand2",
+            command=self._on_check_updates,
+        )
+        self._btn_check_updates.pack(side="right", padx=(0, PAD))
+        _hover_bind(self._btn_check_updates, C_HOVER, C_SELECTED)
+        tooltip(self._btn_check_updates,
+                "Check GitHub for a newer release.\n"
+                "Opens the releases page if an update is available.")
 
         # Root warning (POSIX only)
         if os.name != "nt" and os.geteuid() != 0:  # type: ignore[attr-defined]

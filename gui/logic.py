@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import queue
 import threading
 import time
 import tkinter as tk
+import urllib.error
+import urllib.request
+import webbrowser
 from tkinter import filedialog, messagebox
 from typing import TYPE_CHECKING
 
@@ -37,6 +41,7 @@ if TYPE_CHECKING:
         _log_widget: scrolledtext.ScrolledText
         _btn_start: tk.Button
         _btn_stop: tk.Button
+        _btn_check_updates: tk.Button
         _status_label: tk.Label
         _cfg: Config
         _pages: dict
@@ -281,6 +286,80 @@ class ServiceControlMixin(_ControlHost):
                 self._show_page("general")
             else:
                 messagebox.showerror("Error", f"Failed to load config from:\n{path}")
+
+    # ── Update check ──────────────────────────────────────────────────────
+
+    _RELEASES_URL = (
+        "https://api.github.com/repos/retr0verride/NotTheNet/releases/latest"
+    )
+
+    def _on_check_updates(self) -> None:
+        """Check GitHub for a newer release (non-blocking)."""
+        self._btn_check_updates.configure(state="disabled")
+        self._status_label.configure(text="\u25cb  Checking for updates\u2026", fg=C_DIM)
+        threading.Thread(target=self._fetch_latest_release, daemon=True).start()
+
+    def _fetch_latest_release(self) -> None:
+        """Network call — runs on worker thread, schedules GUI update via after()."""
+        from gui.widgets import APP_VERSION  # noqa: PLC0415
+
+        try:
+            req = urllib.request.Request(  # noqa: S310
+                self._RELEASES_URL,
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "User-Agent": f"NotTheNet/{APP_VERSION}",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+                data = json.loads(resp.read())
+            tag = data.get("tag_name", "").lstrip("v")
+            url = data.get(
+                "html_url",
+                "https://github.com/retr0verride/NotTheNet/releases",
+            )
+            self.after(0, self._show_update_result, tag, url, None)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Update check failed", exc_info=True)
+            self.after(0, self._show_update_result, None, None, str(exc))
+
+    def _show_update_result(
+        self,
+        tag: str | None,
+        url: str | None,
+        error: str | None,
+    ) -> None:
+        """Main-thread callback: show result dialog and restore UI state."""
+        from gui.widgets import APP_VERSION  # noqa: PLC0415
+
+        self._btn_check_updates.configure(state="normal")
+        if self._start_time is None:
+            self._status_label.configure(text="\u25cf  Stopped", fg=C_DIM)
+
+        if error:
+            messagebox.showerror(
+                "Update Check Failed",
+                f"Could not reach GitHub:\n{error}",
+            )
+            return
+
+        if not tag:
+            messagebox.showinfo("Update Check", "No release information available.")
+            return
+
+        if tag == APP_VERSION:
+            messagebox.showinfo(
+                "Up to date",
+                f"You are running the latest release: v{APP_VERSION}",
+            )
+        else:
+            if messagebox.askyesno(
+                "Update Available",
+                f"A newer version is available: v{tag}\n"
+                f"You are running: v{APP_VERSION}\n\n"
+                f"Open the releases page?",
+            ):
+                webbrowser.open(url)
 
     def _on_close(self):
         if self._manager and self._manager.running:
