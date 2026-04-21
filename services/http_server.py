@@ -16,12 +16,10 @@ from __future__ import annotations
 import hashlib
 import http.server
 import ipaddress
-import json
 import logging
 import os
 import random
 import re
-import select
 import socket
 import socketserver
 import ssl
@@ -32,16 +30,18 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse
 
-from services.doh_websocket import (
-    DOH_CONTENT_TYPE,
-    build_websocket_close_frame,
-    build_websocket_handshake_response,
-    handle_doh_get,
-    handle_doh_post,
-    is_doh_request,
-    is_websocket_upgrade,
-)
+from services.doh_websocket import is_doh_request, is_websocket_upgrade
 from services.dynamic_response import compile_custom_rules, resolve_dynamic_response
+from services.http_routes import (
+    route_dead_drop_ip,
+    route_discord,
+    route_doh,
+    route_file_hosting,
+    route_google_content,
+    route_simple_text,
+    route_telegram,
+    route_websocket_upgrade,
+)
 from utils.cert_utils import ensure_certs
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -133,7 +133,6 @@ _CAPTIVE_PORTAL_HOSTS = frozenset({
 # to exfiltrate credentials/keylog data.  Returning a valid {"ok": true, ...}
 # response prevents the malware from entering an error/retry path.
 _TELEGRAM_HOST = "api.telegram.org"
-_TELEGRAM_PATH_RE = re.compile(r"^/bot[^/]+/([A-Za-z]+)")
 
 # Discord webhook hosts.  20+ stealer families (Raccoon, RedLine, Vidar,
 # Agent Tesla, Lumma, Stealc, etc.) exfiltrate via Discord webhooks.
@@ -141,7 +140,6 @@ _DISCORD_HOSTS = frozenset({
     "discord.com", "discordapp.com",
     "canary.discord.com", "ptb.discord.com",
 })
-_DISCORD_WEBHOOK_RE = re.compile(r"^/api(?:/v\d+)?/webhooks/(\d+)/([A-Za-z0-9_-]+)")
 
 # Pastebin and paste-site hosts used as dead-drop resolvers by 15+ RAT/stealer
 # families (AsyncRAT, Remcos, njRAT, Quasar, XWorm, etc.).
@@ -693,80 +691,14 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
 
     def _handle_doh_request(self):
         """Handle a DNS-over-HTTPS (DoH) request and return a DNS response."""
-        safe_addr = sanitize_ip(self.client_address[0])
-        path = self.path or "/"
-        if self.command == "GET":
-            response_data = handle_doh_get(path, self._cfg.doh_redirect_ip)
-        else:
-            content_length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(min(content_length, _MAX_BODY_FILE_SIZE)) if content_length > 0 else b""
-            response_data = handle_doh_post(body, self._cfg.doh_redirect_ip)
-
-        if response_data:
-            if self._cfg.log_requests:
-                logger.info("DoH   request from %s -> sinkholed", safe_addr)
-            jl = get_json_logger()
-            if jl:
-                jl.log("doh_request", src_ip=self.client_address[0],
-                       method=self.command or "", path=self.path or "/")
-            try:
-                self.send_response(200)
-                self.send_header("Content-Type", DOH_CONTENT_TYPE)
-                self.send_header("Content-Length", str(len(response_data)))
-                self.send_header("Cache-Control", "no-cache")
-                self.send_header("Server", self._cfg.server_header)
-                self.end_headers()
-                self.wfile.write(response_data)
-            except OSError:
-                pass
-        else:
-            # Couldn't parse DoH â€” fall through to normal response
+        if not route_doh(self, _MAX_BODY_FILE_SIZE):
+            # Couldn't parse DoH — fall through to normal response
             self._send_normal_response()
 
     def _handle_websocket_upgrade(self):
         """Complete a WebSocket handshake then send a close frame."""
-        safe_addr = sanitize_ip(self.client_address[0])
-        ws_key = self.headers.get("Sec-WebSocket-Key", "")
-        if not ws_key:
+        if not route_websocket_upgrade(self):
             self._send_normal_response()
-            return
-
-        if self._cfg.log_requests:
-            safe_path = sanitize_log_string(self.path or "/", 256)
-            logger.info(
-                f"WS    WebSocket upgrade from {safe_addr} "
-                f"path={safe_path} -> sinkholed"
-            )
-        jl = get_json_logger()
-        if jl:
-            jl.log("websocket_upgrade", src_ip=self.client_address[0],
-                   path=self.path or "/")
-
-        try:
-            # Send 101 Switching Protocols
-            handshake = build_websocket_handshake_response(ws_key)
-            self.wfile.write(handshake)
-            self.wfile.flush()
-
-            # Drain up to 4KB of incoming WebSocket frames (log preview)
-            readable, _, _ = select.select([self.rfile], [], [], 2.0)
-            if readable:
-                try:
-                    data = self.rfile.read1(4096) if hasattr(self.rfile, 'read1') else self.rfile.read(4096)
-                    if data and self._cfg.log_requests:
-                        preview = sanitize_log_string(
-                            data[:64].hex(), 128
-                        )
-                        logger.debug("WS    received frame preview: %s", preview)
-                except Exception:
-                    logger.debug("WebSocket frame recv failed", exc_info=True)
-
-            # Send close frame
-            close_frame = build_websocket_close_frame(1000, "sinkholed")
-            self.wfile.write(close_frame)
-            self.wfile.flush()
-        except OSError:
-            pass
 
     # â”€â”€ Route registry â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     # Each entry: (predicate(self, host) -> bool, handler(self, host) -> bool|None).
@@ -804,409 +736,49 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         return True
 
     def _route_telegram(self, host: str):
-        """Fake Telegram Bot API responses for stealer/RAT C2 over Telegram.
-
-        Agent Tesla and similar stealers POST to
-        api.telegram.org/bot<token>/sendMessage with chat_id + text in the
-        body.  The .NET HttpClient checks that the response JSON has
-        ``"ok": true``; anything else causes a retry loop or a hard exit that
-        can be a sinkhole-detection signal.  We return a plausible response
-        for every method the Bot API exposes, and log the full request body
-        so the analyst gets the bot token, chat ID, and exfil payload.
-        """
-        path = self.path or "/"
-        m = _TELEGRAM_PATH_RE.match(path)
-        if not m:
-            return False
-
-        method = m.group(1).lower()
-        src_ip = sanitize_ip(self.client_address[0])
-
-        # Read and log the POST body — contains bot token + exfil payload.
-        try:
-            cl = int(self.headers.get("Content-Length", 0))
-        except (ValueError, TypeError):
-            cl = 0
-        raw_body = b""
-        if cl > 0:
-            raw_body = self.rfile.read(min(cl, _MAX_BODY_FILE_SIZE))
-
-        # Extract token from path for logging.
-        token_match = re.match(r"^/bot([^/]+)/", path)
-        bot_token = token_match.group(1) if token_match else ""
-
-        # Attempt to decode body as JSON or form-urlencoded for structured log.
-        chat_id = ""
-        text_preview = ""
-        try:
-            ct = self.headers.get("Content-Type", "")
-            if "application/json" in ct:
-                parsed = json.loads(raw_body)
-            else:
-                parsed_qs = parse_qs(raw_body.decode(errors="replace"))
-                parsed = {k: v[0] for k, v in parsed_qs.items() if v}
-            chat_id = str(parsed.get("chat_id", ""))
-            text_preview = sanitize_log_string(
-                str(parsed.get("text", "")), max_length=512
-            )
-        except Exception:  # noqa: BLE001
-            pass
-
-        logger.warning(
-            "Telegram  Bot API call %s from %s | token=%s chat_id=%s text=%s",
-            method, src_ip,
-            sanitize_log_string(bot_token, max_length=64),
-            sanitize_log_string(chat_id, max_length=32),
-            text_preview,
-        )
-        jl = get_json_logger()
-        if jl:
-            jl.log("telegram_c2",
-                   src_ip=self.client_address[0],
-                   method=method,
-                   bot_token=bot_token,
-                   chat_id=chat_id,
-                   body=raw_body.decode(errors="replace")[:4096])
-
-        # Build a plausible Telegram Bot API response for this method.
-        now_ts = int(time.time())
-        # getMe / getUpdates need slightly different shapes; everything else
-        # gets a Message-shaped result which is what stealers expect from
-        # sendMessage / sendDocument / sendPhoto.
-        if method == "getme":
-            result: object = {
-                "id": 987654321,
-                "is_bot": True,
-                "first_name": "NotifyBot",
-                "username": "notify_alertbot",
-                "can_join_groups": False,
-                "can_read_all_group_messages": False,
-                "supports_inline_queries": False,
-            }
-        elif method == "getupdates":
-            result = []  # empty update list — no commands pending
-        else:
-            # sendMessage / sendDocument / sendPhoto / sendAudio / etc.
-            result = {
-                "message_id": now_ts & 0xFFFF,
-                "from": {
-                    "id": 987654321,
-                    "is_bot": True,
-                    "first_name": "NotifyBot",
-                    "username": "notify_alertbot",
-                },
-                "chat": {
-                    "id": int(chat_id) if chat_id.lstrip("-").isdigit() else -1001234567890,
-                    "type": "supergroup",
-                    "title": "Logs",
-                },
-                "date": now_ts,
-                "text": "OK",
-            }
-
-        response_body = json.dumps({"ok": True, "result": result}).encode()
-        try:
-            self.send_response(200)
-            self.send_header("Content-Type", _CT_JSON)
-            self.send_header("Content-Length", str(len(response_body)))
-            self.send_header("Server", "nginx")
-            self.send_header("Connection", "keep-alive")
-            self.end_headers()
-            if self.command != "HEAD":
-                self.wfile.write(response_body)
-        except OSError:
-            pass
-        return True
+        return route_telegram(self, _MAX_BODY_FILE_SIZE, _CT_JSON)
 
     # ── Discord webhook route ─────────────────────────────────────────────
     def _route_discord(self, host: str):
-        """Fake Discord webhook endpoint for stealer exfil.
-
-        20+ stealer families POST to /api/webhooks/<id>/<token> or
-        /api/v9/webhooks/<id>/<token>.  The .NET HttpClient / Python
-        requests library checks for 200 + valid JSON.
-        """
-        path = self.path or "/"
-        m = _DISCORD_WEBHOOK_RE.match(path)
-        if not m:
-            return False
-
-        webhook_id = m.group(1)
-        src_ip = sanitize_ip(self.client_address[0])
-
-        try:
-            cl = int(self.headers.get("Content-Length", 0))
-        except (ValueError, TypeError):
-            cl = 0
-        raw_body = self.rfile.read(min(cl, _MAX_BODY_FILE_SIZE)) if cl > 0 else b""
-
-        logger.warning(
-            "Discord  Webhook POST from %s | webhook_id=%s body_len=%d",
-            src_ip, webhook_id, len(raw_body),
-        )
-        jl = get_json_logger()
-        if jl:
-            jl.log("discord_c2",
-                   src_ip=self.client_address[0],
-                   webhook_id=webhook_id,
-                   body=raw_body.decode(errors="replace")[:4096])
-
-        # Discord message IDs are Twitter-style snowflakes (epoch 2015-01-01).
-        # Using a plausible snowflake prevents anomaly detection by malware
-        # that validates the response shape.
-        _DISCORD_EPOCH_MS = 1420070400000
-        now_ms = int(time.time() * 1000)
-        snowflake = ((now_ms - _DISCORD_EPOCH_MS) << 22) | random.getrandbits(22)  # nosec B311
-
-        resp = json.dumps({
-            "id": str(snowflake),
-            "type": 0,
-            "content": "",
-            "channel_id": "1100000000000000000",
-            "webhook_id": webhook_id,
-            "attachments": [],
-            "embeds": [],
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }).encode()
-        try:
-            self.send_response(200 if self.command == "POST" else 204)
-            self.send_header("Content-Type", _CT_JSON)
-            self.send_header("Content-Length", str(len(resp)))
-            self.send_header("Server", "cloudflare")
-            self.send_header("CF-Ray", f"{os.urandom(8).hex()}-IAD")
-            self.send_header("Connection", "keep-alive")
-            self.end_headers()
-            if self.command != "HEAD":
-                self.wfile.write(resp)
-        except OSError:
-            pass
-        return True
+        return route_discord(self, _MAX_BODY_FILE_SIZE, _CT_JSON)
 
     # ── Pastebin / paste dead-drop route ──────────────────────────────────
     def _route_paste(self, host: str):
-        """Return a plausible paste response for dead-drop C2 config retrieval.
-
-        15+ RAT/stealer families fetch C2 config from paste sites.  We return
-        the sinkhole redirect_ip so stage-2 connections loop back here.
-        """
-        src_ip = sanitize_ip(self.client_address[0])
-        path = sanitize_log_string(self.path or "/", max_length=256)
-
-        logger.warning(
-            "Paste  Dead-drop fetch from %s | host=%s path=%s",
-            src_ip, host, path,
-        )
-        jl = get_json_logger()
-        if jl:
-            jl.log("paste_dead_drop",
-                   src_ip=self.client_address[0],
-                   host=host,
-                   path=self.path or "/")
-
-        # Return the sinkhole's redirect_ip as the "C2 config" — makes stage-2
-        # connections loop back to the sinkhole for full capture.
-        redirect_ip = self._cfg.spoof_ip or "10.10.10.10"
-        body = redirect_ip.encode() + b"\n"
-        try:
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Server", "nginx")
-            self.send_header("Connection", "keep-alive")
-            self.end_headers()
-            if self.command != "HEAD":
-                self.wfile.write(body)
-        except OSError:
-            pass
-        return True
+        return route_dead_drop_ip(self, "paste_dead_drop", host, "nginx")
 
     # ── Slack webhook route ───────────────────────────────────────────────
     def _route_slack(self, _host: str):
-        """Slack expects exactly 'ok' as the response body."""
-        src_ip = sanitize_ip(self.client_address[0])
-
-        try:
-            cl = int(self.headers.get("Content-Length", 0))
-        except (ValueError, TypeError):
-            cl = 0
-        raw_body = self.rfile.read(min(cl, _MAX_BODY_FILE_SIZE)) if cl > 0 else b""
-
-        logger.warning("Slack  Webhook POST from %s | body_len=%d", src_ip, len(raw_body))
-        jl = get_json_logger()
-        if jl:
-            jl.log("slack_c2",
-                   src_ip=self.client_address[0],
-                   body=raw_body.decode(errors="replace")[:4096])
-
-        body = b"ok"
-        try:
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Server", "Apache")
-            self.send_header("Connection", "keep-alive")
-            self.end_headers()
-            if self.command != "HEAD":
-                self.wfile.write(body)
-        except OSError:
-            pass
-        return True
+        return route_simple_text(
+            self,
+            event_name="slack_c2",
+            body=b"ok",
+            content_type="text/html",
+            server="Apache",
+            status=200,
+        )
 
     # ── Teams webhook route ───────────────────────────────────────────────
     def _route_teams(self, _host: str):
-        """Teams webhooks expect '1' as the body with 200 or 202."""
-        src_ip = sanitize_ip(self.client_address[0])
-
-        try:
-            cl = int(self.headers.get("Content-Length", 0))
-        except (ValueError, TypeError):
-            cl = 0
-        raw_body = self.rfile.read(min(cl, _MAX_BODY_FILE_SIZE)) if cl > 0 else b""
-
-        logger.warning("Teams  Webhook POST from %s | body_len=%d", src_ip, len(raw_body))
-        jl = get_json_logger()
-        if jl:
-            jl.log("teams_c2",
-                   src_ip=self.client_address[0],
-                   body=raw_body.decode(errors="replace")[:4096])
-
-        body = b"1"
-        try:
-            self.send_response(202)
-            self.send_header("Content-Type", "text/plain")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Server", "Microsoft-IIS/10.0")
-            self.send_header("Connection", "keep-alive")
-            self.end_headers()
-            if self.command != "HEAD":
-                self.wfile.write(body)
-        except OSError:
-            pass
-        return True
+        return route_simple_text(
+            self,
+            event_name="teams_c2",
+            body=b"1",
+            content_type="text/plain",
+            server="Microsoft-IIS/10.0",
+            status=202,
+        )
 
     # ── GitHub raw content route ──────────────────────────────────────────
     def _route_github_raw(self, host: str):
-        """Return plausible raw file content for dead-drop config retrieval."""
-        src_ip = sanitize_ip(self.client_address[0])
-        path = sanitize_log_string(self.path or "/", max_length=256)
-
-        logger.warning(
-            "GitHub  Raw fetch from %s | host=%s path=%s",
-            src_ip, host, path,
-        )
-        jl = get_json_logger()
-        if jl:
-            jl.log("github_dead_drop",
-                   src_ip=self.client_address[0],
-                   host=host,
-                   path=self.path or "/")
-
-        redirect_ip = self._cfg.spoof_ip or "10.10.10.10"
-        body = redirect_ip.encode() + b"\n"
-        try:
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Server", "github.com")
-            self.send_header("Accept-Ranges", "bytes")
-            self.send_header("Connection", "keep-alive")
-            self.end_headers()
-            if self.command != "HEAD":
-                self.wfile.write(body)
-        except OSError:
-            pass
-        return True
+        return route_dead_drop_ip(self, "github_dead_drop", host, "github.com")
 
     # ── File-hosting / payload-staging route ───────────────────────────────
     def _route_file_hosting(self, host: str):
-        """Return a plausible 200 response for file-hosting payload fetches.
-
-        Agent Tesla (and similar stealers) check that they can reach a
-        file-hosting site before fetching their second-stage payload.  If
-        DNS resolves the host but the HTTP response is an error or our
-        default HTML page, the malware detects a fake network and aborts.
-        Returning HTTP 200 with a minimal octet-stream body keeps the
-        pre-check alive so detonation proceeds and the request is logged.
-        """
-        src_ip = sanitize_ip(self.client_address[0])
-        path = sanitize_log_string(self.path or "/", max_length=256)
-
-        logger.warning(
-            "FileHost  Payload fetch from %s | host=%s path=%s",
-            src_ip, host, path,
-        )
-        jl = get_json_logger()
-        if jl:
-            jl.log("file_hosting_fetch",
-                   src_ip=self.client_address[0],
-                   host=host,
-                   path=self.path or "/")
-
-        # Minimal stub body — enough for the connectivity pre-check to pass.
-        body = b"\x00" * 64
-        try:
-            self.send_response(200)
-            self.send_header("Content-Type", "application/octet-stream")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Server", "nginx")
-            self.send_header("Accept-Ranges", "bytes")
-            self.send_header("Connection", "keep-alive")
-            self.end_headers()
-            if self.command != "HEAD":
-                self.wfile.write(body)
-        except OSError:
-            pass
-        return True
+        return route_file_hosting(self, host)
 
     # ── Google Docs/Drive route ───────────────────────────────────────────
     def _route_google_content(self, host: str):
-        """Return plausible content for Google Docs/Sheets/Drive dead-drops."""
-        src_ip = sanitize_ip(self.client_address[0])
-        path = sanitize_log_string(self.path or "/", max_length=256)
-
-        logger.warning(
-            "Google  Content fetch from %s | host=%s path=%s",
-            src_ip, host, path,
-        )
-        jl = get_json_logger()
-        if jl:
-            jl.log("google_dead_drop",
-                   src_ip=self.client_address[0],
-                   host=host,
-                   path=self.path or "/")
-
-        redirect_ip = self._cfg.spoof_ip or "10.10.10.10"
-        low = (self.path or "").lower()
-        if "format=csv" in low or "tqx=out:csv" in low:
-            body = redirect_ip.encode() + b"\n"
-            ct = "text/csv; charset=utf-8"
-        elif "export=download" in low or "uc?" in low:
-            # Minimal valid PE stub — e_lfanew at 0x3C points to a PE\0\0
-            # signature so loaders that parse the PE header don't crash.
-            pe_stub = bytearray(512)
-            pe_stub[0:2] = b"MZ"
-            pe_stub[0x3C:0x40] = (0x80).to_bytes(4, "little")  # e_lfanew
-            pe_stub[0x80:0x84] = b"PE\x00\x00"                # PE signature
-            pe_stub[0x84:0x86] = (0x14C).to_bytes(2, "little") # Machine: i386
-            body = bytes(pe_stub)
-            ct = "application/octet-stream"
-        else:
-            body = redirect_ip.encode() + b"\n"
-            ct = "text/plain; charset=utf-8"
-
-        try:
-            self.send_response(200)
-            self.send_header("Content-Type", ct)
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Server", "ESF")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("Connection", "keep-alive")
-            self.end_headers()
-            if self.command != "HEAD":
-                self.wfile.write(body)
-        except OSError:
-            pass
-        return True
+        return route_google_content(self, host)
 
     def _send_fake_response(self):
         host = self.headers.get("Host", "").split(":")[0].strip().lower()
