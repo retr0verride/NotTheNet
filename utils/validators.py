@@ -113,8 +113,10 @@ _PORT_SERVICES = (
 
 # Capacity / timeout knobs that must be positive numbers, keyed by section.
 _POSITIVE_NUM_FIELDS: dict[str, list[str]] = {
-    "smtp":      ["conn_timeout_sec", "max_connections", "max_email_size_bytes", "max_disk_usage_bytes"],
-    "smtps":     ["conn_timeout_sec", "max_connections", "max_email_size_bytes", "max_disk_usage_bytes"],
+    "smtp":  ["conn_timeout_sec", "max_connections", "max_email_size_bytes",
+               "max_disk_usage_bytes"],
+    "smtps": ["conn_timeout_sec", "max_connections", "max_email_size_bytes",
+               "max_disk_usage_bytes"],
     "pop3":      ["conn_timeout_sec", "max_connections"],
     "pop3s":     ["conn_timeout_sec", "max_connections"],
     "imap":      ["conn_timeout_sec", "max_connections"],
