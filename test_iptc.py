@@ -1,7 +1,16 @@
 #!/usr/bin/env python3
 """Quick test of python-iptables UDP match creation."""
-import iptc
 import ctypes as ct
+import sys
+
+try:
+    import iptc
+except ModuleNotFoundError:
+    if "pytest" in sys.modules:
+        import pytest
+
+        pytest.skip("python-iptables not installed", allow_module_level=True)
+    raise SystemExit("python-iptables (iptc) is required to run this script")
 
 # Test TCP match
 print("--- TCP test ---")
