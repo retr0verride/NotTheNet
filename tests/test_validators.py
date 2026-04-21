@@ -1,5 +1,5 @@
-"""
-Tests for utils/validators.py — cover all public functions.
+﻿"""
+Tests for utils/validators.py â€” cover all public functions.
 These are pure-Python, no I/O, safe to run anywhere.
 """
 
@@ -16,7 +16,7 @@ from utils.validators import (
     validate_port,
 )
 
-# ── validate_ip ──────────────────────────────────────────────────────────────
+# â”€â”€ validate_ip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class TestValidateIp:
     def test_valid_ipv4(self):
@@ -50,7 +50,7 @@ class TestValidateIp:
         assert addr == "0.0.0.0"
 
 
-# ── validate_port ─────────────────────────────────────────────────────────────
+# â”€â”€ validate_port â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class TestValidatePort:
     def test_valid_ports(self):
@@ -85,7 +85,7 @@ class TestValidatePort:
         assert not ok
 
 
-# ── validate_hostname ─────────────────────────────────────────────────────────
+# â”€â”€ validate_hostname â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class TestValidateHostname:
     def test_simple_hostname(self):
@@ -114,7 +114,7 @@ class TestValidateHostname:
         assert validate_hostname("host123.example.com")
 
 
-# ── validate_bind_ip ──────────────────────────────────────────────────────────
+# â”€â”€ validate_bind_ip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class TestValidateBindIp:
     def test_wildcard_ipv4(self):
@@ -137,7 +137,7 @@ class TestValidateBindIp:
         assert not ok
 
 
-# ── sanitize_path ─────────────────────────────────────────────────────────────
+# â”€â”€ sanitize_path â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class TestSanitizePath:
     def test_safe_subpath(self):
@@ -156,13 +156,13 @@ class TestSanitizePath:
         with tempfile.TemporaryDirectory() as base:
             parent = os.path.dirname(base)
             result = sanitize_path(parent, os.path.basename(base))
-            # Should succeed — it's a subpath, just pointing to base itself
+            # Should succeed â€” it's a subpath, just pointing to base itself
             # (the function returns None only when traversal crosses base)
             # This test just verifies it doesn't raise.
             assert result is not None or result is None  # either is fine; no crash
 
 
-# ── validate_http_method ─────────────────────────────────────────────────────
+# â”€â”€ validate_http_method â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class TestValidateHttpMethod:
     def test_standard_methods(self):
@@ -180,7 +180,7 @@ class TestValidateHttpMethod:
         assert not validate_http_method("")
 
 
-# ── validate_config ───────────────────────────────────────────────────────────
+# â”€â”€ validate_config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class TestValidateConfig:
     def test_valid_full_config(self):
@@ -214,7 +214,120 @@ class TestValidateConfig:
         errors = validate_config(cfg)
         assert any("http.port" in e for e in errors)
 
+
     def test_empty_config_uses_defaults(self):
         # Empty config should not error (defaults are valid)
         errors = validate_config({})
+        assert errors == []
+
+    def test_smtps_port_invalid(self):
+        cfg = {"smtps": {"enabled": True, "port": 0}}
+        errors = validate_config(cfg)
+        assert any("smtps.port" in e for e in errors)
+
+    def test_smb_port_invalid(self):
+        cfg = {"smb": {"enabled": True, "port": -1}}
+        errors = validate_config(cfg)
+        assert any("smb.port" in e for e in errors)
+
+    def test_catch_all_tcp_port_invalid(self):
+        cfg = {"catch_all": {"enabled": True, "tcp_port": 99999, "udp_port": 9998}}
+        errors = validate_config(cfg)
+        assert any("catch_all.tcp_port" in e for e in errors)
+
+    def test_catch_all_udp_port_invalid(self):
+        cfg = {"catch_all": {"enabled": True, "tcp_port": 9999, "udp_port": "bad"}}
+        errors = validate_config(cfg)
+        assert any("catch_all.udp_port" in e for e in errors)
+
+    def test_smtp_max_connections_zero_invalid(self):
+        cfg = {"smtp": {"max_connections": 0}}
+        errors = validate_config(cfg)
+        assert any("smtp.max_connections" in e for e in errors)
+
+    def test_smtp_conn_timeout_negative_invalid(self):
+        cfg = {"smtp": {"conn_timeout_sec": -5}}
+        errors = validate_config(cfg)
+        assert any("smtp.conn_timeout_sec" in e for e in errors)
+
+    def test_smtp_max_email_size_non_numeric_invalid(self):
+        cfg = {"smtp": {"max_email_size_bytes": "big"}}
+        errors = validate_config(cfg)
+        assert any("smtp.max_email_size_bytes" in e for e in errors)
+
+    def test_ftp_max_upload_size_zero_invalid(self):
+        cfg = {"ftp": {"max_upload_size_bytes": 0}}
+        errors = validate_config(cfg)
+        assert any("ftp.max_upload_size_bytes" in e for e in errors)
+
+    def test_catch_all_peek_timeout_zero_invalid(self):
+        cfg = {"catch_all": {"peek_timeout_sec": 0}}
+        errors = validate_config(cfg)
+        assert any("catch_all.peek_timeout_sec" in e for e in errors)
+
+    def test_catch_all_peek_timeout_float_valid(self):
+        cfg = {"catch_all": {"peek_timeout_sec": 0.5}}
+        errors = validate_config(cfg)
+        assert not any("catch_all.peek_timeout_sec" in e for e in errors)
+
+    def test_ftp_pasv_low_greater_than_high_invalid(self):
+        cfg = {"ftp": {"pasv_port_low": 51000, "pasv_port_high": 50000}}
+        errors = validate_config(cfg)
+        assert any("pasv_port_low" in e and "pasv_port_high" in e for e in errors)
+
+    def test_ftp_pasv_low_equal_to_high_invalid(self):
+        cfg = {"ftp": {"pasv_port_low": 50000, "pasv_port_high": 50000}}
+        errors = validate_config(cfg)
+        assert any("pasv_port_low" in e for e in errors)
+
+    def test_ftp_pasv_port_range_valid(self):
+        cfg = {"ftp": {"pasv_port_low": 50000, "pasv_port_high": 51000}}
+        errors = validate_config(cfg)
+        assert not any("pasv_port" in e for e in errors)
+
+    def test_ftp_pasv_port_low_invalid_port(self):
+        cfg = {"ftp": {"pasv_port_low": 0, "pasv_port_high": 51000}}
+        errors = validate_config(cfg)
+        assert any("pasv_port_low" in e for e in errors)
+
+    def test_ftp_upload_dir_traversal_rejected(self):
+        cfg = {"ftp": {"upload_dir": "logs/../../../etc"}}
+        errors = validate_config(cfg)
+        assert any("ftp.upload_dir" in e for e in errors)
+
+    def test_tftp_upload_dir_traversal_rejected(self):
+        cfg = {"tftp": {"upload_dir": "../outside"}}
+        errors = validate_config(cfg)
+        assert any("tftp.upload_dir" in e for e in errors)
+
+    def test_https_cert_file_traversal_rejected(self):
+        cfg = {"https": {"cert_file": "../../etc/ssl/server.crt"}}
+        errors = validate_config(cfg)
+        assert any("https.cert_file" in e for e in errors)
+
+    def test_https_key_file_traversal_rejected(self):
+        cfg = {"https": {"key_file": "../../etc/ssl/server.key"}}
+        errors = validate_config(cfg)
+        assert any("https.key_file" in e for e in errors)
+
+    def test_http_response_body_file_traversal_rejected(self):
+        cfg = {"http": {"response_body_file": "../../../etc/passwd"}}
+        errors = validate_config(cfg)
+        assert any("http.response_body_file" in e for e in errors)
+
+    def test_positive_fields_absent_no_error(self):
+        cfg = {"smtp": {}}
+        errors = validate_config(cfg)
+        assert not any("smtp." in e for e in errors)
+
+    def test_smb_session_timeout_zero_invalid(self):
+        cfg = {"smb": {"session_timeout_sec": 0}}
+        errors = validate_config(cfg)
+        assert any("smb.session_timeout_sec" in e for e in errors)
+
+    def test_valid_catch_all_knobs(self):
+        cfg = {"catch_all": {"enabled": True, "tcp_port": 9999, "udp_port": 9998,
+                             "max_connections": 200, "max_per_ip": 20,
+                             "session_timeout_sec": 10, "peek_timeout_sec": 0.5}}
+        errors = validate_config(cfg)
         assert errors == []
