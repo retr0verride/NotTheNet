@@ -350,7 +350,7 @@ If you prefer to do it yourself:
 cd ~/NotTheNet
 
 # 1. Pull latest changes
-git pull origin master
+git pull origin main
 
 # 2. Re-install (safe to run every time — no-op if nothing changed)
 source venv/bin/activate

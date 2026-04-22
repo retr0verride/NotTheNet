@@ -44,7 +44,7 @@ if [ -n "$OTHER_DIRTY" ]; then
 fi
 
 echo "[*] Pulling latest changes from GitHub..."
-git pull origin master
+git pull origin main
 
 # Restore user config if it was backed up
 if [ -n "$CONFIG_BACKUP" ]; then

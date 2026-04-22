@@ -49,8 +49,8 @@ PYTHON=$(command -v python3 2>/dev/null || true)
 PYVER=$("$PYTHON" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
 PYMAJ=$(echo "$PYVER" | cut -d. -f1)
 PYMIN=$(echo "$PYVER" | cut -d. -f2)
-if [[ $PYMAJ -lt 3 ]] || { [[ $PYMAJ -eq 3 ]] && [[ $PYMIN -lt 9 ]]; }; then
-    error "Python 3.9+ required (found $PYVER)."
+if [[ $PYMAJ -lt 3 ]] || { [[ $PYMAJ -eq 3 ]] && [[ $PYMIN -lt 10 ]]; }; then
+    error "Python 3.10+ required (found $PYVER)."
 fi
 info "Python $PYVER found at $PYTHON"
 
