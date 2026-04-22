@@ -9,6 +9,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ---
 
+## [2026.04.21-1] — 2026-04-21
+
+### Added
+- **GUI: Check for Updates button** — right-aligned toolbar button (`⟳ Updates`) queries the GitHub Releases API in a background daemon thread; compares `tag_name` against `APP_VERSION` and shows an informational dialog when already up to date, or offers to open the releases page via `webbrowser.open()` when a newer version is available; button disables itself while the network call is in flight; zero new dependencies (pure stdlib: `urllib.request`, `json`, `webbrowser`).
+- **Resource-cleanup regression tests** (`tests/test_resource_cleanup.py`, 13 tests) — `TestDynamicCertCacheEviction`: LRU eviction bound, FIFO order, no `_dyn_*` temp files left on disk after `_build_ctx_for_hostname`, tracemalloc-bounded growth < 5 MB; `TestJsonEventLoggerCap`: byte-cap enforced on both file size and `_bytes_written` counter, `_cap_warned` flag set exactly once, tracemalloc-bounded < 2 MB, `close()` idempotent; `TestPerIpCounterCleanup`: `_per_ip` dict empty after all connections closed (serial + concurrent), per-IP limit rejects excess without accumulating counter entries.
+
+### Changed
+- **`predeploy.ps1` / `predeploy.sh` synced to CI** — both scripts pin all tool versions to match CI (`ruff==0.15.2`, `bandit[toml]==1.9.4`, `pip-audit==2.10.0`, `mypy==1.19.1`, `openapi-spec-validator==0.8.4`, `pytest==9.0.3`, `pytest-cov==7.1.0`, `pytest-timeout==2.4.0`); add mypy `--strict` step for `domain/` `application/` `infrastructure/`; add `openapi-spec-validator openapi.yaml` step; add `--timeout=60 --cov --cov-fail-under=35` to pytest; add stale `_dyn_*` cert-file check; `predeploy.sh` additionally adds `pip-audit`, version-consistency check, and CHANGELOG check (previously absent); step count 7 → 9 on both scripts.
+- **`pyproject.toml`: Python 3.9 removed** from classifiers — EOL October 2025; now reflects CI matrix (3.10, 3.11, 3.12).
+
+---
+
 ## [2026.04.19-2] — 2026-04-19
 
 ### Fixed
