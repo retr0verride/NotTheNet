@@ -1,34 +1,20 @@
 # NotTheNet — Python Dependencies
-# Pinned with SHA-256 hashes for supply-chain integrity.
-# Install: pip install --require-hashes -r requirements.txt
-#
-# To regenerate hashes after version bumps:
-#   pip download <pkg>==<ver> --no-deps -d /tmp/hashes
-#   pip hash --algorithm sha256 /tmp/hashes/<file>.whl
+# Pinned by version for reproducibility.
+# Install: pip install -r requirements.txt
 
 # DNS packet parsing / server (pure-Python, single wheel for all platforms)
-dnslib==0.9.26 \
-    --hash=sha256:e68719e633d761747c7e91bd241019ef5a2b61a63f56025939e144c841a70e0d
+dnslib==0.9.26
 
 # TLS certificate generation (used by cert_utils.py)
 # >=46.0.6 required: fixes CVE-2024-12797 (OpenSSL RSA key recovery, HIGH) and
 # related advisories GHSA-6vqw-3v5j-54x4 / GHSA-h4gh-qq45-vh27 present in 42.x-43.x.
-# Hashes: all x86_64 Linux manylinux variants (2.17/2.28/2.34, cp38-abi3 + cp311-abi3)
-# to cover ubuntu-latest (glibc 2.39 → prefers manylinux_2_34) and Kali (manylinux_2_17).
-# Python 3.9/3.10 use cp38-abi3 wheels; Python 3.11-3.14 use cp311-abi3 wheels.
-cryptography==46.0.7 \
-    --hash=sha256:5ad9ef796328c5e3c4ceed237a183f5d41d21150f972455a9d926593a1dcb308 \
-    --hash=sha256:420b1e4109cc95f0e5700eed79908cef9268265c773d3a66f7af1eef53d409ef \
-    --hash=sha256:42a1e5f98abb6391717978baf9f90dc28a743b7d9be7f0751a6f56a75d14065b \
-    --hash=sha256:128c5edfe5e5938b86b03941e94fac9ee793a94452ad1365c9fc3f4f62216832 \
-    --hash=sha256:1d25aee46d0c6f1a501adcddb2d2fee4b979381346a78558ed13e50aa8a59067 \
-    --hash=sha256:35719dc79d4730d30f1c2b6474bd6acda36ae2dfae1e3c16f2051f215df33ce0
+cryptography==46.0.7
 
 # Optional: process title masquerade (renames process to kernel-thread-like name)
 # Gracefully skipped if not installed, but recommended for stealth deployments.
-# Not hash-pinned: compiled per-platform — install separately with:
+# Not installed by default: compiled per-platform. Install separately with:
 #   pip install setproctitle>=1.3
-# When using --require-hashes, install setproctitle in a second pip call.
+setproctitle>=1.3
 
 # Note: All other functionality uses Python stdlib only:
 #   http.server, ssl, socketserver, threading, tkinter, json, logging,

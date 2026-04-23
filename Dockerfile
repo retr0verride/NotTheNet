@@ -57,13 +57,10 @@ RUN apt-get update -qq \
 # Copy only dependency manifests first — leverages layer cache
 COPY requirements.txt pyproject.toml ./
 
-# Strip --hash lines: hashes trigger --require-hashes mode which demands hashes
-# for ALL transitive deps (cffi, pycparser, etc).  Supply-chain integrity is
-# provided by the digest-pinned base image.
+# Install dependencies into the venv
 RUN python -m venv /venv \
     && /venv/bin/pip install --upgrade pip \
-    && sed '/--hash=sha256:/d' requirements.txt | sed 's/ \\$//' > /tmp/req.txt \
-    && /venv/bin/pip install -r /tmp/req.txt
+    && /venv/bin/pip install -r requirements.txt
 
 # ── lint ──────────────────────────────────────────────────────────────────────
 FROM builder AS lint

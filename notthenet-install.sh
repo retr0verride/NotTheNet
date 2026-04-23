@@ -18,7 +18,6 @@
 #   7. Creates the notthenet launcher in /usr/local/bin (optional)
 #
 # OpenSSF notes:
-#   - Uses --require-hashes to verify package integrity
 #   - Never uses curl | bash patterns for dependency fetching
 #   - All temp files created with mktemp and removed on EXIT
 # ============================================================================
