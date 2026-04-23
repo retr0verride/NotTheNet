@@ -978,6 +978,7 @@ A VM defaulting to 800×600 or 1280×800 is a well-known sandbox indicator. Set 
 | **Display adapter** | Use `vga: std` — not VirtIO/QXL (detectable PCI IDs) | `200.conf` |
 | **User artifacts** | Desktop files, browser bookmarks, recent docs | Stage manually |
 | **Uptime** | Boot and idle 10+ min before detonating | Wait before running samples |
+| **Mouse / keyboard activity** | Some malware waits for human input (mouse movement, keystrokes) before executing. Run an idle-activity script on FlareVM before detonating. | AutoHotkey loop: `Loop { MouseMove, 1, 0, 0, R \| Sleep 30000 }` — save as `.ahk`, run as Administrator |
 
 ### 8.5 Snapshot strategy
 

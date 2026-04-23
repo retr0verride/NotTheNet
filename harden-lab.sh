@@ -88,13 +88,32 @@ fi
 
 echo "  Done."
 
-# ── 2. iptables isolation rules ───────────────────────────────────────────
+# ── 2. iptables / ip6tables isolation rules ──────────────────────────────
 echo ""
 echo "[2/5] Applying iptables isolation rules..."
 
 # Purge ALL existing NOTTHENET_HARDEN rules (INPUT, FORWARD, any chain) in one atomic pass.
 # This prevents rule stacking across re-runs and is instant regardless of rule count.
 iptables-save 2>/dev/null | { grep -v 'NOTTHENET_HARDEN' || true; } | iptables-restore 2>/dev/null || true
+
+# ── IPv6: block all forwarding on the bridge. ─────────────────────────────
+# Malware that is IPv6-aware can bypass an IPv4-only sinkhole by routing
+# traffic via the victim NIC's link-local or ULA IPv6 address.  Drop all
+# IPv6 forwarding on the lab bridge so there is no escape route.
+# NotTheNet does not currently provide IPv6 fake services, so this is a
+# pure DROP — nothing useful is blocked that wasn't already unserviced.
+if command -v ip6tables &>/dev/null; then
+    ip6tables-save 2>/dev/null | { grep -v 'NOTTHENET_HARDEN' || true; } | ip6tables-restore 2>/dev/null || true
+    ip6tables -I FORWARD 1 -i "$BRIDGE_IF" -j DROP \
+        -m comment --comment "NOTTHENET_HARDEN: block IPv6 forward on lab bridge"
+    ip6tables -I FORWARD 2 -o "$BRIDGE_IF" -j DROP \
+        -m comment --comment "NOTTHENET_HARDEN: block IPv6 forward to lab bridge"
+    ip6tables -A INPUT -i "$BRIDGE_IF" -j DROP \
+        -m comment --comment "NOTTHENET_HARDEN: block IPv6 input from lab bridge"
+    echo "  ✓ IPv6 FORWARD + INPUT on $BRIDGE_IF: BLOCKED (ip6tables)"
+else
+    echo "  ⚠ ip6tables not found — IPv6 forwarding NOT blocked"
+fi
 
 # Ensure IP forwarding is on for the bridge (so NAT redirect works)
 echo 1 > /proc/sys/net/ipv4/ip_forward
@@ -214,11 +233,16 @@ fi
 
 # Show iptables rules
 echo ""
-echo "  Active FORWARD rules:"
+echo "  Active FORWARD rules (IPv4):"
 iptables -L FORWARD -n --line-numbers 2>/dev/null | head -20
 echo ""
-echo "  Active INPUT rules (bridge):"
+echo "  Active INPUT rules (bridge, IPv4):"
 iptables -L INPUT -n --line-numbers 2>/dev/null | grep -E "$BRIDGE_IF|NOTTHENET" | head -20
+echo ""
+if command -v ip6tables &>/dev/null; then
+    echo "  Active FORWARD rules (IPv6):"
+    ip6tables -L FORWARD -n --line-numbers 2>/dev/null | grep -E "$BRIDGE_IF|NOTTHENET" | head -10
+fi
 echo ""
 echo "═══════════════════════════════════════════════════════"
 echo "  Hardening complete. Start NotTheNet with:"
