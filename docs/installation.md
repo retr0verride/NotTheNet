@@ -5,10 +5,10 @@
 ## Table of Contents
 
 - [Requirements](#requirements)
-- [Which method?](#which-method)
-- [Method 1 — .deb package (recommended)](#method-1--deb-package-recommended)
-- [Method 2 — Offline / USB bundle](#method-2--offline--usb-bundle)
-- [Method 3 — Dev / script install](#method-3--dev--script-install)
+- Install methods
+  - [Method 1 — .deb package (recommended)](#method-1--deb-package-recommended)
+  - [Method 2 — Offline / USB bundle](#method-2--offline--usb-bundle)
+  - [Method 3 — Dev / script install](#method-3--dev--script-install)
 - [Verifying the Install](#verifying-the-install)
 - [Desktop Integration](#desktop-integration)
 
@@ -36,14 +36,6 @@
 | macOS / Windows | ❌ No (requires Linux iptables) |
 
 ---
-
-## Which method?
-
-| Scenario | Use |
-|---|---|
-| Kali with internet | [Method 1 — .deb](#method-1--deb-package-recommended) |
-| Air-gapped / USB lab | [Method 2 — offline bundle](#method-2--offline--usb-bundle) |
-| Contributing / editing source | [Method 3 — dev script](#method-3--dev--script-install) |
 
 ---
 
