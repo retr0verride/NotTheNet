@@ -26,17 +26,17 @@ This guide shows you how to use NotTheNet day-to-day — launching the GUI, conf
 NotTheNet must be run as **root** (administrator) because standard internet ports like 53 (DNS), 80 (HTTP), and 443 (HTTPS) are restricted to root on Linux. It also needs root to set up traffic redirection rules.
 
 ```bash
-# If you installed with the install script or .deb package:
+# Standard launch (works for .deb and offline-bundle installs):
 sudo notthenet
 
-# If running directly from the project folder:
-sudo .venv/bin/python notthenet.py
-
-# To load a specific configuration file:
+# Load a specific configuration file:
 sudo notthenet --config /path/to/my-lab.json
+
+# Dev / script install only — run directly from the cloned repo:
+sudo .venv/bin/python notthenet.py
 ```
 
-> **Kali tip:** You can also right-click the project folder in the file manager → "Open as Root" → run `.venv/bin/python notthenet.py`.
+> **Kali tip:** You can also right-click the project folder in the file manager → "Open as Root" → run `.venv/bin/python notthenet.py` (dev install only).
 
 ---
 

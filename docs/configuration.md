@@ -44,8 +44,8 @@ Global settings that apply to all services.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `bind_ip` | string | `"0.0.0.0"` | IP address all services listen on. Use `"0.0.0.0"` to listen on all interfaces, or a specific IP to restrict to one interface. |
-| `redirect_ip` | string | `"127.0.0.1"` | IP address returned by DNS for all queries. Should match the machine running NotTheNet. |
+| `bind_ip` | string | `"0.0.0.0"` | IP address all services listen on. Use `"0.0.0.0"` to listen on all interfaces, or a specific IP to restrict to one interface. For single-host testing, leave at default. For gateway mode with a separate victim VM, set to your lab interface IP (e.g. `"10.0.0.1"`). |
+| `redirect_ip` | string | `"127.0.0.1"` | IP address returned by DNS for all queries. Should match the IP the victim machine reaches NotTheNet on — `127.0.0.1` for single-host, your lab interface IP (e.g. `"10.0.0.1"`) for gateway mode. |
 | `interface` | string | `"eth0"` | Network interface to apply iptables rules to. **Critical: set this to your isolated/internal interface, not your real network adapter.** |
 | `log_dir` | string | `"logs"` | Directory for log files. Relative paths are resolved from the project root. |
 | `log_level` | string | `"INFO"` | Python logging level. One of: `DEBUG`, `INFO`, `WARNING`, `ERROR`. |

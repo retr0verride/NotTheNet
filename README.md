@@ -24,7 +24,8 @@ NotTheNet simulates the internet for malware being detonated in an isolated lab.
 ```bash
 git clone https://github.com/retr0verride/NotTheNet
 cd NotTheNet
-sudo bash notthenet-install.sh
+bash build-deb.sh
+sudo dpkg -i dist/notthenet_*.deb
 sudo notthenet
 ```
 
@@ -38,6 +39,8 @@ sudo notthenet
 sudo bash notthenet-bundle.sh
 sudo notthenet
 ```
+
+See [docs/installation.md](docs/installation.md) for all three install methods (`.deb`, offline bundle, dev script) with upgrade and uninstall steps.
 
 ---
 

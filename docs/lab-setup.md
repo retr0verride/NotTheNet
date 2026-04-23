@@ -56,10 +56,10 @@ On your Windows machine (the one with internet):
 
 ```powershell
 cd U:\NotTheNet
-.\make-bundle.ps1 -Zip
+.\make-bundle.ps1 -SkipChecks
 ```
 
-This produces `dist\NotTheNet_<version>_bundle.zip` containing all Python dependencies (pre-downloaded wheels), the scripts, and the offline installer. No internet needed on the target machine.
+This produces `dist\NotTheNet-<version>.zip` containing all Python dependencies (pre-downloaded wheels), the scripts, and the offline installer. No internet needed on the target machine.
 
 > `make-bundle.ps1` requires Python 3.10+ and pip in PATH. It pip-downloads all wheels declared in `requirements.txt` into the bundle before zipping.
 
@@ -149,12 +149,12 @@ sudo mount /dev/sr1 /mnt/bundle
 
 # The bundle zip is at the root of the ISO
 ls /mnt/bundle/
-# → NotTheNet_<version>_bundle.zip  (and possibly other files)
+# → NotTheNet-<version>.zip  (and possibly other files)
 
 # Extract and install
-cp /mnt/bundle/NotTheNet_*_bundle.zip /tmp/
+cp /mnt/bundle/NotTheNet-*.zip /tmp/
 cd /tmp
-unzip NotTheNet_*_bundle.zip
+unzip NotTheNet-*.zip
 cd NotTheNet
 sudo bash notthenet-bundle.sh
 
@@ -169,7 +169,7 @@ After this step, continue from [Part 2.3 (Configure the lab interface)](#23-conf
 
 ### 0.8 Updating an existing install from a new bundle ISO
 
-When a new version of NotTheNet is released, rebuild the bundle on Windows (`.\make-bundle.ps1 -Zip`), create a new ISO (§0.3), upload it to Proxmox (§0.4), and attach it to the running Kali VM:
+When a new version of NotTheNet is released, rebuild the bundle on Windows (`.\make-bundle.ps1 -SkipChecks`), create a new ISO (§0.3), upload it to Proxmox (§0.4), and attach it to the running Kali VM:
 
 **Attach the new bundle ISO to an already-running VM:**
 
@@ -185,10 +185,10 @@ sudo umount /mnt/bundle 2>/dev/null || true
 sudo mount /dev/sr1 /mnt/bundle
 
 # Extract to /tmp (always extract fresh — do not overwrite a running install in-place)
-cp /mnt/bundle/NotTheNet_*_bundle.zip /tmp/
+cp /mnt/bundle/NotTheNet-*.zip /tmp/
 cd /tmp
 rm -rf NotTheNet_update && mkdir NotTheNet_update
-unzip -o NotTheNet_*_bundle.zip -d NotTheNet_update
+unzip -o NotTheNet-*.zip -d NotTheNet_update
 cd NotTheNet_update/NotTheNet
 
 # Run in update mode — preserves config.json, certs/, and logs/
@@ -197,7 +197,7 @@ sudo bash notthenet-bundle.sh --update
 sudo umount /mnt/bundle
 ```
 
-The `--update` flag skips the interactive prompt and always copies new files into your existing install directory without touching your settings, certificates, or captured logs. See [Installation → Offline / USB Install](installation.md#offline--usb-install) for full details on what is and is not overwritten.
+The `--update` flag skips the interactive prompt and always copies new files into your existing install directory without touching your settings, certificates, or captured logs. See [Installation → Method 2 (Offline / USB bundle)](installation.md#method-2--offline--usb-bundle) for full details on what is and is not overwritten.
 
 ---
 
