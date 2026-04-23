@@ -177,6 +177,22 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
     session_timeout: float = SESSION_TIMEOUT
     peek_timeout: float = PEEK_TIMEOUT
 
+    @classmethod
+    def configure(
+        cls,
+        cert_path: str,
+        key_path: str,
+        tls_ctx: "ssl.SSLContext | None",
+        session_timeout: float,
+        peek_timeout: float,
+    ) -> None:
+        """Configure class-level TLS state before the server starts accepting connections."""
+        cls.cert_path = cert_path
+        cls.key_path = key_path
+        cls._tls_ctx = tls_ctx
+        cls.session_timeout = session_timeout
+        cls.peek_timeout = peek_timeout
+
     def _upgrade_tls(
         self, sock: socket.socket, safe_addr: str, src_port: int,
     ) -> "socket.socket | None":
@@ -317,11 +333,10 @@ class CatchAllTCPService:
             # Build a reusable TLS context once instead of per-connection
             tls_ctx = _build_tls_context(self.cert_path, self.key_path)
             # Inject cert paths and cached context into the handler class
-            _CatchAllTCPHandler.cert_path = self.cert_path
-            _CatchAllTCPHandler.key_path  = self.key_path
-            _CatchAllTCPHandler._tls_ctx  = tls_ctx
-            _CatchAllTCPHandler.session_timeout = self.session_timeout
-            _CatchAllTCPHandler.peek_timeout = self.peek_timeout
+            _CatchAllTCPHandler.configure(
+                self.cert_path, self.key_path, tls_ctx,
+                self.session_timeout, self.peek_timeout,
+            )
             self._server = _ReuseServer(
                 (self.bind_ip, self.port),
                 _CatchAllTCPHandler,

@@ -65,73 +65,62 @@ def _check_stealth_config(cfg: Config) -> list[CheckResult]:
     results = []
 
     # tcp_fingerprint
-    if cfg.get("general", "tcp_fingerprint"):
-        fp_os = cfg.get("general", "tcp_fingerprint_os") or "windows"
-        results.append(CheckResult(OK, f"tcp_fingerprint: enabled (os={fp_os})"))
-    else:
-        results.append(CheckResult(WARN, "tcp_fingerprint: disabled — OS detection may reveal Linux"))
+    fp_os = cfg.get("general", "tcp_fingerprint_os") or "windows"
+    results.append(
+        CheckResult(OK, f"tcp_fingerprint: enabled (os={fp_os})")
+        if cfg.get("general", "tcp_fingerprint")
+        else CheckResult(WARN, "tcp_fingerprint: disabled — OS detection may reveal Linux")
+    )
 
     # spoof_public_ip
     spoof_ip = str(cfg.get("general", "spoof_public_ip") or "").strip()
-    if spoof_ip:
-        try:
-            addr = ipaddress.ip_address(spoof_ip)
-            if addr.is_private:
-                results.append(CheckResult(WARN, f"spoof_public_ip: {spoof_ip} is RFC-1918 private"))
-            else:
-                results.append(CheckResult(OK, f"spoof_public_ip: {spoof_ip} (public)"))
-        except ValueError:
-            results.append(CheckResult(FAIL, f"spoof_public_ip: invalid IP {spoof_ip!r}"))
-    else:
-        results.append(CheckResult(WARN, "spoof_public_ip: not set — IP-check services will return HTML"))
+    results.append(
+        _check_spoof_ip(spoof_ip) if spoof_ip
+        else CheckResult(WARN, "spoof_public_ip: not set — IP-check services will return HTML")
+    )
 
     # dynamic_certs
-    if cfg.get("https", "dynamic_certs"):
-        results.append(CheckResult(OK, "dynamic_certs: enabled"))
-    else:
-        results.append(CheckResult(WARN, "dynamic_certs: disabled — TLS SNI won't match requested domains"))
+    results.append(_bool_check(
+        cfg.get("https", "dynamic_certs"),
+        "dynamic_certs: enabled",
+        "dynamic_certs: disabled — TLS SNI won't match requested domains",
+    ))
 
     # dynamic_responses
-    if cfg.get("http", "dynamic_responses"):
-        results.append(CheckResult(OK, "dynamic_responses: enabled (HTTP)"))
-    else:
-        results.append(CheckResult(WARN, "dynamic_responses: disabled (HTTP) — PE/ELF stubs won't be served"))
-    if cfg.get("https", "dynamic_responses"):
-        results.append(CheckResult(OK, "dynamic_responses: enabled (HTTPS)"))
-    else:
-        results.append(CheckResult(WARN, "dynamic_responses: disabled (HTTPS)"))
+    results.append(_bool_check(
+        cfg.get("http", "dynamic_responses"),
+        "dynamic_responses: enabled (HTTP)",
+        "dynamic_responses: disabled (HTTP) — PE/ELF stubs won't be served",
+    ))
+    results.append(_bool_check(
+        cfg.get("https", "dynamic_responses"),
+        "dynamic_responses: enabled (HTTPS)",
+        "dynamic_responses: disabled (HTTPS)",
+    ))
 
     # process_masquerade
-    if cfg.get("general", "process_masquerade"):
-        results.append(CheckResult(OK, "process_masquerade: enabled"))
-    else:
-        results.append(CheckResult(WARN, "process_masquerade: disabled"))
+    results.append(_bool_check(
+        cfg.get("general", "process_masquerade"),
+        "process_masquerade: enabled",
+        "process_masquerade: disabled",
+    ))
 
     # drop_privileges
-    if cfg.get("general", "drop_privileges"):
-        results.append(CheckResult(OK, "drop_privileges: enabled"))
-    else:
-        results.append(CheckResult(WARN, "drop_privileges: disabled"))
+    results.append(_bool_check(
+        cfg.get("general", "drop_privileges"),
+        "drop_privileges: enabled",
+        "drop_privileges: disabled",
+    ))
 
     # response delay
-    delay = cfg.get("http", "response_delay_ms")
-    try:
-        d = int(delay or 0)
-        if 50 <= d <= 500:
-            results.append(CheckResult(OK, f"response_delay_ms: {d} (realistic)"))
-        elif d == 0:
-            results.append(CheckResult(WARN, "response_delay_ms: 0 — instant responses may trigger sandbox detection"))
-        else:
-            results.append(CheckResult(OK, f"response_delay_ms: {d}"))
-    except (TypeError, ValueError):
-        results.append(CheckResult(WARN, f"response_delay_ms: invalid value {delay!r}"))
+    results.append(_check_response_delay(cfg.get("http", "response_delay_ms")))
 
     # public_response_ips
     pool = cfg.get("dns", "public_response_ips") or []
-    if pool:
-        results.append(CheckResult(OK, f"public_response_ips: {len(pool)} IPs configured"))
-    else:
-        results.append(CheckResult(INFO, "public_response_ips: empty — all DNS resolves to redirect_ip"))
+    results.append(
+        CheckResult(OK, f"public_response_ips: {len(pool)} IPs configured") if pool
+        else CheckResult(INFO, "public_response_ips: empty — all DNS resolves to redirect_ip")
+    )
 
     # kill_switch_domains
     ksd = cfg.get("dns", "kill_switch_domains") or []
@@ -180,6 +169,125 @@ def _check_certs() -> list[CheckResult]:
     return results
 
 
+# ── Check helpers (extracted to keep parent-function CC ≤ 15) ─────────────
+
+def _check_spoof_ip(spoof_ip: str) -> CheckResult:
+    """Validate and categorise a non-empty spoof_public_ip value."""
+    try:
+        addr = ipaddress.ip_address(spoof_ip)
+        if addr.is_private:
+            return CheckResult(WARN, f"spoof_public_ip: {spoof_ip} is RFC-1918 private")
+        return CheckResult(OK, f"spoof_public_ip: {spoof_ip} (public)")
+    except ValueError:
+        return CheckResult(FAIL, f"spoof_public_ip: invalid IP {spoof_ip!r}")
+
+
+def _bool_check(value: object, ok_msg: str, warn_msg: str) -> CheckResult:
+    """Return OK if *value* is truthy, WARN otherwise."""
+    return CheckResult(OK, ok_msg) if value else CheckResult(WARN, warn_msg)
+
+
+def _check_response_delay(delay: object) -> CheckResult:
+    """Return a check result for the http.response_delay_ms config value."""
+    try:
+        d = int(delay or 0)  # type: ignore[arg-type]
+        if 50 <= d <= 500:
+            return CheckResult(OK, f"response_delay_ms: {d} (realistic)")
+        if d == 0:
+            return CheckResult(
+                WARN,
+                "response_delay_ms: 0 — instant responses may trigger sandbox detection",
+            )
+        return CheckResult(OK, f"response_delay_ms: {d}")
+    except (TypeError, ValueError):
+        return CheckResult(WARN, f"response_delay_ms: invalid value {delay!r}")
+
+
+def _check_interface_status(interface: str, bind_ip: str) -> list[CheckResult]:
+    """Check whether *interface* exists, is UP, and carries *bind_ip*."""
+    results: list[CheckResult] = []
+    try:
+        out = subprocess.run(
+            ["ip", "link", "show", interface],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+        if out.returncode == 0:
+            up = "state UP" in out.stdout
+            results.append(CheckResult(
+                OK if up else WARN,
+                f"Interface {interface}: {'UP' if up else 'DOWN'}",
+            ))
+        else:
+            results.append(CheckResult(FAIL, f"Interface {interface}: not found"))
+    except Exception as e:
+        results.append(CheckResult(FAIL, f"Interface check failed: {e}"))
+
+    if bind_ip != "0.0.0.0":
+        try:
+            out = subprocess.run(
+                ["ip", "addr", "show", interface],
+                capture_output=True, text=True, timeout=5, check=False,
+            )
+            if bind_ip in out.stdout:
+                results.append(CheckResult(OK, f"bind_ip {bind_ip} assigned to {interface}"))
+            else:
+                results.append(CheckResult(FAIL, f"bind_ip {bind_ip} NOT found on {interface}"))
+        except Exception as e:
+            results.append(CheckResult(FAIL, f"bind_ip check failed: {e}"))
+
+    return results
+
+
+def _check_remote_tools() -> list[CheckResult]:
+    """Check availability of impacket-wmiexec and smbclient."""
+    results: list[CheckResult] = []
+    wmiexec = shutil.which("impacket-wmiexec") or shutil.which("wmiexec.py")
+    if wmiexec:
+        results.append(CheckResult(OK, f"impacket-wmiexec: {wmiexec}"))
+    else:
+        results.append(CheckResult(WARN, "impacket-wmiexec: not found (apt install python3-impacket)"))
+    if shutil.which("smbclient"):
+        results.append(CheckResult(OK, "smbclient: available"))
+    else:
+        results.append(CheckResult(
+            WARN, "smbclient: not found (apt install smbclient) — needed to push CA cert"
+        ))
+    return results
+
+
+def _check_ip_forward() -> list[CheckResult]:
+    """Check /proc/sys/net/ipv4/ip_forward; WARN if enabled (sinkhole needs it off)."""
+    try:
+        with open("/proc/sys/net/ipv4/ip_forward", encoding="ascii") as f:
+            val = f.read().strip()
+        if val == "1":
+            return [CheckResult(
+                WARN,
+                "ip_forward: enabled — NTN does not require it; "
+                "disable with: echo 0 > /proc/sys/net/ipv4/ip_forward",
+            )]
+        return [CheckResult(OK, "ip_forward: disabled (correct for sinkhole mode)")]
+    except OSError:
+        return [CheckResult(INFO, "ip_forward: could not read")]
+
+
+def _probe_port(bind_ip: str, port: int, proto: str) -> bool:
+    """Return True if *port*/*proto* on *bind_ip* is already in use."""
+    sock_type = socket.SOCK_STREAM if proto == "tcp" else socket.SOCK_DGRAM
+    s: socket.socket | None = None
+    try:
+        s = socket.socket(socket.AF_INET, sock_type)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.settimeout(2.0)
+        s.bind((bind_ip, port))
+        return False
+    except OSError:
+        return True
+    finally:
+        if s:
+            s.close()
+
+
 def _check_network(cfg: Config) -> list[CheckResult]:
     results = []
 
@@ -190,37 +298,8 @@ def _check_network(cfg: Config) -> list[CheckResult]:
     interface = cfg.get("general", "interface") or ""
     bind_ip = cfg.get("general", "bind_ip") or "0.0.0.0"
 
-    # Check interface exists
     if interface:
-        try:
-            out = subprocess.run(
-                ["ip", "link", "show", interface],
-                capture_output=True, text=True, timeout=5,
-            )
-            if out.returncode == 0:
-                up = "state UP" in out.stdout
-                results.append(CheckResult(
-                    OK if up else WARN,
-                    f"Interface {interface}: {'UP' if up else 'DOWN'}"
-                ))
-            else:
-                results.append(CheckResult(FAIL, f"Interface {interface}: not found"))
-        except Exception as e:
-            results.append(CheckResult(FAIL, f"Interface check failed: {e}"))
-
-        # Check bind_ip is assigned
-        if bind_ip != "0.0.0.0":
-            try:
-                out = subprocess.run(
-                    ["ip", "addr", "show", interface],
-                    capture_output=True, text=True, timeout=5,
-                )
-                if bind_ip in out.stdout:
-                    results.append(CheckResult(OK, f"bind_ip {bind_ip} assigned to {interface}"))
-                else:
-                    results.append(CheckResult(FAIL, f"bind_ip {bind_ip} NOT found on {interface}"))
-            except Exception as e:
-                results.append(CheckResult(FAIL, f"bind_ip check failed: {e}"))
+        results.extend(_check_interface_status(interface, bind_ip))
 
     # iptables available
     if shutil.which("iptables"):
@@ -228,33 +307,8 @@ def _check_network(cfg: Config) -> list[CheckResult]:
     else:
         results.append(CheckResult(FAIL, "iptables: not found in PATH"))
 
-    # Remote-access tools (WMI / SMB) for victim preflight
-    wmiexec = shutil.which("impacket-wmiexec") or shutil.which("wmiexec.py")
-    if wmiexec:
-        results.append(CheckResult(OK, f"impacket-wmiexec: {wmiexec}"))
-    else:
-        results.append(CheckResult(WARN, "impacket-wmiexec: not found (apt install python3-impacket)"))
-
-    if shutil.which("smbclient"):
-        results.append(CheckResult(OK, "smbclient: available"))
-    else:
-        results.append(CheckResult(WARN, "smbclient: not found (apt install smbclient) — needed to push CA cert"))
-
-    # ip_forward — NTN uses REDIRECT/DNAT rules only (INPUT chain); ip_forward
-    # is not needed and must be off so the victim cannot route to the real internet.
-    try:
-        with open("/proc/sys/net/ipv4/ip_forward", encoding="ascii") as f:
-            val = f.read().strip()
-        if val == "1":
-            results.append(CheckResult(
-                WARN,
-                "ip_forward: enabled — NTN does not require it; "
-                "disable with: echo 0 > /proc/sys/net/ipv4/ip_forward",
-            ))
-        else:
-            results.append(CheckResult(OK, "ip_forward: disabled (correct for sinkhole mode)"))
-    except OSError:
-        results.append(CheckResult(INFO, "ip_forward: could not read"))
+    results.extend(_check_remote_tools())
+    results.extend(_check_ip_forward())
 
     return results
 
@@ -287,18 +341,8 @@ def _check_port_conflicts(cfg: Config) -> list[CheckResult]:
         except (TypeError, ValueError):
             continue
         checked += 1
-        sock_type = socket.SOCK_STREAM if proto == "tcp" else socket.SOCK_DGRAM
-        s = None
-        try:
-            s = socket.socket(socket.AF_INET, sock_type)
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.settimeout(2.0)
-            s.bind((bind_ip, port))
-        except OSError:
+        if _probe_port(bind_ip, port, proto):
             conflicts.append(f":{port}/{proto} ({section})")
-        finally:
-            if s:
-                s.close()
 
     if conflicts:
         for c in conflicts:
@@ -320,7 +364,7 @@ def _check_hardening() -> list[CheckResult]:
     try:
         out = subprocess.run(
             ["iptables", "-L", "FORWARD", "-n"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True, text=True, timeout=5, check=False,
         )
         if "NOTTHENET_HARDEN" in out.stdout or "DROP" in out.stdout:
             results.append(CheckResult(OK, "FORWARD DROP rules: active"))
@@ -332,7 +376,7 @@ def _check_hardening() -> list[CheckResult]:
 
     # Check tmpfs on logs/
     try:
-        with open("/proc/mounts") as f:
+        with open("/proc/mounts", encoding="utf-8") as f:
             mounts = f.read()
         logs_abs = os.path.abspath("logs")
         if logs_abs in mounts and "tmpfs" in mounts:

@@ -44,6 +44,25 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
     """
     allow_reuse_address = True
     daemon_threads = True
+    # Mail-handler config; set by XxxService.start() before serve_forever().
+    # Declared here so the attributes are always defined on the class.
+    _mail_hostname: str = _DEFAULT_HOSTNAME
+    _mail_cert_path: str = ""
+    _mail_key_path: str = ""
+    _conn_timeout: float = 30.0
+
+    def configure_handler(
+        self,
+        hostname: str = _DEFAULT_HOSTNAME,
+        cert_path: str = "",
+        key_path: str = "",
+        conn_timeout: float = 30.0,
+    ) -> None:
+        """Set per-instance mail-handler parameters before serve_forever()."""
+        self._mail_hostname = hostname
+        self._mail_cert_path = cert_path
+        self._mail_key_path = key_path
+        self._conn_timeout = conn_timeout
 
     def __init__(self, server_address, request_handler_class,
                  max_connections: int = _MAX_CONNECTIONS):
@@ -184,7 +203,7 @@ class _SMTPClientThread(threading.Thread):
 
     # -- Per-verb SMTP handlers ------------------------------------------------
 
-    def _smtp_ehlo(self, line: str, safe_addr: str):
+    def _smtp_ehlo(self, _line: str, _safe_addr: str):
         starttls_line = ""
         if (
             self.cert_path
@@ -207,7 +226,7 @@ class _SMTPClientThread(threading.Thread):
             f"250 DSN"
         )
 
-    def _smtp_auth(self, line: str, safe_addr: str):
+    def _smtp_auth(self, line: str, _safe_addr: str):
         parts = line.split(None, 2)
         mech = parts[1].upper() if len(parts) > 1 else ""
         if mech == "PLAIN":
@@ -243,7 +262,7 @@ class _SMTPClientThread(threading.Thread):
     def _smtp_noop(self, _line: str, _sa: str):
         self._send(_SMTP_OK)
 
-    def _smtp_starttls(self, line: str, safe_addr: str):
+    def _smtp_starttls(self, _line: str, safe_addr: str):
         if self.data_mode:
             self._send("503 Bad sequence of commands")
             return
@@ -711,10 +730,9 @@ class POP3Service:
             self._server = _ReuseServer(
                 (self.bind_ip, self.port), POP3Handler, self.max_connections
             )
-            self._server._mail_hostname = self.hostname
-            self._server._mail_cert_path = self.cert_file
-            self._server._mail_key_path = self.key_file
-            self._server._conn_timeout = self.conn_timeout
+            self._server.configure_handler(
+                self.hostname, self.cert_file, self.key_file, self.conn_timeout
+            )
             self._thread = threading.Thread(
                 target=self._server.serve_forever,
                 kwargs={"poll_interval": 2.0},
@@ -775,10 +793,7 @@ class POP3SService:
             self._server = _SSLReuseServer(
                 (self.bind_ip, self.port), POP3Handler, ssl_ctx, self.max_connections
             )
-            self._server._mail_hostname = self.hostname
-            self._server._mail_cert_path = ''
-            self._server._mail_key_path = ''
-            self._server._conn_timeout = self.conn_timeout
+            self._server.configure_handler(self.hostname, conn_timeout=self.conn_timeout)
             self._thread = threading.Thread(
                 target=self._server.serve_forever,
                 kwargs={"poll_interval": 2.0},
@@ -819,6 +834,8 @@ class IMAPHandler(socketserver.BaseRequestHandler):
         jl = get_json_logger()
         if jl:
             jl.log("imap_connection", src_ip=self.client_address[0])
+        self._tag: str = ""
+        self._parts: list[str] = []
         try:
             srv = self.server
             self._hostname = getattr(srv, '_mail_hostname', _DEFAULT_HOSTNAME)
@@ -877,11 +894,11 @@ class IMAPHandler(socketserver.BaseRequestHandler):
                     self.request, server_side=True
                 )
                 logger.debug(
-                    f"IMAP STARTTLS handshake complete: {safe_addr}"
+                    "IMAP STARTTLS handshake complete: %s", safe_addr
                 )
             except ssl.SSLError as e:
                 logger.debug(
-                    f"IMAP STARTTLS handshake failed {safe_addr}: {e}"
+                    "IMAP STARTTLS handshake failed %s: %s", safe_addr, e
                 )
                 return False
         else:
@@ -973,10 +990,9 @@ class IMAPService:
             self._server = _ReuseServer(
                 (self.bind_ip, self.port), IMAPHandler, self.max_connections
             )
-            self._server._mail_hostname = self.hostname
-            self._server._mail_cert_path = self.cert_file
-            self._server._mail_key_path = self.key_file
-            self._server._conn_timeout = self.conn_timeout
+            self._server.configure_handler(
+                self.hostname, self.cert_file, self.key_file, self.conn_timeout
+            )
             self._thread = threading.Thread(
                 target=self._server.serve_forever,
                 kwargs={"poll_interval": 2.0},
@@ -1037,10 +1053,7 @@ class IMAPSService:
             self._server = _SSLReuseServer(
                 (self.bind_ip, self.port), IMAPHandler, ssl_ctx, self.max_connections
             )
-            self._server._mail_hostname = self.hostname
-            self._server._mail_cert_path = ''
-            self._server._mail_key_path = ''
-            self._server._conn_timeout = self.conn_timeout
+            self._server.configure_handler(self.hostname, conn_timeout=self.conn_timeout)
             self._thread = threading.Thread(
                 target=self._server.serve_forever,
                 kwargs={"poll_interval": 2.0},
