@@ -1,5 +1,5 @@
 ﻿# predeploy.ps1 -- run all checks before releasing NotTheNet (Windows dev)
-# Matches CI pipeline exactly: lint → type → security → SCA → openapi → tests → version
+# Matches CI pipeline exactly: secrets → lint → type → security → SCA → openapi → tests → version
 # Usage:  .\predeploy.ps1
 $ErrorActionPreference = "Stop"
 
@@ -26,13 +26,26 @@ Step "Ensuring dev tools are installed (pinned versions)"
     "pytest-timeout==2.4.0" 2>&1 | Select-Object -Last 1
 Pass "tools ready"
 
+# ── 0. Secret scan (gitleaks) ────────────────────────────────────────────────
+Step "0/10  Secret scan (gitleaks)"
+if (Get-Command gitleaks -ErrorAction SilentlyContinue) {
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    gitleaks detect --source . --no-banner 2>&1 | Write-Host
+    $glExit = $LASTEXITCODE
+    $ErrorActionPreference = $prevEAP
+    if ($glExit -ne 0) { Fail "gitleaks found secrets" } else { Pass "gitleaks" }
+} else {
+    Write-Host "  WARN: gitleaks not found — skipping (install from https://github.com/gitleaks/gitleaks/releases)" -ForegroundColor Yellow
+}
+
 # ── 1. Lint (ruff) ───────────────────────────────────────────────────────────
-Step "1/9  Lint (ruff)"
+Step "1/10  Lint (ruff)"
 & $Python -m ruff check .
 if ($LASTEXITCODE -ne 0) { Fail "ruff found issues" } else { Pass "ruff" }
 
 # ── 2a. Type check — legacy (informational, non-blocking) ───────────────────
-Step "2a/9  Type check — legacy (mypy, informational)"
+Step "2a/10  Type check — legacy (mypy, informational)"
 $prevEAP = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
 & $Python -m mypy notthenet.py services/ network/ utils/ 2>&1 | Write-Host
@@ -40,13 +53,13 @@ $ErrorActionPreference = $prevEAP
 Write-Host "  (informational — legacy code lacks strict annotations)"
 
 # ── 2b. Type check — new layers (strict, blocking) ──────────────────────────
-Step "2b/9  Type check — new layers (mypy --strict)"
+Step "2b/10  Type check — new layers (mypy --strict)"
 & $Python -m mypy domain/ application/ infrastructure/ `
     --strict --ignore-missing-imports --explicit-package-bases
 if ($LASTEXITCODE -ne 0) { Fail "mypy strict check failed on domain/application/infrastructure" } else { Pass "mypy strict" }
 
 # ── 3. Security scan (bandit — HIGH severity, matches CI) ───────────────────
-Step "3/9  Security scan (bandit)"
+Step "3/10  Security scan (bandit)"
 $prevEAP = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
 $banditOut = & $Python -m bandit -r . `
@@ -58,23 +71,22 @@ $banditOut | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord]
 if ($banditExit -ne 0) { Fail "bandit found HIGH severity issues" } else { Pass "bandit" }
 
 # ── 4. SCA — dependency vulnerabilities ─────────────────────────────────────
-Step "4/9  SCA (pip-audit)"
+Step "4/10  SCA (pip-audit)"
 $prevEAP = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
-# Audit the active venv directly -- requirements.txt hashes are Linux-only
-# (deployment target is Kali), so re-installing on Windows fails hash checks.
-& $Python -m pip_audit --skip-editable 2>&1 | Write-Host
+# Match CI: audit requirements.txt directly (venv audit misses transitive CVEs)
+& $Python -m pip_audit --requirement requirements.txt --strict 2>&1 | Write-Host
 $auditExit = $LASTEXITCODE
 $ErrorActionPreference = $prevEAP
 if ($auditExit -ne 0) { Fail "pip-audit found vulnerabilities" } else { Pass "pip-audit" }
 
 # ── 5. OpenAPI spec validation ───────────────────────────────────────────────
-Step "5/9  OpenAPI spec validation"
+Step "5/10  OpenAPI spec validation"
 & $Python -m openapi_spec_validator openapi.yaml
 if ($LASTEXITCODE -ne 0) { Fail "openapi.yaml is invalid" } else { Pass "openapi-spec-validator" }
 
 # ── 6. Tests (pytest — with coverage gate and timeout) ──────────────────────
-Step "6/9  Tests (pytest)"
+Step "6/10  Tests (pytest)"
 if ((Test-Path "tests") -and (Get-ChildItem "tests\test_*.py" -ErrorAction SilentlyContinue)) {
     & $Python -m pytest tests/ -v --timeout=60 --cov --cov-fail-under=35
     if ($LASTEXITCODE -ne 0) { Fail "tests failed" } else { Pass "pytest" }
@@ -83,7 +95,7 @@ if ((Test-Path "tests") -and (Get-ChildItem "tests\test_*.py" -ErrorAction Silen
 }
 
 # ── 7. Version consistency ───────────────────────────────────────────────────
-Step "7/9  Version consistency"
+Step "7/10  Version consistency"
 $widgetVer = (Select-String -Path "gui\widgets.py" -Pattern 'APP_VERSION\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
 $tomlVer   = (Select-String -Path "pyproject.toml" -Pattern '^version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
 if ($widgetVer -ne $tomlVer) {
@@ -96,7 +108,7 @@ if ($ntpyLine) {
 Pass "all files at v$widgetVer"
 
 # ── 8. CHANGELOG mentions current version ───────────────────────────────────
-Step "8/9  CHANGELOG check"
+Step "8/10  CHANGELOG check"
 if (Test-Path "CHANGELOG.md") {
     $clMatch = Select-String -Path "CHANGELOG.md" -Pattern ([regex]::Escape($widgetVer))
     if (-not $clMatch) {
@@ -108,8 +120,17 @@ if (Test-Path "CHANGELOG.md") {
     Write-Host "  (no CHANGELOG.md -- skipping)"
 }
 
-# ── 9. Verify no temp cert/key files were left behind ───────────────────────
-Step "9/9  Stale temp-cert check"
+# ── 9. pyproject.toml Python version floor ──────────────────────────────────
+Step "9/10  pyproject.toml version floor"
+$pyMin = (Select-String -Path "pyproject.toml" -Pattern 'requires-python\s*=\s*"([^"]+)"' -ErrorAction SilentlyContinue)?.Matches[0]?.Groups[1]?.Value
+if ($pyMin -and $pyMin -match "3\.9") {
+    Fail "pyproject.toml still targets Python 3.9 (EOL); update requires-python"
+} else {
+    Pass "Python version floor OK ($pyMin)"
+}
+
+# ── 10. Verify no temp cert/key files were left behind ───────────────────────
+Step "10/10  Stale temp-cert check"
 $stale = Get-ChildItem -Path "certs" -Filter "_dyn_*" -ErrorAction SilentlyContinue
 if ($stale) {
     Write-Host "  WARN: stale dynamic cert files found in certs/:" -ForegroundColor Yellow

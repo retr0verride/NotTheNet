@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "notthenet"
-version = "2026.04.21-1"
+version = "2026.04.23-1"
 description = "Fake internet simulator for malware analysis — INetSim/FakeNet-NG alternative"
 readme = "README.md"
 license = "MIT"
@@ -49,7 +49,7 @@ include = ["services*", "network*", "utils*"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py310"
 exclude = ["test_iptc.py"]
 
 [tool.ruff.lint]
@@ -98,7 +98,7 @@ ignore = [
 "tests/test_kali_fidelity.py" = ["E501"]
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 strict = false
 ignore_missing_imports = true
 warn_return_any = false
