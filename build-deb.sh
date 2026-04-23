@@ -110,6 +110,24 @@ cat > "$STAGING/DEBIAN/postinst" << 'POSTINST'
 set -e
 OPT=/opt/notthenet
 
+# ── Conflict check: abort if a script install is present ─────────────────────
+# The script install puts a launcher at /usr/local/bin/notthenet that points
+# to the repo clone (not /opt/notthenet). If that file exists and does NOT
+# reference /opt/notthenet, a script install is active and would shadow this
+# .deb install on PATH (/usr/local/bin comes before /usr/bin).
+if [[ -f /usr/local/bin/notthenet ]] && \
+   ! grep -q '/opt/notthenet' /usr/local/bin/notthenet 2>/dev/null; then
+    echo ""
+    echo "[!] A script-based NotTheNet install is present."
+    echo "    /usr/local/bin/notthenet exists and points outside /opt/notthenet."
+    echo "    Installing the .deb on top of it would leave two conflicting"
+    echo "    launchers on PATH. Uninstall the script install first:"
+    echo "      sudo notthenet-uninstall"
+    echo "    Then re-run: sudo dpkg -i <package>.deb"
+    echo ""
+    exit 1
+fi
+
 # ── Python virtualenv + dependencies ─────────────────────────────────────────
 echo "[*] Creating Python virtualenv..."
 python3 -m venv "$OPT/venv"

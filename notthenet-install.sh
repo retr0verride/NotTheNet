@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # ============================================================================
-# NotTheNet — Install Script
+# NotTheNet — Dev / Contributor Install Script
 # Tested on Kali Linux 2024+ / Debian 12 / Ubuntu 22.04+
+#
+# ⚠  FOR DEVELOPMENT AND CONTRIBUTOR USE ONLY.
+#    End users should install via the .deb package:
+#      bash build-deb.sh && sudo dpkg -i dist/notthenet_*.deb
+#    See docs/installation.md for the full guide.
 #
 # What this does:
 #   1. Detects system Python 3.9+
@@ -35,6 +40,18 @@ while [[ $# -gt 0 ]]; do
         *) break ;;
     esac
 done
+
+# ── Conflict check: abort if .deb package is already installed ───────────────
+if dpkg -l notthenet 2>/dev/null | grep -q '^ii'; then
+    error "NotTheNet is already installed via .deb.\n" \
+          "  The script install and .deb install conflict with each other.\n" \
+          "  To switch to the dev/script install, first run:\n" \
+          "    sudo apt purge notthenet"
+fi
+if [[ -d /opt/notthenet ]]; then
+    error "/opt/notthenet already exists — a .deb install appears to be present.\n" \
+          "  Remove it first: sudo apt purge notthenet"
+fi
 
 # ── Privilege check ──────────────────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then

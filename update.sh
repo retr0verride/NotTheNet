@@ -8,6 +8,18 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# ── Conflict check: abort if running on a .deb install ───────────────────────
+# update.sh manages the in-repo venv. On a .deb install the venv is at
+# /opt/notthenet/venv and update.sh will fail to find it. Catch this early.
+if dpkg -l notthenet 2>/dev/null | grep -q '^ii'; then
+    echo "[!] NotTheNet is installed via .deb — update.sh is for dev/script installs only."
+    echo "    To upgrade a .deb install:"
+    echo "      git pull origin main"
+    echo "      bash build-deb.sh"
+    echo "      sudo dpkg -i dist/notthenet_*.deb"
+    exit 1
+fi
+
 SKIP_HARDEN=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
