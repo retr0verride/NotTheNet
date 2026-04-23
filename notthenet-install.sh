@@ -146,28 +146,31 @@ fi
 # ── Install icon ───────────────────────────────────────────────────────────────
 if [[ $EUID -eq 0 ]]; then
     ICON_SVG="${SCRIPT_DIR}/assets/notthenet-icon.svg"
+    if [[ -f "$ICON_SVG" ]]; then
+        # Scalable SVG
+        ICON_SCALABLE="/usr/share/icons/hicolor/scalable/apps"
+        mkdir -p "$ICON_SCALABLE"
+        cp -f "$ICON_SVG" "${ICON_SCALABLE}/notthenet.svg"
 
-    # Scalable SVG
-    ICON_SCALABLE="/usr/share/icons/hicolor/scalable/apps"
-    mkdir -p "$ICON_SCALABLE"
-    cp -f "$ICON_SVG" "${ICON_SCALABLE}/notthenet.svg"
+        # 128×128 PNG (rsvg-convert preferred; fall back to convert/inkscape)
+        ICON_128="/usr/share/icons/hicolor/128x128/apps"
+        mkdir -p "$ICON_128"
+        if command -v rsvg-convert &>/dev/null; then
+            rsvg-convert -w 128 -h 128 "$ICON_SVG" -o "${ICON_128}/notthenet.png"
+        elif command -v convert &>/dev/null; then
+            convert -background none -resize 128x128 "$ICON_SVG" "${ICON_128}/notthenet.png"
+        elif command -v inkscape &>/dev/null; then
+            inkscape --export-type=png --export-width=128 \
+                     --export-filename="${ICON_128}/notthenet.png" "$ICON_SVG" 2>/dev/null
+        else
+            warn "No SVG→PNG converter found (rsvg-convert/convert/inkscape); skipping PNG icon."
+        fi
 
-    # 128×128 PNG (rsvg-convert preferred; fall back to convert/inkscape)
-    ICON_128="/usr/share/icons/hicolor/128x128/apps"
-    mkdir -p "$ICON_128"
-    if command -v rsvg-convert &>/dev/null; then
-        rsvg-convert -w 128 -h 128 "$ICON_SVG" -o "${ICON_128}/notthenet.png"
-    elif command -v convert &>/dev/null; then
-        convert -background none -resize 128x128 "$ICON_SVG" "${ICON_128}/notthenet.png"
-    elif command -v inkscape &>/dev/null; then
-        inkscape --export-type=png --export-width=128 \
-                 --export-filename="${ICON_128}/notthenet.png" "$ICON_SVG" 2>/dev/null
+        gtk-update-icon-cache -q /usr/share/icons/hicolor 2>/dev/null || true
+        info "Icon installed: /usr/share/icons/hicolor/"
     else
-        warn "No SVG→PNG converter found (rsvg-convert/convert/inkscape); skipping PNG icon."
+        warn "Icon asset not found; skipping icon install."
     fi
-
-    gtk-update-icon-cache -q /usr/share/icons/hicolor 2>/dev/null || true
-    info "Icon installed: /usr/share/icons/hicolor/"
 fi
 
 # ── Install .desktop file + GUI launcher ──────────────────────────────────────
@@ -200,7 +203,7 @@ if [[ $EUID -eq 0 ]]; then
     POLKIT_DIR="/usr/share/polkit-1/actions"
     if [[ -d "$POLKIT_DIR" ]]; then
         sed \
-            -e "s|VENV_PYTHON_PLACEHOLDER|${VENV_DIR}/bin/python|g" \
+            -e "s|NOTTHENET_GUI_PLACEHOLDER|/usr/local/bin/notthenet-gui|g" \
             "${SCRIPT_DIR}/assets/com.retr0verride.notthenet.policy" \
             > "${POLKIT_DIR}/com.retr0verride.notthenet.policy"
         chmod 0644 "${POLKIT_DIR}/com.retr0verride.notthenet.policy"

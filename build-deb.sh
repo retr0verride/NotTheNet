@@ -171,7 +171,8 @@ chmod 755 /usr/local/bin/notthenet-gui
 
 # ── Polkit action ─────────────────────────────────────────────────────────────
 if [[ -d /usr/share/polkit-1/actions ]]; then
-    sed "s|VENV_PYTHON_PLACEHOLDER|/opt/notthenet/venv/bin/python|g" \
+    sed \
+        -e "s|NOTTHENET_GUI_PLACEHOLDER|/opt/notthenet/venv/bin/python|g" \
         "$OPT/assets/com.retr0verride.notthenet.policy" \
         > /usr/share/polkit-1/actions/com.retr0verride.notthenet.policy
     chmod 644 /usr/share/polkit-1/actions/com.retr0verride.notthenet.policy

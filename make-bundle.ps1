@@ -470,7 +470,6 @@ if [[ $EUID -eq 0 ]]; then
     POLKIT_DIR="/usr/share/polkit-1/actions"
     if [[ -d "$POLKIT_DIR" ]]; then
         sed \
-            -e "s|VENV_PYTHON_PLACEHOLDER|${VENV_DIR}/bin/python|g" \
             -e "s|NOTTHENET_GUI_PLACEHOLDER|${GUI_LAUNCHER}|g" \
             "${SCRIPT_DIR}/assets/com.retr0verride.notthenet.policy" \
             | tr -d '\r' > "${POLKIT_DIR}/com.retr0verride.notthenet.policy"

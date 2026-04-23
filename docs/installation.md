@@ -212,9 +212,10 @@ All three install methods register a desktop entry so NotTheNet appears in the K
 |------|-------------|
 | `/usr/share/applications/notthenet.desktop` | App menu entry |
 | `/usr/local/bin/notthenet-gui` | Launcher that calls `pkexec` for the password prompt |
-| `/usr/share/polkit-1/actions/com.retr0verride.notthenet.policy` | Named polkit action |
-| `/usr/share/icons/hicolor/scalable/apps/notthenet.svg` | SVG icon |
-| `/usr/share/icons/hicolor/128x128/apps/notthenet.png` | 128 px PNG icon |
+| `/usr/share/polkit-1/actions/com.retr0verride.notthenet.policy` | Named polkit action — `exec.path` matches `/usr/local/bin/notthenet-gui` so pkexec forwards `DISPLAY`/`XAUTHORITY` to the GUI |
+| `/usr/share/icons/hicolor/scalable/apps/notthenet.svg` | SVG icon (hicolor theme) |
+| `/usr/share/icons/hicolor/128x128/apps/notthenet.png` | 128 px PNG icon (hicolor theme) |
+| `/usr/share/pixmaps/notthenet.svg` | Fallback icon for desktop environments that query pixmaps instead of hicolor |
 
 > A `~/Desktop` shortcut is not created automatically. To add one:
 > ```bash

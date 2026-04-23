@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# NotTheNet GUI launcher
+#
+# Installed to /usr/local/bin/notthenet-gui by the install scripts.
+# VENV_PYTHON_PLACEHOLDER and SCRIPT_PLACEHOLDER are replaced with real
+# paths at install time via sed — do not edit the installed copy directly.
+#
+# Execution model:
+#   1. Desktop icon (Exec=/usr/local/bin/notthenet-gui) runs this script as
+#      the logged-in user.
+#   2. If not yet root, script calls `pkexec "$SELF"` so polkit can present
+#      a named "Run NotTheNet" auth dialog (matching exec.path in the policy).
+#   3. pkexec re-executes this script as root → EUID==0 branch execs Python.
+#   4. If no polkit agent is present (pkexec exits 126, e.g. text-mode login),
+#      falls back to `xterm -e sudo` so the GUI still opens.
+
+SELF="$(readlink -f "$0")"
+
+if [[ $EUID -eq 0 ]]; then
+    # Running as root (launched by pkexec) — start the application.
+    exec VENV_PYTHON_PLACEHOLDER SCRIPT_PLACEHOLDER "$@"
+fi
+
+# --- user context: escalate ---
+
+pkexec "$SELF" "$@"
+EXIT_CODE=$?
+
+if [[ $EXIT_CODE -eq 0 ]]; then
+    exit 0
+fi
+
+# Exit 126 = no polkit agent running (non-graphical session or Kali bare login).
+# Fall back to an xterm root shell so the GUI can still open.
+# Quote the -e argument as a single string so word-splitting doesn't break paths
+# or arguments that contain spaces.
+if [[ $EXIT_CODE -eq 126 ]]; then
+    exec xterm -e "sudo VENV_PYTHON_PLACEHOLDER SCRIPT_PLACEHOLDER $(printf '%q ' "$@")"
+fi
+
+exit "$EXIT_CODE"

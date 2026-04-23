@@ -9,6 +9,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ---
 
+## [2026.04.23-2] — 2026-04-23
+
+### Added
+- **`assets/notthenet-gui-launcher`**: launcher shell-script template was missing from the repository — all three non-`.deb` install paths (`notthenet-install.sh`, `install-offline.sh`, `notthenet-bundle.sh`) referenced it and would abort with `set -euo pipefail` before creating `/usr/local/bin/notthenet-gui`. The template is a self-escalating wrapper: if already root (re-executed by `pkexec`) it execs Python directly; otherwise it calls `pkexec "$SELF"`, and falls back to `xterm -e sudo` with properly shell-quoted arguments when no polkit agent is running (exit 126).
+- **`assets/notthenet-icon.svg`**: app icon was missing from the repository — `notthenet-install.sh` (without a file-existence guard) would abort on the `cp` call; `install-offline.sh` and `build-deb.sh` were guarded but would silently skip icon install.
+- **`.gitattributes`: `*.svg` and `*.xml` rules** — SVG and XML assets now normalise to LF on all platforms, preventing CRLF corruption on Windows clones (matching the existing rule for `.sh` and the launcher).
+
+### Fixed
+- **`notthenet-install.sh`: `NOTTHENET_GUI_PLACEHOLDER` not substituted in polkit policy** — the `sed` that processes `com.retr0verride.notthenet.policy` only replaced `VENV_PYTHON_PLACEHOLDER` (a no-op; that token was removed from the template). `NOTTHENET_GUI_PLACEHOLDER` was left as a literal string in `exec.path`, so `pkexec` could not match the named action and stripped `DISPLAY`/`XAUTHORITY`, causing Tkinter to silently fail after the password prompt.
+- **`install-offline.sh`: same `NOTTHENET_GUI_PLACEHOLDER` substitution missing** — identical root cause and symptom as above.
+- **`notthenet-install.sh`: unguarded `cp` on icon** — `cp -f "$ICON_SVG" ...` ran unconditionally; with `set -euo pipefail` and the icon missing from the repo, every `notthenet-install.sh` run aborted before creating the venv or installing services. Wrapped in `[[ -f "$ICON_SVG" ]]` guard (matching the pattern already used in `install-offline.sh`).
+- **All install scripts: stale `VENV_PYTHON_PLACEHOLDER` sed expression on policy** — all four scripts applied `-e "s|VENV_PYTHON_PLACEHOLDER|...|g"` to `com.retr0verride.notthenet.policy`. The token was removed from that template; the expression was a silent no-op in every install and has been removed from `build-deb.sh`, `notthenet-install.sh`, `install-offline.sh`, and `make-bundle.ps1`.
+
+### Changed
+- **CI: shellcheck added to lint job** — all shell scripts (excluding the generated `notthenet-bundle.sh`) are now linted with `shellcheck -S warning` on every push and PR.
+- **CI: placeholder consistency audit** — lint job now extracts every `*_PLACEHOLDER` token from `assets/` and asserts that each install script contains a `sed` substitution for it; catches the class of bug fixed above.
+- **CI: `.deb` artifact placeholder scan** — `build-deb` job now extracts the built package and greps its payload for any unresolved `*_PLACEHOLDER` strings, failing the build if any survive postinst.
+
+---
+
 ## [2026.04.23-1] — 2026-04-23
 
 ### Fixed

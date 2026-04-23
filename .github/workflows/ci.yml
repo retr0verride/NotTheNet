@@ -116,6 +116,38 @@ jobs:
       - name: Validate OpenAPI spec
         run: openapi-spec-validator openapi.yaml
 
+      - name: shellcheck (shell script linting)
+        run: |
+          sudo apt-get install -y --no-install-recommends shellcheck 2>/dev/null
+          find . -name '*.sh' \
+            -not -path './.git/*' \
+            -not -path './.venv/*' \
+            -not -path './notthenet-bundle.sh' \
+            -print0 \
+          | xargs -0 shellcheck --severity=warning
+
+      - name: Audit placeholder consistency
+        run: |
+          # Collect every *_PLACEHOLDER token defined across all asset templates.
+          PLACEHOLDERS=$(grep -roh '[A-Z][A-Z_]*_PLACEHOLDER' assets/ | sort -u)
+          if [[ -z "$PLACEHOLDERS" ]]; then
+            echo "No placeholders found in assets/ — nothing to audit."
+            exit 0
+          fi
+          echo "Placeholders found: $(echo "$PLACEHOLDERS" | tr '\n' ' ')"
+
+          INSTALL_SCRIPTS="build-deb.sh notthenet-install.sh"
+          FAILED=0
+          for P in $PLACEHOLDERS; do
+            for S in $INSTALL_SCRIPTS; do
+              if ! grep -q "s|${P}|" "$S"; then
+                echo "MISSING substitution: $P not handled in $S"
+                FAILED=1
+              fi
+            done
+          done
+          exit $FAILED
+
 # ── Unit tests (matrix) ──────────────────────────────────────────────────────
   test:
     name: Tests (Python ${{ matrix.python-version }})
@@ -261,6 +293,17 @@ jobs:
 
       - name: Build .deb
         run: bash build-deb.sh
+
+      - name: Audit .deb for unresolved placeholders
+        run: |
+          DEB=$(find dist/ -name '*.deb' | head -1)
+          mkdir -p /tmp/deb-extract
+          dpkg-deb -R "$DEB" /tmp/deb-extract
+          if grep -rn '_PLACEHOLDER' /tmp/deb-extract/; then
+            echo "ERROR: Unresolved *_PLACEHOLDER strings found in the installed .deb payload."
+            exit 1
+          fi
+          echo "OK: No unresolved placeholders in $DEB"
 
       - name: Upload .deb artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
