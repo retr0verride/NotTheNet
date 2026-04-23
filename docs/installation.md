@@ -97,6 +97,12 @@ sudo notthenet          # GUI mode
 sudo notthenet --nogui  # headless
 ```
 
+> **Switching from script install to `.deb`?** The two methods install to different locations (`~/NotTheNet/` vs `/opt/notthenet/`) and register different launchers (`/usr/local/bin/notthenet` vs `/usr/bin/notthenet`). Running `sudo dpkg -i` on top of a script install leaves both in place and makes `sudo notthenet` hit whichever comes first in `PATH`. Uninstall first:
+> ```bash
+> sudo notthenet-uninstall
+> ```
+> Then follow the `.deb` steps above.
+
 ---
 
 ## Offline / USB Install
