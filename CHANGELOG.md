@@ -9,7 +9,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ---
 
-## [2026.04.22-3] — 2026-04-22
+## [2026.04.23-1] — 2026-04-23
+
+### Fixed
+- **`services/ftp_server.py`: `_ReuseServer._sem` race** — semaphore was created in `server_bind()` using the hard-coded `_MAX_CONNECTIONS` constant and then overridden post-construction via `self._server._sem = ...`; a connection arriving between `server_activate()` and the override would use the wrong limit. Moved semaphore init into `_ReuseServer.__init__` accepting `max_connections`; external override removed.
+- **`services/catch_all.py`: `_ReuseServer` post-construction injection race** — `_sem`, `_per_ip`, `_per_ip_lock`, and `_max_per_ip` were annotation-only class attributes injected after construction; a connection arriving before injection would `AttributeError`. All four moved into `__init__`; `None` guards removed from `process_request` / `process_request_thread`.
+- **`services/mail_server.py`: `_ReuseServer` / `_SSLReuseServer` same race** — same `_sem` post-construction override pattern across POP3, POP3S, IMAP, and IMAPS service classes. Fixed by adding `max_connections` parameter to both `_ReuseServer.__init__` and `_SSLReuseServer.__init__`; four call-site overrides removed.
+- **`services/ftp_server.py`: bare `open()` file handle leak** — `open(save_path, "wb").close()` left the file handle unclosed if an exception occurred before `.close()`; replaced with `with open(save_path, "wb"): pass`.
+- **`services/ftp_server.py`: PASV accept failures silently discarded** — `_FTPSession._accept_data()` caught all exceptions without logging; added `logger.debug("FTP PASV accept failed", exc_info=True)` so data-connection errors are visible in debug output.
 
 ### Changed
 - **CI: removed `build-bundle` job** — the offline bundle (`make-bundle.ps1`) is a local Windows tool for air-gapped labs, not a release download. Target users always have a dev machine to build it on demand. Removed the `windows-latest` CI job and its artifact download from the release job.
@@ -414,7 +421,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 - Test suite (validators, logging_utils, config)
 - Pre-deploy gate scripts (`predeploy.sh`, `predeploy.ps1`)
 
-[Unreleased]: https://github.com/retr0verride/NotTheNet/compare/v2026.04.22-3...HEAD
+[Unreleased]: https://github.com/retr0verride/NotTheNet/compare/v2026.04.23-1...HEAD
+[2026.04.23-1]: https://github.com/retr0verride/NotTheNet/compare/v2026.04.22-3...v2026.04.23-1
 [2026.04.22-3]: https://github.com/retr0verride/NotTheNet/compare/v2026.04.22-2...v2026.04.22-3
 [2026.04.22-2]: https://github.com/retr0verride/NotTheNet/compare/v2026.04.22-1...v2026.04.22-2
 [2026.04.22-1]: https://github.com/retr0verride/NotTheNet/compare/v2026.04.21-1...v2026.04.22-1
