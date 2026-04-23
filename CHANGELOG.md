@@ -9,6 +9,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ---
 
+## [2026.04.22-2] — 2026-04-22
+
+### Added
+- **CI: `.deb` package built and attached to every GitHub Release** — new `build-deb` job (ubuntu-22.04, tags only) runs `bash build-deb.sh` and uploads the `.deb` as a release artifact; `build-deb.sh` now auto-detects the version from `gui/widgets.py` instead of a hardcoded string.
+- **CI: offline bundle built and attached to every GitHub Release** — new `build-bundle` job (windows-latest, tags only) runs `.\make-bundle.ps1 -SkipChecks` and uploads `NotTheNet-<ver>.zip` as a release artifact.
+- **Release job updated** — now waits on `build-deb` and `build-bundle` in addition to `build-dist`/`provenance`; downloads all three artifact sets and attaches them to the draft GitHub Release. All three install methods (`.deb`, offline zip, script) now have a downloadable artifact on every tagged release.
+
+---
+
 ## [2026.04.22-1] — 2026-04-22
 
 ### Fixed
@@ -397,7 +406,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 - Test suite (validators, logging_utils, config)
 - Pre-deploy gate scripts (`predeploy.sh`, `predeploy.ps1`)
 
-[Unreleased]: https://github.com/retr0verride/NotTheNet/compare/v2026.04.22-1...HEAD
+[Unreleased]: https://github.com/retr0verride/NotTheNet/compare/v2026.04.22-2...HEAD
+[2026.04.22-2]: https://github.com/retr0verride/NotTheNet/compare/v2026.04.22-1...v2026.04.22-2
 [2026.04.22-1]: https://github.com/retr0verride/NotTheNet/compare/v2026.04.21-1...v2026.04.22-1
 [2026.04.21-1]: https://github.com/retr0verride/NotTheNet/compare/v2026.03.04-1...v2026.04.21-1
 [2026.03.04-1]: https://github.com/retr0verride/NotTheNet/compare/v2026.02.24-2...v2026.03.04-1
