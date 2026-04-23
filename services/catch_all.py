@@ -115,17 +115,26 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
     """ThreadingTCPServer with allow_reuse_address and per-server connection limit."""
     allow_reuse_address = True
     daemon_threads = True
-    _sem = None  # BoundedSemaphore injected by CatchAllTCPService.start()
-    _max_per_ip = MAX_PER_IP
-    _per_ip: defaultdict  # {ip: int} — active connection count per IP
-    _per_ip_lock: threading.Lock
+
+    def __init__(
+        self,
+        server_address,
+        request_handler_class,
+        max_connections: int = MAX_CONNECTIONS,
+        max_per_ip: int = MAX_PER_IP,
+    ):
+        self._sem = threading.BoundedSemaphore(max_connections)
+        self._max_per_ip = max_per_ip
+        self._per_ip: defaultdict = defaultdict(int)
+        self._per_ip_lock = threading.Lock()
+        super().__init__(server_address, request_handler_class)
 
     def process_request(self, request, client_address):
         """Drop the connection when global or per-IP limits are exceeded."""
         ip = client_address[0]
 
         # Global capacity check
-        if self._sem is not None and not self._sem.acquire(blocking=False):
+        if not self._sem.acquire(blocking=False):
             logger.debug(
                 "Catch-all TCP at capacity, dropping %s",
                 sanitize_ip(ip),
@@ -140,8 +149,7 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
                     "Catch-all TCP per-IP limit (%d) hit for %s",
                     self._max_per_ip, sanitize_ip(ip),
                 )
-                if self._sem is not None:
-                    self._sem.release()
+                self._sem.release()
                 self.shutdown_request(request)
                 return
             self._per_ip[ip] += 1
@@ -158,8 +166,7 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
                 self._per_ip[ip] -= 1
                 if self._per_ip[ip] <= 0:
                     del self._per_ip[ip]
-            if self._sem is not None:
-                self._sem.release()
+            self._sem.release()
 
 
 class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
@@ -315,11 +322,12 @@ class CatchAllTCPService:
             _CatchAllTCPHandler._tls_ctx  = tls_ctx
             _CatchAllTCPHandler.session_timeout = self.session_timeout
             _CatchAllTCPHandler.peek_timeout = self.peek_timeout
-            self._server = _ReuseServer((self.bind_ip, self.port), _CatchAllTCPHandler)
-            self._server._sem = threading.BoundedSemaphore(self.max_connections)
-            self._server._max_per_ip = self.max_per_ip
-            self._server._per_ip = defaultdict(int)
-            self._server._per_ip_lock = threading.Lock()
+            self._server = _ReuseServer(
+                (self.bind_ip, self.port),
+                _CatchAllTCPHandler,
+                max_connections=self.max_connections,
+                max_per_ip=self.max_per_ip,
+            )
             self._thread = threading.Thread(
                 target=self._server.serve_forever,
                 kwargs={"poll_interval": 2.0},

@@ -40,9 +40,9 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
 
-    def server_bind(self):
-        self._sem = threading.BoundedSemaphore(_MAX_CONNECTIONS)
-        super().server_bind()
+    def __init__(self, server_address, request_handler_class, max_connections: int = _MAX_CONNECTIONS):
+        self._sem = threading.BoundedSemaphore(max_connections)
+        super().__init__(server_address, request_handler_class)
 
     def process_request(self, request, client_address):
         """Drop connection immediately if the session limit is reached."""
@@ -155,6 +155,7 @@ class _FTPSession(threading.Thread):
                 self._pasv_server = None
                 return conn
             except Exception:
+                logger.debug("FTP PASV accept failed", exc_info=True)
                 return None
         return None
 
@@ -272,7 +273,8 @@ class _FTPSession(threading.Thread):
 
             safe_fname = uuid.uuid4().hex + ".bin"
             save_path = os.path.join(self.upload_dir, safe_fname)
-            open(save_path, "wb").close()
+            with open(save_path, "wb"):
+                pass  # create empty file to reserve the path before releasing lock
 
         try:
             self._write_upload(data_conn, save_path, safe_addr, safe_fname, remote_name)
@@ -382,8 +384,7 @@ class FTPService:
                 sess.run()
 
         try:
-            self._server = _ReuseServer((self.bind_ip, self.port), _Handler)
-            self._server._sem = threading.BoundedSemaphore(self.max_connections)
+            self._server = _ReuseServer((self.bind_ip, self.port), _Handler, self.max_connections)
             self._thread = threading.Thread(
                 target=self._server.serve_forever,
                 kwargs={"poll_interval": 2.0},
