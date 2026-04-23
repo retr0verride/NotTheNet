@@ -93,36 +93,42 @@ sudo iptables -t nat -S | grep NOTTHENET   # should return nothing
 
 ## Method 2 — Offline / USB bundle
 
-Use when your Kali machine has **no internet access** — the standard setup for an air-gapped analysis lab. Installs to `/opt/notthenet/`, same as the `.deb`.
+Use when your Kali machine has **no internet access**. The bundle embeds all required Python wheels so Kali never needs to reach PyPI.
 
-### Install
+> The bundle is built on your Windows machine from the cloned repo — it is not a download. If Kali has internet, use Method 1.
 
-**Step 1 — Build the bundle on Windows (internet-connected machine):**
+### Build (on Windows, internet-connected machine)
 
 ```powershell
 cd U:\NotTheNet
+git pull origin main
 .\make-bundle.ps1 -SkipChecks
-# Creates: dist\notthenet-bundle.sh + dist\NotTheNet-<ver>.zip
+# Output: dist\NotTheNet-<ver>.zip  and  dist\notthenet-bundle.sh
 ```
 
-> `make-bundle.ps1` embeds all Python wheels. Kali needs no internet to install.
+### Transfer to Kali
 
-**Step 2 — Transfer to Kali** via USB, shared folder, or SCP.
-
-**Step 3 — Install on Kali:**
+Copy via USB, SCP, or shared folder. If using FAT32 USB, copy the zip to local disk first — FAT32 does not support symlinks required by the Python venv.
 
 ```bash
+cp NotTheNet-*.zip ~/
+cd ~
 unzip NotTheNet-*.zip
-cd NotTheNet
+```
+
+### Install on Kali
+
+```bash
+cd ~/NotTheNet
 sudo bash notthenet-bundle.sh --install
 ```
 
 ### Upgrade
 
-Rebuild the bundle on Windows with the latest code, transfer, then:
+Rebuild on Windows with the latest code, transfer, then:
 
 ```bash
-sudo bash notthenet-bundle.sh --update   # preserves config/certs/logs
+sudo bash notthenet-bundle.sh --update   # preserves config.json, certs, logs
 ```
 
 ### Uninstall
