@@ -9,7 +9,6 @@ the network, config files, or environment variables without checking.
 import ipaddress
 import os
 import re
-from typing import Optional
 
 # RFC 1123 hostname pattern
 _HOSTNAME_RE = re.compile(
@@ -22,7 +21,7 @@ PRIVILEGED_PORT_THRESHOLD = 1024
 MAX_PORT = 65535
 
 
-def validate_ip(ip: str) -> tuple[bool, Optional[str]]:
+def validate_ip(ip: str) -> tuple[bool, str | None]:
     """Return (True, normalized_ip) or (False, error_message)."""
     try:
         normalized = str(ipaddress.ip_address(ip))
@@ -31,7 +30,7 @@ def validate_ip(ip: str) -> tuple[bool, Optional[str]]:
         return False, f"Invalid IP address: {ip!r}"
 
 
-def validate_port(port) -> tuple[bool, Optional[int]]:
+def validate_port(port) -> tuple[bool, int | None]:
     """Return (True, int_port) or (False, None)."""
     try:
         p = int(port)
@@ -51,7 +50,7 @@ def validate_hostname(hostname: str) -> bool:
     return bool(_HOSTNAME_RE.match(h))
 
 
-def validate_bind_ip(ip: str) -> tuple[bool, Optional[str]]:
+def validate_bind_ip(ip: str) -> tuple[bool, str | None]:
     """
     Validate an IP address suitable for binding.
     Allows '0.0.0.0', '::' (wildcard), and valid unicast addresses.
@@ -61,7 +60,7 @@ def validate_bind_ip(ip: str) -> tuple[bool, Optional[str]]:
     return validate_ip(ip)
 
 
-def sanitize_path(base_dir: str, user_path: str) -> Optional[str]:
+def sanitize_path(base_dir: str, user_path: str) -> str | None:
     """
     Resolve user_path relative to base_dir and reject path traversal attempts.
     Returns the resolved absolute path or None if traversal detected.

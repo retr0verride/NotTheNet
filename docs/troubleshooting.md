@@ -113,7 +113,7 @@ sudo iptables -I INPUT 1 -p tcp --dport 53 -j ACCEPT
 
 If the log shows `DNS service cannot start: dnslib not installed`:
 ```bash
-source venv/bin/activate
+source .venv/bin/activate
 pip install dnslib==0.9.25
 ```
 
@@ -289,7 +289,7 @@ notthenet-gui
 If that doesn't work, launch directly from a terminal with sudo:
 
 ```bash
-sudo /path/to/venv/bin/python notthenet.py
+sudo .venv/bin/python notthenet.py
 ```
 
 ---
@@ -440,14 +440,14 @@ sudo iptables-restore /tmp/notthenet_iptables_save.rules
 
 ```bash
 # Ensure you're using the venv
-source venv/bin/activate
-which python3   # should point to venv/bin/python3
+source .venv/bin/activate
+which python3   # should point to .venv/bin/python3
 
 # Reinstall dependencies
 pip install -r requirements.txt
 
 # Run explicitly through venv
-sudo venv/bin/python notthenet.py
+sudo .venv/bin/python notthenet.py
 ```
 
 ---

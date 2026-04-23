@@ -17,7 +17,6 @@ import socketserver
 import ssl
 import threading
 import uuid
-from typing import Optional
 
 from utils.cert_utils import ensure_certs
 from utils.json_logger import get_json_logger
@@ -81,7 +80,7 @@ class _SMTPClientThread(threading.Thread):
     """Handles a single SMTP client connection in its own thread."""
 
     def __init__(
-        self, conn, addr, hostname: str, banner: str, save_dir: Optional[str],
+        self, conn, addr, hostname: str, banner: str, save_dir: str | None,
         cert_path: str = "", key_path: str = "",
         conn_timeout: float = 30.0,
         max_email_size_bytes: int = MAX_EMAIL_SIZE_BYTES,
@@ -104,7 +103,7 @@ class _SMTPClientThread(threading.Thread):
         # AUTH LOGIN is a two-step challenge; track which step we're on.
         # None = not in auth, 'login_user' = waiting for username,
         # 'login_pass' = waiting for password.
-        self._auth_state: Optional[str] = None
+        self._auth_state: str | None = None
 
     def _send(self, msg: str):
         try:
@@ -447,8 +446,8 @@ class SMTPService:
         self.max_email_size_bytes = int(config.get("max_email_size_bytes", MAX_EMAIL_SIZE_BYTES))
         self.max_disk_usage_bytes = int(config.get("max_disk_usage_bytes", MAX_DISK_USAGE_BYTES))
         self.max_connections = int(config.get("max_connections", _MAX_CONNECTIONS))
-        self._server: Optional[_SMTPServer] = None
-        self._thread: Optional[threading.Thread] = None
+        self._server: _SMTPServer | None = None
+        self._thread: threading.Thread | None = None
 
     def start(self) -> bool:
         if not self.enabled:
@@ -514,8 +513,8 @@ class SMTPSService:
         self.max_email_size_bytes = int(config.get("max_email_size_bytes", MAX_EMAIL_SIZE_BYTES))
         self.max_disk_usage_bytes = int(config.get("max_disk_usage_bytes", MAX_DISK_USAGE_BYTES))
         self.max_connections = int(config.get("max_connections", _MAX_CONNECTIONS))
-        self._server: Optional[_SMTPSServer] = None
-        self._thread: Optional[threading.Thread] = None
+        self._server: _SMTPSServer | None = None
+        self._thread: threading.Thread | None = None
 
     def _build_ssl_context(self) -> ssl.SSLContext:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)

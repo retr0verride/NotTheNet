@@ -3,13 +3,15 @@ NotTheNet - Service Manager
 Orchestrates all fake network services and iptables rules.
 """
 
+import glob
 import logging
 import os
+import re
 import shutil
 import subprocess
 import threading
 from dataclasses import dataclass
-from typing import Optional
+from datetime import date, timedelta
 
 from config import Config
 from network.iptables_manager import IPTablesManager
@@ -124,7 +126,7 @@ class ServiceManager:
         self.config = config
         self._services: dict[str, ServiceProtocol] = {}
         self._lock = threading.Lock()
-        self._iptables: Optional[IPTablesManager] = None
+        self._iptables: IPTablesManager | None = None
         self._running = False
 
     def validate(self) -> list:
@@ -224,9 +226,6 @@ class ServiceManager:
     @staticmethod
     def _purge_old_logs(log_dir: str, max_age_days: int = 14) -> None:
         """Delete JSONL session logs older than *max_age_days*."""
-        import glob
-        from datetime import date, timedelta
-
         cutoff = date.today() - timedelta(days=max_age_days)
         for path in glob.glob(os.path.join(log_dir, "events_*_s*.jsonl")):
             try:
@@ -244,10 +243,6 @@ class ServiceManager:
         Scans *log_dir* for existing session files dated today and picks the
         next available session number.
         """
-        import glob
-        import re
-        from datetime import date
-
         today = date.today().isoformat()  # e.g. "2026-04-01"
         pattern = os.path.join(log_dir, f"events_{today}_s*.jsonl")
         existing = glob.glob(pattern)
@@ -364,7 +359,7 @@ class ServiceManager:
     def _special_builders(
         self, spec: ServiceSpec, bind_ip: str,
         spoof_ip: str, redirect_ip: str, https_cfg: dict,
-    ) -> Optional[tuple[dict, dict]]:
+    ) -> tuple[dict, dict] | None:
         """Return (config, extra_kwargs) for services needing custom config, or None."""
         if spec.name == "dns":
             return {**self.config.get_section("dns"), "bind_ip": bind_ip}, {}

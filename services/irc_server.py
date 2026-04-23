@@ -23,7 +23,7 @@ import socket
 import ssl
 import threading
 import time
-from typing import Callable, Optional
+from typing import Callable
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -46,7 +46,7 @@ class _IRCClientThread(threading.Thread):
         network: str,
         channel: str,
         motd: str,
-        sem: Optional[threading.BoundedSemaphore] = None,
+        sem: threading.BoundedSemaphore | None = None,
     ):
         super().__init__(daemon=True, name=f"irc-{addr[0]}:{addr[1]}")
         self.conn = conn
@@ -55,8 +55,8 @@ class _IRCClientThread(threading.Thread):
         self.network = network
         self.channel = channel.lstrip("#")
         self.motd_text = motd
-        self.nick: Optional[str] = None
-        self.user: Optional[str] = None
+        self.nick: str | None = None
+        self.user: str | None = None
         self.registered = False
         self._sem = sem
         self._waiting_for_pong: bool = False
@@ -401,8 +401,8 @@ class IRCService:
         self.channel = config.get("channel", "botnet")
         self.motd = config.get("motd", "Welcome to IRC.")
         self._sem = threading.BoundedSemaphore(int(config.get("max_connections", 150)))
-        self._sock: Optional[socket.socket] = None
-        self._thread: Optional[threading.Thread] = None
+        self._sock: socket.socket | None = None
+        self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
 
     def start(self) -> bool:
@@ -485,8 +485,8 @@ class IRCSTLSService:
         self.cert_path = str(config.get("cert_file", "certs/server.crt"))
         self.key_path  = str(config.get("key_file",  "certs/server.key"))
         self._sem      = threading.BoundedSemaphore(int(config.get("max_connections", 150)))
-        self._sock:   Optional[socket.socket] = None
-        self._thread: Optional[threading.Thread] = None
+        self._sock:   socket.socket | None = None
+        self._thread: threading.Thread | None = None
         self._stop    = threading.Event()
 
     def start(self) -> bool:

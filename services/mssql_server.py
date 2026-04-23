@@ -27,7 +27,6 @@ import logging
 import socket
 import struct
 import threading
-from typing import Optional
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -85,7 +84,7 @@ def _deobfuscate_tds_password(raw: bytes) -> str:
 class _MSSQLSession(threading.Thread):
     """Handles one MSSQL client session."""
 
-    def __init__(self, conn: socket.socket, addr: tuple, sem: Optional[threading.BoundedSemaphore] = None):
+    def __init__(self, conn: socket.socket, addr: tuple, sem: threading.BoundedSemaphore | None = None):
         super().__init__(daemon=True)
         self.conn = conn
         self.addr = addr
@@ -178,8 +177,8 @@ class MSSQLService:
         self.port = int(config.get("port", 1433))
         self.bind_ip = bind_ip
         self._sem = threading.BoundedSemaphore(int(config.get("max_connections", _MAX_CONNECTIONS)))
-        self._sock: Optional[socket.socket] = None
-        self._thread: Optional[threading.Thread] = None
+        self._sock: socket.socket | None = None
+        self._thread: threading.Thread | None = None
         self._stop = threading.Event()
 
     def start(self) -> bool:

@@ -25,7 +25,7 @@ import socketserver
 import ssl
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor  # type: ignore[attr-defined]
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse
@@ -70,6 +70,8 @@ _SECURE_CIPHERS = (
 _DEFAULT_BODY = "<html><body><h1>200 OK</h1></body></html>"
 
 _CT_JSON = "application/json"
+_CT_HTML = "text/html"
+_CT_PLAIN = "text/plain"
 
 # Well-known public-IP-check services. When spoof_public_ip is set and a
 # request Host header matches one of these, the handler returns the spoofed
@@ -212,7 +214,7 @@ _STUB_CRL_LOCK = threading.Lock()
 
 def _get_stub_crl() -> bytes:
     """Return a minimal valid DER-encoded CRL (empty revocation list)."""
-    global _STUB_CRL_CACHE  # noqa: PLW0603
+    global _STUB_CRL_CACHE  # noqa: PLW0603  # NOSONAR
     if _STUB_CRL_CACHE is not None:
         return _STUB_CRL_CACHE
     with _STUB_CRL_LOCK:
@@ -237,7 +239,7 @@ def _get_stub_crl() -> bytes:
                 .sign(key, hashes.SHA256())
             )
             _STUB_CRL_CACHE = crl.public_bytes(serialization.Encoding.DER)
-        except Exception:
+        except Exception:  # noqa: BLE001
             # Fallback: return a minimal plausible binary blob
             _STUB_CRL_CACHE = b"\x30\x00"
     return _STUB_CRL_CACHE
@@ -403,7 +405,7 @@ def _fmt_checkip_aws(ip: str, _path: str) -> _IpCheckResult:
         f"<html><head><title>Current IP Check</title></head>"
         f"<body>Current IP Address: {ip}</body></html>\n"
     ).encode()
-    return body, "text/html", None
+    return body, _CT_HTML, None
 
 
 _IP_CHECK_FORMATTERS: dict[str, object] = {
@@ -514,7 +516,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
                 message = ""
         if self.request_version != "HTTP/0.9":
             if not hasattr(self, "_headers_buffer"):
-                self._headers_buffer = []
+                self._headers_buffer = []  # type: ignore[misc]
             self._headers_buffer.append(
                 f"{self.protocol_version} {code} {message}\r\n"
                 .encode("latin-1", "strict")
@@ -522,7 +524,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         self.log_request(code)
         self.send_header("Date", self.date_time_string())
 
-    def log_message(self, fmt, *args):
+    def log_message(self, fmt, *args):  # type: ignore[override]
         pass  # suppress default stderr logging
 
     def _send_ip_check_response(self, host: str):
@@ -539,15 +541,17 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
             extra_headers = None
         else:
             body = f"{ip}\n".encode()
-            content_type = "text/plain"
+            content_type = _CT_PLAIN
             extra_headers = None
 
         if self._cfg.log_requests:
             safe_addr = sanitize_ip(self.client_address[0])
             logger.info(
-                f"HTTP  IP-CHECK {sanitize_log_string(host)}"
-                f"{sanitize_log_string(path, 128)} "
-                f"from {safe_addr} \u2192 spoofed {ip}"
+                "HTTP  IP-CHECK %s%s from %s \u2192 spoofed %s",
+                sanitize_log_string(host),
+                sanitize_log_string(path, 128),
+                safe_addr,
+                ip,
             )
         try:
             self.send_response(200)
@@ -592,7 +596,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
             )
         try:
             self.send_response(200)
-            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Type", _CT_HTML)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Server", "AkamaiGHost")
             self.send_header("Connection", "keep-alive")
@@ -634,8 +638,9 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
             if self._cfg.log_requests:
                 safe_addr = sanitize_ip(self.client_address[0])
                 logger.info(
-                    f"HTTP  NCSI {sanitize_log_string(host)}/redirect "
-                    f"from {safe_addr} \u2192 302"
+                    "HTTP  NCSI %s/redirect from %s \u2192 302",
+                    sanitize_log_string(host),
+                    safe_addr,
                 )
             try:
                 self.send_response(302)
@@ -651,12 +656,14 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         if self._cfg.log_requests:
             safe_addr = sanitize_ip(self.client_address[0])
             logger.info(
-                f"HTTP  NCSI {sanitize_log_string(host)} "
-                f"from {safe_addr} \u2192 {body.decode()}"
+                "HTTP  NCSI %s from %s \u2192 %s",
+                sanitize_log_string(host),
+                safe_addr,
+                body.decode(),
             )
         try:
             self.send_response(200)
-            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Type", _CT_PLAIN)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Server", self._cfg.server_header)
             self.send_header("Connection", "keep-alive")
@@ -672,8 +679,10 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         if self._cfg.log_requests:
             safe_addr = sanitize_ip(self.client_address[0])
             logger.info(
-                f"HTTP  PKI {sanitize_log_string(host)}{sanitize_log_string(path, 128)} "
-                f"from {safe_addr}"
+                "HTTP  PKI %s%s from %s",
+                sanitize_log_string(host),
+                sanitize_log_string(path, 128),
+                safe_addr,
             )
         status, body, content_type = _resolve_pki_response(host, path)
         try:
@@ -735,11 +744,11 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         self._send_ip_check_response(host)
         return True
 
-    def _route_telegram(self, host: str):
+    def _route_telegram(self, _host: str):
         return route_telegram(self, _MAX_BODY_FILE_SIZE, _CT_JSON)
 
     # ── Discord webhook route ─────────────────────────────────────────────
-    def _route_discord(self, host: str):
+    def _route_discord(self, _host: str):
         return route_discord(self, _MAX_BODY_FILE_SIZE, _CT_JSON)
 
     # ── Pastebin / paste dead-drop route ──────────────────────────────────
@@ -752,7 +761,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
             self,
             event_name="slack_c2",
             body=b"ok",
-            content_type="text/html",
+            content_type=_CT_HTML,
             server="Apache",
             status=200,
         )
@@ -763,7 +772,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
             self,
             event_name="teams_c2",
             body=b"1",
-            content_type="text/plain",
+            content_type=_CT_PLAIN,
             server="Microsoft-IIS/10.0",
             status=202,
         )
@@ -939,16 +948,16 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         try:
             # Read the request line ourselves so we can inspect it before
             # parse_request() sees it â€” needed for HTTP/2 preface detection.
-            self.raw_requestline = self.rfile.readline(65537)
+            self.raw_requestline = self.rfile.readline(65537)  # type: ignore[misc]
             if not self.raw_requestline:
-                self.close_connection = True
+                self.close_connection = True  # type: ignore[misc]
                 return
             if len(self.raw_requestline) > 65536:
-                self.requestline = ""
-                self.request_version = ""
-                self.command = ""
+                self.requestline = ""  # type: ignore[misc]
+                self.request_version = ""  # type: ignore[misc]
+                self.command = ""  # type: ignore[misc]
                 self.send_error(414)
-                self.close_connection = True
+                self.close_connection = True  # type: ignore[misc]
                 return
             # HTTP/2 connection preface (RFC 7540 Â§3.5): respond with
             # SETTINGS + GOAWAY(HTTP_1_1_REQUIRED) and close.
@@ -956,7 +965,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
                 safe_addr = sanitize_ip(self.client_address[0])
                 logger.debug("HTTP2 preface from %s -> GOAWAY(HTTP_1_1_REQUIRED)", safe_addr)
                 self._handle_http2_goaway()
-                self.close_connection = True
+                self.close_connection = True  # type: ignore[misc]
                 return
             if not self.parse_request():
                 return
@@ -975,28 +984,29 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
                 return
             getattr(self, mname)()
             self.wfile.flush()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug("HTTP handler error (benign): %s", e)
-            self.close_connection = True
+            self.close_connection = True  # type: ignore[misc]
 
 
 # Populate route registry after class body so method refs are valid.
-FakeHTTPHandler._ROUTES = [
-    (lambda s, h: s._cfg.doh_enabled,                           FakeHTTPHandler._route_doh),
-    (lambda s, h: s._cfg.websocket_sinkhole,                    FakeHTTPHandler._route_websocket),
-    (lambda s, h: h in _NCSI_HOSTS,                             FakeHTTPHandler._route_ncsi),
-    (lambda s, h: h in _CAPTIVE_PORTAL_HOSTS,                   FakeHTTPHandler._route_captive),
-    (lambda s, h: h in _PKI_HOSTS,                              FakeHTTPHandler._route_pki),
-    (lambda s, h: h in _IP_CHECK_HOSTS or h in s._cfg.pool_ips, FakeHTTPHandler._route_ip_check),
-    (lambda s, h: h == _TELEGRAM_HOST,                          FakeHTTPHandler._route_telegram),
-    (lambda s, h: h in _DISCORD_HOSTS,                          FakeHTTPHandler._route_discord),
-    (lambda s, h: h in _PASTE_HOSTS,                            FakeHTTPHandler._route_paste),
-    (lambda s, h: h == _SLACK_HOST,                             FakeHTTPHandler._route_slack),
+# noqa comments suppress SLF001 (intra-module access to own class members).
+FakeHTTPHandler._ROUTES = [  # noqa: SLF001
+    (lambda s, h: s._cfg.doh_enabled,                           FakeHTTPHandler._route_doh),           # noqa: SLF001
+    (lambda s, h: s._cfg.websocket_sinkhole,                    FakeHTTPHandler._route_websocket),      # noqa: SLF001
+    (lambda s, h: h in _NCSI_HOSTS,                             FakeHTTPHandler._route_ncsi),           # noqa: SLF001
+    (lambda s, h: h in _CAPTIVE_PORTAL_HOSTS,                   FakeHTTPHandler._route_captive),        # noqa: SLF001
+    (lambda s, h: h in _PKI_HOSTS,                              FakeHTTPHandler._route_pki),            # noqa: SLF001
+    (lambda s, h: h in _IP_CHECK_HOSTS or h in s._cfg.pool_ips, FakeHTTPHandler._route_ip_check),      # noqa: SLF001
+    (lambda s, h: h == _TELEGRAM_HOST,                          FakeHTTPHandler._route_telegram),       # noqa: SLF001
+    (lambda s, h: h in _DISCORD_HOSTS,                          FakeHTTPHandler._route_discord),        # noqa: SLF001
+    (lambda s, h: h in _PASTE_HOSTS,                            FakeHTTPHandler._route_paste),          # noqa: SLF001
+    (lambda s, h: h == _SLACK_HOST,                             FakeHTTPHandler._route_slack),          # noqa: SLF001
     (lambda s, h: h in _TEAMS_HOSTS or _TEAMS_WEBHOOK_RE.search(h),
-                                                                FakeHTTPHandler._route_teams),
-    (lambda s, h: h in _GITHUB_RAW_HOSTS,                       FakeHTTPHandler._route_github_raw),
-    (lambda s, h: h in _FILE_HOSTING_HOSTS,                     FakeHTTPHandler._route_file_hosting),
-    (lambda s, h: h in _GOOGLE_CONTENT_HOSTS,                   FakeHTTPHandler._route_google_content),
+                                                                FakeHTTPHandler._route_teams),          # noqa: SLF001
+    (lambda s, h: h in _GITHUB_RAW_HOSTS,                       FakeHTTPHandler._route_github_raw),     # noqa: SLF001
+    (lambda s, h: h in _FILE_HOSTING_HOSTS,                     FakeHTTPHandler._route_file_hosting),   # noqa: SLF001
+    (lambda s, h: h in _GOOGLE_CONTENT_HOSTS,                   FakeHTTPHandler._route_google_content), # noqa: SLF001
 ]
 
 
@@ -1067,7 +1077,7 @@ class HTTPService:
         )
         try:
             self._server = _ThreadedServer((self.bind_ip, self.port), FakeHTTPHandler)
-            self._server._handler_cfg = cfg
+            self._server._handler_cfg = cfg  # noqa: SLF001
             self._thread = threading.Thread(
                 target=self._server.serve_forever,
                 kwargs={"poll_interval": 2.0},
@@ -1158,7 +1168,7 @@ class HTTPSService:
 
         if not os.path.exists(self.cert_file) or not os.path.exists(self.key_file):
             logger.error(
-                f"HTTPS cert/key not found: {self.cert_file} / {self.key_file}"
+                "HTTPS cert/key not found: %s / %s", self.cert_file, self.key_file
             )
             return False
 
@@ -1175,11 +1185,11 @@ class HTTPSService:
         )
         try:
             self._server = _ThreadedServer((self.bind_ip, self.port), FakeHTTPHandler)
-            self._server._handler_cfg = cfg
+            self._server._handler_cfg = cfg  # noqa: SLF001
             ssl_ctx = self._build_ssl_context()
             if self.dynamic_certs:
                 from utils.cert_utils import DynamicCertCache
-                self._cert_cache = DynamicCertCache(
+                self._cert_cache = DynamicCertCache(  # type: ignore[misc]
                     self.cert_file, self.key_file
                 )
                 ssl_ctx.sni_callback = self._cert_cache.sni_callback

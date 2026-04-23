@@ -29,7 +29,6 @@ import os
 import socket
 import struct
 import threading
-from typing import Optional
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -85,7 +84,7 @@ def _ok_packet() -> bytes:
     return struct.pack("<I", len(payload))[:3] + b"\x02" + payload
 
 
-def _read_mysql_packet(sock: socket.socket) -> Optional[bytes]:
+def _read_mysql_packet(sock: socket.socket) -> bytes | None:
     """Read one MySQL packet. Returns payload bytes or None."""
     hdr = sock.recv(4)
     if len(hdr) < 4:
@@ -106,7 +105,7 @@ def _read_mysql_packet(sock: socket.socket) -> Optional[bytes]:
 class _MySQLSession(threading.Thread):
     """Handles one MySQL client session."""
 
-    def __init__(self, conn: socket.socket, addr: tuple, sem: Optional[threading.BoundedSemaphore] = None):
+    def __init__(self, conn: socket.socket, addr: tuple, sem: threading.BoundedSemaphore | None = None):
         super().__init__(daemon=True)
         self.conn = conn
         self.addr = addr
@@ -178,8 +177,8 @@ class MySQLService:
         self.port = int(config.get("port", 3306))
         self.bind_ip = bind_ip
         self._sem = threading.BoundedSemaphore(int(config.get("max_connections", _MAX_CONNECTIONS)))
-        self._sock: Optional[socket.socket] = None
-        self._thread: Optional[threading.Thread] = None
+        self._sock: socket.socket | None = None
+        self._thread: threading.Thread | None = None
         self._stop = threading.Event()
 
     def start(self) -> bool:

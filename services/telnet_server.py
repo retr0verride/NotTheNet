@@ -30,7 +30,6 @@ Security notes (OpenSSF):
 import logging
 import socket
 import threading
-from typing import Optional
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -59,7 +58,7 @@ _ECHO_OFF = IAC + WILL + ECHO
 _ECHO_ON  = IAC + WONT + ECHO
 
 # â”€â”€â”€ Fake shell command responses â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-_SHELL_RESPONSES: dict[str, Optional[bytes]] = {
+_SHELL_RESPONSES: dict[str, bytes | None] = {
     "id":       b"uid=0(root) gid=0(root)\r\n",
     "whoami":   b"root\r\n",
     "uname -a": b"Linux router 4.19.0-18-mips #1 SMP Mon Mar 16 06:00:00 UTC 2020 mips GNU/Linux\r\n",
@@ -78,7 +77,7 @@ _SHELL_RESPONSES: dict[str, Optional[bytes]] = {
 }
 
 
-def _shell_response(cmd: str) -> Optional[bytes]:
+def _shell_response(cmd: str) -> bytes | None:
     """Return a canned shell response, or a generic 'sh: not found' line."""
     stripped = cmd.strip()
     if stripped in _SHELL_RESPONSES:
@@ -105,7 +104,7 @@ class _TelnetSession(threading.Thread):
         addr: tuple,
         banner: str,
         prompt: str,
-        sem: Optional[threading.BoundedSemaphore] = None,
+        sem: threading.BoundedSemaphore | None = None,
     ):
         super().__init__(daemon=True)
         self.conn = conn
@@ -142,7 +141,7 @@ class _TelnetSession(threading.Thread):
         except OSError:
             return b""
 
-    def _recv_line(self, max_bytes: int = 256) -> Optional[bytes]:
+    def _recv_line(self, max_bytes: int = 256) -> bytes | None:
         """Read bytes until CRLF or LF, stripping IAC sub-sequences."""
         buf = b""
         while True:
@@ -164,7 +163,7 @@ class _TelnetSession(threading.Thread):
         return buf
     # â”€â”€ Session main â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-    def _do_login(self, safe_addr: str) -> Optional[tuple[str, str]]:
+    def _do_login(self, safe_addr: str) -> tuple[str, str | None]:
         """Run login: / Password: sequence. Returns (username, password) or None."""
         self._send(b"\r\nlogin: ")
         raw_user = self._recv_line()
@@ -265,8 +264,8 @@ class TelnetService:
         self.banner   = config.get("banner", "router login")
         self.prompt   = config.get("prompt", "# ")
         self._sem     = threading.BoundedSemaphore(int(config.get("max_connections", 100)))
-        self._sock:   Optional[socket.socket] = None
-        self._thread: Optional[threading.Thread] = None
+        self._sock:   socket.socket | None = None
+        self._thread: threading.Thread | None = None
         self._stop    = threading.Event()
 
     def start(self) -> bool:

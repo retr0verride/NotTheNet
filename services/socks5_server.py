@@ -42,7 +42,6 @@ import socket
 import ssl
 import struct
 import threading
-from typing import Optional
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -100,7 +99,7 @@ class _Socks5Session(threading.Thread):
         addr: tuple,
         cert_path: str,
         key_path: str,
-        sem: Optional[threading.BoundedSemaphore] = None,
+        sem: threading.BoundedSemaphore | None = None,
     ):
         super().__init__(daemon=True)
         self.conn      = conn
@@ -111,7 +110,7 @@ class _Socks5Session(threading.Thread):
 
     # â”€â”€ I/O helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-    def _recv_exact(self, n: int) -> Optional[bytes]:
+    def _recv_exact(self, n: int) -> bytes | None:
         """Read exactly n bytes, returning None on EOF/error."""
         buf = b""
         while len(buf) < n:
@@ -148,7 +147,7 @@ class _Socks5Session(threading.Thread):
         self._send(bytes([_VER, 0x00]))
         return True
 
-    def _read_address(self, atyp: int) -> Optional[str]:
+    def _read_address(self, atyp: int) -> str | None:
         """Parse destination address based on address type."""
         if atyp == _ATYP_IPV4:
             raw = self._recv_exact(4)
@@ -164,7 +163,7 @@ class _Socks5Session(threading.Thread):
             return socket.inet_ntop(socket.AF_INET6, raw) if raw else None
         return None
 
-    def _read_connect(self) -> Optional[tuple[str, int]]:
+    def _read_connect(self) -> tuple[str, int | None]:
         """
         Read a SOCKS5 CONNECT request (RFC 1928 Â§4).
         Returns (destination_host, destination_port) or None on error.
@@ -333,8 +332,8 @@ class Socks5Service:
         self.cert_path = str(config.get("cert_file", "certs/server.crt"))
         self.key_path  = str(config.get("key_file",  "certs/server.key"))
         self._sem      = threading.BoundedSemaphore(int(config.get("max_connections", 200)))
-        self._sock:   Optional[socket.socket] = None
-        self._thread: Optional[threading.Thread] = None
+        self._sock:   socket.socket | None = None
+        self._thread: threading.Thread | None = None
         self._stop    = threading.Event()
 
     def start(self) -> bool:

@@ -33,7 +33,6 @@ import socket
 import struct
 import threading
 import uuid
-from typing import Optional
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -64,7 +63,7 @@ if len(_RRQ_STUB) >= _BLOCK_SIZE:
 
 # â”€â”€â”€ Packet builders â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-def _parse_rrq_wrq(data: bytes) -> tuple[Optional[str], Optional[str]]:
+def _parse_rrq_wrq(data: bytes) -> tuple[str | None, str | None]:
     """
     Parse a RRQ or WRQ packet: 2-byte opcode + filename\\0 + mode\\0.
     Returns (filename, mode) or (None, None) if the packet is malformed.
@@ -114,7 +113,7 @@ class _TFTPTransferThread(threading.Thread):
         allow_uploads: bool,
         upload_dir: str,
         bind_ip: str = "0.0.0.0",
-        sem: Optional[threading.BoundedSemaphore] = None,
+        sem: threading.BoundedSemaphore | None = None,
     ):
         super().__init__(daemon=True, name=f"tftp-{client_addr[0]}")
         self.opcode = opcode
@@ -244,8 +243,8 @@ class TFTPService:
         self.allow_uploads = config.get("allow_uploads", True)
         self.upload_dir = config.get("upload_dir", "logs/tftp_uploads")
         self._sem = threading.BoundedSemaphore(_MAX_TRANSFERS)
-        self._sock: Optional[socket.socket] = None
-        self._thread: Optional[threading.Thread] = None
+        self._sock: socket.socket | None = None
+        self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
 
     def start(self) -> bool:

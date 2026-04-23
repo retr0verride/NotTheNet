@@ -63,7 +63,8 @@ def init_json_logger(
 
 def get_json_logger() -> JsonEventLogger | None:
     """Return the global JSON event logger, or None if not initialised."""
-    return _instance
+    with _global_lock:
+        return _instance
 
 
 def json_event(event_type: str, **kwargs: Any) -> None:
@@ -73,7 +74,8 @@ def json_event(event_type: str, **kwargs: Any) -> None:
     Every service module should call this function. When JSON logging
     is disabled (the default), this is a fast no-op.
     """
-    jl = _instance
+    with _global_lock:
+        jl = _instance
     if jl is not None:
         jl.log(event_type, **kwargs)
 

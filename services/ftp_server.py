@@ -18,7 +18,6 @@ import socket
 import socketserver
 import threading
 import uuid
-from typing import Optional
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -86,9 +85,9 @@ class _FTPSession(threading.Thread):
         conn,
         addr,
         banner: str,
-        upload_dir: Optional[str],
+        upload_dir: str | None,
         bind_ip: str = "0.0.0.0",
-        upload_lock: Optional[threading.Lock] = None,
+        upload_lock: threading.Lock | None = None,
         control_timeout: float = 30.0,
         data_timeout: float = 30.0,
         pasv_timeout: float = 10.0,
@@ -120,7 +119,7 @@ class _FTPSession(threading.Thread):
         except Exception:
             logger.debug("FTP control send failed", exc_info=True)
 
-    def _open_pasv(self) -> Optional[str]:
+    def _open_pasv(self) -> str | None:
         """Open a passive-mode data socket and return the PASV response string."""
         ports = list(range(self.pasv_port_low, self.pasv_port_high))
         random.shuffle(ports)
@@ -146,7 +145,7 @@ class _FTPSession(threading.Thread):
         )
         return None
 
-    def _accept_data(self) -> Optional[socket.socket]:
+    def _accept_data(self) -> socket.socket | None:
         if self._pasv_server:
             try:
                 conn, _ = self._pasv_server.accept()

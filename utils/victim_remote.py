@@ -86,14 +86,43 @@ def detect_victims(cfg: Config) -> list[DetectedHost]:
     try:
         out = subprocess.run(
             ["ip", "neigh", "show", "dev", interface],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True, text=True, timeout=5, check=False,
         )
         hosts = _parse_ip_neigh_output(out.stdout, bind_ip)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.debug("ip neigh failed: %s", e)
         hosts = []
 
     return hosts
+
+
+def _scan_with_nmap(interface: str, bind_ip: str, subnet: str) -> list[DetectedHost]:
+    """Run an nmap ARP sweep and return discovered hosts (empty on failure)."""
+    try:
+        out = subprocess.run(
+            ["nmap", "-sn", "-PR", "--interface", interface, subnet],
+            capture_output=True, text=True, timeout=15, check=False,
+        )
+        hosts: list[DetectedHost] = []
+        for match in re.finditer(r"Nmap scan report for (\S+)", out.stdout):
+            ip = match.group(1)
+            if ip != bind_ip:
+                hosts.append(DetectedHost(ip=ip, mac=""))
+        return hosts
+    except Exception as e:  # noqa: BLE001
+        logger.debug("nmap ARP scan failed: %s", e)
+        return []
+
+
+def _prime_arp_cache_with_arping(interface: str, bind_ip: str) -> None:
+    """Broadcast a single arping to populate the kernel ARP cache."""
+    try:
+        subprocess.run(
+            ["arping", "-c", "1", "-I", interface, "-b", bind_ip],
+            capture_output=True, timeout=5, check=False,
+        )
+    except (subprocess.TimeoutExpired, OSError) as e:
+        logger.debug("arping failed: %s", e)
 
 
 def arp_scan(cfg: Config) -> list[DetectedHost]:
@@ -114,34 +143,12 @@ def arp_scan(cfg: Config) -> list[DetectedHost]:
 
     subnet = f"{bind_ip}/{mask}"
 
-    # Try nmap ARP scan (fast, reliable)
     if shutil.which("nmap"):
-        try:
-            out = subprocess.run(
-                ["nmap", "-sn", "-PR", "--interface", interface, subnet],
-                capture_output=True, text=True, timeout=15,
-            )
-            # Parse nmap output for IPs
-            hosts: list[DetectedHost] = []
-            for match in re.finditer(r"Nmap scan report for (\S+)", out.stdout):
-                ip = match.group(1)
-                if ip != bind_ip:
-                    hosts.append(DetectedHost(ip=ip, mac=""))
-            if hosts:
-                return hosts
-        except Exception as e:
-            logger.debug("nmap ARP scan failed: %s", e)
+        hosts = _scan_with_nmap(interface, bind_ip, subnet)
+        if hosts:
+            return hosts
 
-    # Fallback: arping individual IPs (slow but no dependencies)
     if shutil.which("arping"):
-        try:
-            # Quick ping to the broadcast to populate ARP cache
-            subprocess.run(
-                ["arping", "-c", "1", "-I", interface, "-b", bind_ip],
-                capture_output=True, timeout=5,
-            )
-        except (subprocess.TimeoutExpired, OSError, FileNotFoundError) as e:
-            logger.debug("arping failed: %s", e)
+        _prime_arp_cache_with_arping(interface, bind_ip)
 
-    # Always fall back to reading the ARP cache
     return detect_victims(cfg)

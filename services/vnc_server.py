@@ -32,7 +32,6 @@ import logging
 import os
 import socket
 import threading
-from typing import Optional
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -51,7 +50,7 @@ _SECURITY_OK    = b"\x00\x00\x00\x00"
 class _VNCSession(threading.Thread):
     """Handles one VNC client session."""
 
-    def __init__(self, conn: socket.socket, addr: tuple, sem: Optional[threading.BoundedSemaphore] = None):
+    def __init__(self, conn: socket.socket, addr: tuple, sem: threading.BoundedSemaphore | None = None):
         super().__init__(daemon=True)
         self.conn = conn
         self.addr = addr
@@ -153,8 +152,8 @@ class VNCService:
         self.port = int(config.get("port", 5900))
         self.bind_ip = bind_ip
         self._sem = threading.BoundedSemaphore(int(config.get("max_connections", _MAX_CONNECTIONS)))
-        self._sock: Optional[socket.socket] = None
-        self._thread: Optional[threading.Thread] = None
+        self._sock: socket.socket | None = None
+        self._thread: threading.Thread | None = None
         self._stop = threading.Event()
 
     def start(self) -> bool:

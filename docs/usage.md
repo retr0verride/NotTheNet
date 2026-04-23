@@ -30,13 +30,13 @@ NotTheNet must be run as **root** (administrator) because standard internet port
 sudo notthenet
 
 # If running directly from the project folder:
-sudo venv/bin/python notthenet.py
+sudo .venv/bin/python notthenet.py
 
 # To load a specific configuration file:
 sudo notthenet --config /path/to/my-lab.json
 ```
 
-> **Kali tip:** You can also right-click the project folder in the file manager → "Open as Root" → run `venv/bin/python notthenet.py`.
+> **Kali tip:** You can also right-click the project folder in the file manager → "Open as Root" → run `.venv/bin/python notthenet.py`.
 
 ---
 
@@ -46,7 +46,7 @@ sudo notthenet --config /path/to/my-lab.json
 ╔══════════════════════════════════════════════════════════════════════════╗
 ║▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ accent line ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓║
 ║  [Globe]  NotTheNet          │  ▶ Start  ■ Stop │ 💾 Save  📂 Load…      ║
-║           2026.02.24-2 · Fake Internet Simulator │                      ║
+║           2026.04.21-1 · Fake Internet Simulator │                      ║
 ╠══════════════════╦═══════════════════════════════════════════════════════╣
 ║  SERVICES        ║                                                       ║
 ║  ── CONFIG ────  ║         Configuration Panel                          ║

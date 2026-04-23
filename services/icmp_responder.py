@@ -21,7 +21,6 @@ import logging
 import socket
 import threading
 import time
-from typing import Optional
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip
@@ -44,8 +43,8 @@ class ICMPResponder:
 
     def __init__(self, config: dict):
         self.enabled = config.get("enabled", True)
-        self._sock: Optional[socket.socket] = None
-        self._thread: Optional[threading.Thread] = None
+        self._sock: socket.socket | None = None
+        self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._lock = threading.Lock()
         self._last_logged: dict[tuple[str, str], float] = {}

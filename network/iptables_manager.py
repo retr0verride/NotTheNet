@@ -78,6 +78,7 @@ def _run(args: list[str]) -> tuple[int, str, str]:
             capture_output=True,
             text=True,
             timeout=10,
+            check=False,  # returncode handled by callers
             shell=False,  # NEVER shell=True — prevents injection
         )
         return result.returncode, result.stdout, result.stderr
@@ -116,7 +117,7 @@ def _save_nat_snapshot() -> bool:
                 os.close(fd)
             logger.debug("nat table snapshot saved to %s", _IPTABLES_SAVE_FILE)
             return True
-        except Exception as e:
+        except OSError as e:
             logger.error("Failed to save nat snapshot: %s", e)
     return False
 
@@ -134,7 +135,7 @@ def _restore_nat_snapshot() -> bool:
         logger.info("nat table restored from pre-start snapshot.")
         try:
             os.unlink(_IPTABLES_SAVE_FILE)
-        except Exception:
+        except OSError:
             logger.debug("NAT snapshot cleanup failed", exc_info=True)
         return True
     logger.error("iptables-restore failed: %s", err)
@@ -159,7 +160,7 @@ def _save_mangle_snapshot() -> bool:
                 os.close(fd)
             logger.debug("mangle table snapshot saved to %s", _MANGLE_SAVE_FILE)
             return True
-        except Exception as e:
+        except OSError as e:
             logger.error("Failed to save mangle snapshot: %s", e)
     return False
 
@@ -176,7 +177,7 @@ def _restore_mangle_snapshot() -> bool:
         logger.info("mangle table restored from pre-start snapshot.")
         try:
             os.unlink(_MANGLE_SAVE_FILE)
-        except Exception:
+        except OSError:
             logger.debug("Mangle snapshot cleanup failed", exc_info=True)
         return True
     logger.error("mangle restore failed: %s", err)
@@ -201,7 +202,7 @@ def _save_filter_snapshot() -> bool:
                 os.close(fd)
             logger.debug("filter table snapshot saved to %s", _FILTER_SAVE_FILE)
             return True
-        except Exception as e:
+        except OSError as e:
             logger.error("Failed to save filter snapshot: %s", e)
     return False
 
@@ -218,7 +219,7 @@ def _restore_filter_snapshot() -> bool:
         logger.info("filter table restored from pre-start snapshot.")
         try:
             os.unlink(_FILTER_SAVE_FILE)
-        except Exception:
+        except OSError:
             logger.debug("Filter snapshot cleanup failed", exc_info=True)
         return True
     logger.error("filter restore failed: %s", err)
@@ -230,7 +231,7 @@ _IP_FORWARD_PATH = "/proc/sys/net/ipv4/ip_forward"
 
 def _read_ip_forward() -> str | None:
     try:
-        with open(_IP_FORWARD_PATH) as f:
+        with open(_IP_FORWARD_PATH, encoding="utf-8") as f:
             return f.read().strip()
     except OSError:
         return None
@@ -238,7 +239,7 @@ def _read_ip_forward() -> str | None:
 
 def _write_ip_forward(value: str) -> bool:
     try:
-        with open(_IP_FORWARD_PATH, "w") as f:
+        with open(_IP_FORWARD_PATH, "w", encoding="utf-8") as f:
             f.write(value + "\n")
         return True
     except OSError as e:
@@ -289,10 +290,10 @@ class IPTablesManager:
             return False
         # Check it actually exists
         try:
-            with open("/proc/net/dev") as f:
+            with open("/proc/net/dev", encoding="utf-8") as f:
                 ifaces_raw = f.read()
             return iface in ifaces_raw
-        except Exception:
+        except OSError:
             # Fail-closed: if we can't verify the interface exists, reject it.
             # A security tool should not apply iptables rules to a potentially
             # non-existent interface.
@@ -344,7 +345,7 @@ class IPTablesManager:
             logger.info("Auto-iptables disabled in config; skipping.")
             return False
 
-        if os.geteuid() != 0:
+        if os.geteuid() != 0:  # type: ignore[attr-defined]
             logger.warning(
                 "Not running as root; iptables rules cannot be applied. "
                 "Run with sudo or set auto_iptables=false and configure routing manually."
@@ -357,8 +358,8 @@ class IPTablesManager:
 
         if not self._validate_interface(self.interface):
             logger.error(
-                f"Interface '{sanitize_log_string(self.interface)}' not found; "
-                "check config general.interface."
+                "Interface '%s' not found; check config general.interface.",
+                sanitize_log_string(self.interface),
             )
             return False
 
@@ -392,8 +393,8 @@ class IPTablesManager:
         self._apply_ip_forward()
 
         logger.info(
-            f"Applied {ok_count} iptables NAT rules "
-            f"(chain={chain}, mode={self.mode})"
+            "Applied %d iptables NAT rules (chain=%s, mode=%s)",
+            ok_count, chain, self.mode,
         )
 
         self._apply_ttl_mangle()
@@ -576,7 +577,7 @@ class IPTablesManager:
     def remove_rules(self):
         """Stop: restore the nat table to its pre-start state."""
         escalated = False
-        if os.geteuid() != 0:
+        if os.geteuid() != 0:  # type: ignore[attr-defined]
             from utils.privilege import restore_privileges
             escalated = restore_privileges()
             if not escalated:

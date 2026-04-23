@@ -24,7 +24,6 @@ import socket
 import struct
 import threading
 import time
-from typing import Optional
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip
@@ -44,7 +43,7 @@ def _ntp_timestamp(t: float) -> tuple[int, int]:
     return secs, frac
 
 
-def _build_response(request: bytes) -> Optional[bytes]:
+def _build_response(request: bytes) -> bytes | None:
     """
     Build a 48-byte NTP server response packet.
 
@@ -102,8 +101,8 @@ class NTPService:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 123))
         self.bind_ip = bind_ip
-        self._sock: Optional[socket.socket] = None
-        self._thread: Optional[threading.Thread] = None
+        self._sock: socket.socket | None = None
+        self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
 
     def start(self) -> bool:

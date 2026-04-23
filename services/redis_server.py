@@ -31,7 +31,7 @@ Security notes (OpenSSF):
 import logging
 import socket
 import threading
-from typing import Callable, Optional
+from typing import Callable
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -60,7 +60,7 @@ _HIGH_INTEREST_CMDS = frozenset(["SLAVEOF", "REPLICAOF", "CONFIG", "DEBUG", "SAV
 class _RedisSession(threading.Thread):
     """Handles one Redis client session using RESP protocol."""
 
-    def __init__(self, conn: socket.socket, addr: tuple, sem: Optional[threading.BoundedSemaphore] = None):
+    def __init__(self, conn: socket.socket, addr: tuple, sem: threading.BoundedSemaphore | None = None):
         super().__init__(daemon=True)
         self.conn = conn
         self.addr = addr
@@ -68,7 +68,7 @@ class _RedisSession(threading.Thread):
 
     # â”€â”€ RESP reader â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-    def _readline(self) -> Optional[bytes]:
+    def _readline(self) -> bytes | None:
         """Read until \\r\\n (max 4 KB). Returns line without the terminator."""
         buf = b""
         while True:
@@ -113,7 +113,7 @@ class _RedisSession(threading.Thread):
                 return None
             parts.append(elem)
         return parts
-    def _read_command(self) -> Optional[list[str]]:
+    def _read_command(self) -> list[str | None]:
         """
         Parse one RESP command.  Returns a list of strings (the command and
         its arguments) or None on connection close / parse error.
@@ -268,8 +268,8 @@ class RedisService:
         self.port = int(config.get("port", 6379))
         self.bind_ip = bind_ip
         self._sem = threading.BoundedSemaphore(int(config.get("max_connections", _MAX_CONNECTIONS)))
-        self._sock: Optional[socket.socket] = None
-        self._thread: Optional[threading.Thread] = None
+        self._sock: socket.socket | None = None
+        self._thread: threading.Thread | None = None
         self._stop = threading.Event()
 
     def start(self) -> bool:

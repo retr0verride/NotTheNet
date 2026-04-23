@@ -280,7 +280,7 @@ This section is for security auditors and contributors. It lists the security en
 ### Running Bandit (security linter)
 
 ```bash
-source venv/bin/activate
+source .venv/bin/activate
 pip install bandit
 bandit -r . -c pyproject.toml
 ```

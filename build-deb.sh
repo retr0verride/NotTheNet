@@ -7,13 +7,13 @@
 #
 # Usage:
 #   bash build-deb.sh
-#   sudo dpkg -i notthenet_2026.04.07-6_all.deb
+#   sudo dpkg -i notthenet_2026.04.21-1_all.deb
 # ============================================================================
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VERSION="2026.04.07-6"
+VERSION="2026.04.21-1"
 PKG="notthenet"
 ARCH="all"
 DEB_NAME="${PKG}_${VERSION}_${ARCH}.deb"
@@ -49,6 +49,8 @@ rsync -a \
     --exclude='build-deb.sh' \
     --exclude='*.deb' \
     --exclude='tests/' \
+    --exclude='certs/' \
+    --exclude='logs/' \
     "${SCRIPT_DIR}/" "$STAGING/opt/notthenet/"
 
 # ── /usr/bin/notthenet CLI launcher ──────────────────────────────────────────

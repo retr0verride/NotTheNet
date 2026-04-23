@@ -45,7 +45,7 @@ VS Code will detect the `.venv` automatically. If prompted, select it as the Pyt
 bash predeploy.sh
 ```
 
-This runs ruff (lint), mypy (type check), bandit (security scan), pytest (250+ tests), and builds the package. **All checks must pass before pushing.**
+This runs ruff (lint), mypy (type check), bandit (security scan), pytest (300+ tests), and builds the package. **All checks must pass before pushing.**
 
 ---
 
@@ -75,7 +75,7 @@ code .
 .\predeploy.ps1
 ```
 
-This runs ruff (lint), mypy (type check), bandit (security scan), pytest (250+ tests), and builds the package. **All checks must pass before pushing.**
+This runs ruff (lint), mypy (type check), bandit (security scan), pytest (300+ tests), and builds the package. **All checks must pass before pushing.**
 
 ---
 

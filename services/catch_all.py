@@ -26,7 +26,6 @@ import socketserver
 import ssl
 import threading
 from collections import defaultdict
-from typing import Optional
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -72,7 +71,7 @@ def _detect_protocol(peek: bytes) -> str:
     return "unknown"
 
 
-def _build_tls_context(cert_path: str, key_path: str) -> "Optional[ssl.SSLContext]":
+def _build_tls_context(cert_path: str, key_path: str) -> "ssl.SSLContext | None":
     """
     Build a reusable TLS server context.  Returns None if certs are missing.
     TLSv1.2 minimum is enforced; older versions are rejected.
@@ -100,7 +99,7 @@ def _build_tls_context(cert_path: str, key_path: str) -> "Optional[ssl.SSLContex
 
 def _try_tls_wrap_ctx(
     sock: socket.socket, ctx: ssl.SSLContext
-) -> "Optional[ssl.SSLSocket]":
+) -> "ssl.SSLSocket | None":
     """Wrap *sock* using a pre-built SSLContext.  Returns None on failure."""
     try:
         return ctx.wrap_socket(sock, server_side=True)
@@ -167,13 +166,13 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
     # Class-level cert paths and cached TLS context; set by CatchAllTCPService before server start
     cert_path: str = ""
     key_path:  str = ""
-    _tls_ctx: "Optional[ssl.SSLContext]" = None
+    _tls_ctx: "ssl.SSLContext | None" = None
     session_timeout: float = SESSION_TIMEOUT
     peek_timeout: float = PEEK_TIMEOUT
 
     def _upgrade_tls(
         self, sock: socket.socket, safe_addr: str, src_port: int,
-    ) -> "Optional[socket.socket]":
+    ) -> "socket.socket | None":
         """Attempt TLS handshake; return upgraded socket, original, or None."""
         if self._tls_ctx is None:
             logger.debug(
@@ -364,7 +363,7 @@ class CatchAllUDPService:
         self.enabled = config.get("redirect_udp", False)
         self.port = int(config.get("udp_port", 9998))
         self.bind_ip = bind_ip
-        self._sock: Optional[socket.socket] = None
+        self._sock: socket.socket | None = None
         self._stop_event = threading.Event()
         self._thread = None
 
