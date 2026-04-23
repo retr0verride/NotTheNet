@@ -9,6 +9,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ---
 
+## [2026.04.22-3] — 2026-04-22
+
+### Changed
+- **CI: removed `build-bundle` job** — the offline bundle (`make-bundle.ps1`) is a local Windows tool for air-gapped labs, not a release download. Target users always have a dev machine to build it on demand. Removed the `windows-latest` CI job and its artifact download from the release job.
+- **`docs/installation.md`: Method 2 rewritten** — clarifies the bundle is built locally from the clone (not downloaded), adds the FAT32/symlink warning, and updates the install flow to match current `notthenet-bundle.sh` usage.
+
+---
+
 ## [2026.04.22-2] — 2026-04-22
 
 ### Added
@@ -406,7 +414,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 - Test suite (validators, logging_utils, config)
 - Pre-deploy gate scripts (`predeploy.sh`, `predeploy.ps1`)
 
-[Unreleased]: https://github.com/retr0verride/NotTheNet/compare/v2026.04.22-2...HEAD
+[Unreleased]: https://github.com/retr0verride/NotTheNet/compare/v2026.04.22-3...HEAD
+[2026.04.22-3]: https://github.com/retr0verride/NotTheNet/compare/v2026.04.22-2...v2026.04.22-3
 [2026.04.22-2]: https://github.com/retr0verride/NotTheNet/compare/v2026.04.22-1...v2026.04.22-2
 [2026.04.22-1]: https://github.com/retr0verride/NotTheNet/compare/v2026.04.21-1...v2026.04.22-1
 [2026.04.21-1]: https://github.com/retr0verride/NotTheNet/compare/v2026.03.04-1...v2026.04.21-1
