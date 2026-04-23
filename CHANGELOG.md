@@ -9,6 +9,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ---
 
+## [2026.04.22-1] — 2026-04-22
+
+### Fixed
+- **`build-deb.sh`: `.deb` written to repo root instead of `dist/`** — `dpkg-deb` output was `${SCRIPT_DIR}/${DEB_NAME}`; changed to `dist/${DEB_NAME}` with `mkdir -p dist` guard; usage comment updated accordingly. `installation.md` already documented `dist/notthenet_*.deb` as the expected path.
+- **`requirements.txt`: `--require-hashes` mode broke installs on all platforms** — any package entry containing `--hash=sha256:` automatically enables pip's `--require-hashes` mode, which then requires every transitive dependency (including platform-compiled `cffi`, `pycparser`) to also carry hashes. Since `cffi` has dozens of platform-specific wheels per release it cannot be sanely pinned in a cross-platform file. All `--hash=sha256:` entries removed; version pins (`==`) retained. `setproctitle` is now an explicit entry (previously excluded because it couldn't be hash-pinned).
+- **`Dockerfile`: `sed` hash-stripping workaround removed** — `Dockerfile` and both CI jobs stripped hash lines via `sed '/--hash=sha256:/d'` before running `pip install`; workaround no longer needed and removed.
+- **`harden-lab.sh`: IPv6 traffic not blocked** — `ip6tables` rules were absent; added `ip6tables` FORWARD DROP rules on the isolated bridge (mirroring the existing `iptables` IPv4 rules) and added `ip6tables -L FORWARD` to the verify step.
+
+### Added
+- **`docs/lab-setup.md`: mouse/keyboard idle activity row** — §8.4 pre-detonation checklist now includes an AutoHotkey loop (`Loop { MouseMove, 1, 0, 0, R | Sleep 30000 }`) to keep the victim session alive and defeat idle-detection sandbox evasion.
+
+---
+
 ## [2026.04.21-1] — 2026-04-21
 
 ### Added
@@ -384,7 +397,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 - Test suite (validators, logging_utils, config)
 - Pre-deploy gate scripts (`predeploy.sh`, `predeploy.ps1`)
 
-[Unreleased]: https://github.com/retr0verride/NotTheNet/compare/v2026.03.04-1...HEAD
+[Unreleased]: https://github.com/retr0verride/NotTheNet/compare/v2026.04.22-1...HEAD
+[2026.04.22-1]: https://github.com/retr0verride/NotTheNet/compare/v2026.04.21-1...v2026.04.22-1
+[2026.04.21-1]: https://github.com/retr0verride/NotTheNet/compare/v2026.03.04-1...v2026.04.21-1
 [2026.03.04-1]: https://github.com/retr0verride/NotTheNet/compare/v2026.02.24-2...v2026.03.04-1
 [2026.02.24-2]: https://github.com/retr0verride/NotTheNet/compare/v2026.02.24-1...v2026.02.24-2
 [2026.02.24-1]: https://github.com/retr0verride/NotTheNet/releases/tag/v2026.02.24-1
