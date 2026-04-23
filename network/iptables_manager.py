@@ -504,21 +504,47 @@ class IPTablesManager:
         return 0
 
     def _apply_ip_forward(self) -> None:
-        """Enable ip_forward when running in gateway mode."""
-        if self.mode != "gateway":
-            return
+        """Enforce ip_forward state based on operating mode.
+
+        Sinkhole mode: explicitly disable ip_forward.  NTN uses REDIRECT/DNAT
+        rules (INPUT chain only) and never routes between interfaces.  Keeping
+        ip_forward=0 removes the kernel-level escape route even if iptables
+        FORWARD rules are flushed after harden-lab.sh ran.
+
+        Gateway mode: enable ip_forward so forwarded packets reach fake services.
+        """
+        if self.mode == "gateway":
+            self._enforce_ip_forward("1")
+        else:
+            self._enforce_ip_forward("0")
+
+    def _enforce_ip_forward(self, target: str) -> None:
+        """Read current ip_forward value, write target if different, save original for restore."""
         prev = _read_ip_forward()
-        if prev is not None and prev != "1":
-            if _write_ip_forward("1"):
-                self._prev_ip_forward = prev
+        if prev is None or prev == target:
+            if prev == target:
+                logger.debug("ip_forward already %s.", target)
+            return
+        if _write_ip_forward(target):
+            self._prev_ip_forward = prev
+            if target == "1":
                 logger.info("ip_forward enabled for gateway mode (was %s).", prev)
             else:
+                logger.warning(
+                    "ip_forward was enabled; disabled on start to prevent "
+                    "traffic escaping the sinkhole (was 1, now 0)."
+                )
+        else:
+            if target == "1":
                 logger.warning(
                     "Could not enable ip_forward; pings and forwarded traffic "
                     "may not reach fake services."
                 )
-        elif prev == "1":
-            logger.debug("ip_forward already enabled.")
+            else:
+                logger.error(
+                    "Could not disable ip_forward — victim traffic may be able "
+                    "to reach the real internet. Run: echo 0 > /proc/sys/net/ipv4/ip_forward"
+                )
 
     def _apply_ttl_mangle(self) -> None:
         """Apply TTL-spoofing mangle rule if spoof_ttl > 0."""

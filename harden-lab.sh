@@ -115,8 +115,11 @@ else
     echo "  ⚠ ip6tables not found — IPv6 forwarding NOT blocked"
 fi
 
-# Ensure IP forwarding is on for the bridge (so NAT redirect works)
-echo 1 > /proc/sys/net/ipv4/ip_forward
+# Ensure IP forwarding is OFF. NTN uses REDIRECT/DNAT rules (INPUT chain only)
+# and does not route between interfaces. Keeping ip_forward=0 removes the
+# kernel-level escape route even if iptables FORWARD rules are flushed.
+echo 0 > /proc/sys/net/ipv4/ip_forward
+echo "  ✓ ip_forward: disabled (sinkhole mode — not required for REDIRECT/DNAT)"
 
 # Block ALL forwarding between bridge (victim network) and management NIC.
 # Skip if bridge and mgmt are the same interface (single-NIC setups).

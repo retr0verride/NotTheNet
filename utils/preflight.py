@@ -240,14 +240,19 @@ def _check_network(cfg: Config) -> list[CheckResult]:
     else:
         results.append(CheckResult(WARN, "smbclient: not found (apt install smbclient) — needed to push CA cert"))
 
-    # ip_forward
+    # ip_forward — NTN uses REDIRECT/DNAT rules only (INPUT chain); ip_forward
+    # is not needed and must be off so the victim cannot route to the real internet.
     try:
-        with open("/proc/sys/net/ipv4/ip_forward") as f:
+        with open("/proc/sys/net/ipv4/ip_forward", encoding="ascii") as f:
             val = f.read().strip()
         if val == "1":
-            results.append(CheckResult(OK, "ip_forward: enabled"))
+            results.append(CheckResult(
+                WARN,
+                "ip_forward: enabled — NTN does not require it; "
+                "disable with: echo 0 > /proc/sys/net/ipv4/ip_forward",
+            ))
         else:
-            results.append(CheckResult(INFO, "ip_forward: disabled (auto-enabled on service start)"))
+            results.append(CheckResult(OK, "ip_forward: disabled (correct for sinkhole mode)"))
     except OSError:
         results.append(CheckResult(INFO, "ip_forward: could not read"))
 
