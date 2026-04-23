@@ -25,6 +25,7 @@ Common problems and how to fix them. Each section starts with the **symptom** (w
 - [Dynamic TLS certs not working](#dynamic-tls-certs-not-working)
 - [TCP fingerprint not applied](#tcp-fingerprint-not-applied)
 - [JSON event log not created](#json-event-log-not-created)
+- [Windows 7 victim — TLS connections fail or malware ignores HTTPS](#windows-7-victim--tls-connections-fail-or-malware-ignores-https)
 
 ---
 
@@ -518,6 +519,52 @@ Include the relevant portion of `debug.log` when opening a GitHub issue.
 2. Confirm `general.tcp_fingerprint` is `true` and `tcp_fingerprint_os` is set to a valid profile
 3. Check the log for warnings about `setsockopt` failures (usually means the kernel doesn't support the option)
 4. Nmap OS detection uses many heuristics — TCP fingerprint spoofing covers TTL, window size, DF bit, and MSS but cannot control all parameters. It is most effective against simpler fingerprinting checks
+
+---
+
+## Windows 7 victim — TLS connections fail or malware ignores HTTPS
+
+**Symptom:** Port 443 hits appear in the log but no application data is captured; or malware (e.g. WannaCry) completes DNS and HTTP steps but silently skips HTTPS C2 callbacks.
+
+**Cause:** Windows 7 does not enable TLS 1.2 in Schannel or WinHTTP by default. NotTheNet enforces `TLSv1.2` as its minimum, so the TLS handshake fails before any data is exchanged.
+
+### Fix — enable TLS 1.2 on Windows 7 (run on the victim VM as Administrator)
+
+```powershell
+# Enable TLS 1.2 for Schannel (system-wide, covers malware that uses WinHTTP / wininet)
+$tls12 = 'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.2'
+New-Item -Path "$tls12\Client" -Force | Out-Null
+New-Item -Path "$tls12\Server" -Force | Out-Null
+Set-ItemProperty -Path "$tls12\Client" -Name Enabled       -Value 1 -Type DWord
+Set-ItemProperty -Path "$tls12\Client" -Name DisabledByDefault -Value 0 -Type DWord
+Set-ItemProperty -Path "$tls12\Server" -Name Enabled       -Value 1 -Type DWord
+Set-ItemProperty -Path "$tls12\Server" -Name DisabledByDefault -Value 0 -Type DWord
+
+# Enable TLS 1.2 for WinHTTP (covers .NET and some C2 frameworks)
+Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\WinHttp' `
+    -Name DefaultSecureProtocols -Value 0x00000800 -Type DWord
+
+# On 64-bit Windows 7 apply the WOW64 key too
+if (Test-Path 'HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Internet Settings\WinHttp') {
+    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Internet Settings\WinHttp' `
+        -Name DefaultSecureProtocols -Value 0x00000800 -Type DWord
+}
+```
+
+Reboot the VM after applying, then take a new baseline snapshot.
+
+> **Note:** Some malware (including WannaCry) uses its own bundled TLS/SSL stack (e.g. a statically linked OpenSSL) and ignores the Schannel registry entirely. In that case the fix above has no effect — the malware will still do its own TLS negotiation. WannaCry's HTTPS traffic to the kill-switch domain (`iuqerfsodp9ifjaposdfjhgosurijfaewrwergwea.com`) uses a plain HTTP GET, not HTTPS, so this is not a blocker for capturing the kill-switch check. See [Configuration → WannaCry example](configuration.md#wannacry--ransomware-with-embedded-tor-client).
+
+### Install the CA cert on Windows 7
+
+Windows 7's `certutil` syntax is the same as later versions:
+
+```powershell
+# Copy ca.crt from Kali first (e.g. via NotTheNet's cert HTTP server on :8080)
+certutil -addstore Root ca.crt
+```
+
+Or use the GUI: double-click `ca.crt` → **Install Certificate** → **Local Machine** → **Trusted Root Certification Authorities**.
 
 ---
 
