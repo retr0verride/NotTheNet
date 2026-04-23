@@ -7,7 +7,7 @@
 #
 # Usage:
 #   bash build-deb.sh
-#   sudo dpkg -i notthenet_2026.04.21-1_all.deb
+#   sudo dpkg -i dist/notthenet_<version>_all.deb
 # ============================================================================
 
 set -euo pipefail
@@ -245,12 +245,13 @@ POSTRM
 chmod 755 "$STAGING/DEBIAN/postrm"
 
 # ── Build ─────────────────────────────────────────────────────────────────────
+mkdir -p "${SCRIPT_DIR}/dist"
 info "Building ${DEB_NAME}..."
-dpkg-deb --build --root-owner-group "$STAGING" "${SCRIPT_DIR}/${DEB_NAME}"
+dpkg-deb --build --root-owner-group "$STAGING" "${SCRIPT_DIR}/dist/${DEB_NAME}"
 
 echo ""
-echo -e "${GREEN}Built: ${DEB_NAME}${NC}"
+echo -e "${GREEN}Built: dist/${DEB_NAME}${NC}"
 echo ""
-echo "Install:    sudo dpkg -i ${DEB_NAME}"
+echo "Install:    sudo dpkg -i dist/${DEB_NAME}"
 echo "Remove:     sudo apt remove notthenet"
 echo "Purge:      sudo apt purge notthenet  (removes /opt/notthenet)"
