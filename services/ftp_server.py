@@ -11,6 +11,8 @@ Security notes (OpenSSF):
 - Active mode (PORT command) is intentionally not implemented (SSRF vector)
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import random
