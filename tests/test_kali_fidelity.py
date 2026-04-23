@@ -59,7 +59,7 @@ def _recv_all(s: socket.socket, timeout: float = 2.0) -> bytes:
             if not chunk:
                 break
             buf += chunk
-    except (socket.timeout, TimeoutError, OSError):
+    except (TimeoutError, OSError):
         pass
     return buf
 

@@ -23,7 +23,7 @@ import socket
 import ssl
 import threading
 import time
-from typing import Callable
+from collections.abc import Callable
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -176,7 +176,7 @@ class _IRCClientThread(threading.Thread):
         while True:
             try:
                 chunk = self.conn.recv(1024)
-            except socket.timeout:
+            except TimeoutError:
                 if self._waiting_for_pong:
                     self._send_raw(f"ERROR :Closing Link: {self.hostname} (Ping timeout)")
                     return None
@@ -431,7 +431,7 @@ class IRCService:
         while not self._stop_event.is_set():
             try:
                 conn, addr = self._sock.accept()
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 break
@@ -526,7 +526,7 @@ class IRCSTLSService:
         while not self._stop.is_set():
             try:
                 raw_conn, addr = self._sock.accept()
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 break

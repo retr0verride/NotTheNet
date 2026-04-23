@@ -8,7 +8,7 @@ version = "2026.04.23-1"
 description = "Fake internet simulator for malware analysis — INetSim/FakeNet-NG alternative"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 keywords = ["malware-analysis", "sandbox", "fakenet", "inetsim", "dns", "http"]
 classifiers = [
     "Development Status :: 4 - Beta",

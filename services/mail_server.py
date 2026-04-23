@@ -45,7 +45,8 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
 
-    def __init__(self, server_address, request_handler_class, max_connections: int = _MAX_CONNECTIONS):
+    def __init__(self, server_address, request_handler_class,
+                 max_connections: int = _MAX_CONNECTIONS):
         self._sem = threading.BoundedSemaphore(max_connections)
         super().__init__(server_address, request_handler_class)
 
@@ -416,7 +417,8 @@ class _SMTPSServer(_SMTPServer):
 class _SSLReuseServer(_ReuseServer):
     """ThreadingTCPServer that wraps accepted sockets in TLS."""
 
-    def __init__(self, address, handler, ssl_ctx: ssl.SSLContext, max_connections: int = _MAX_CONNECTIONS):
+    def __init__(self, address, handler, ssl_ctx: ssl.SSLContext,
+                 max_connections: int = _MAX_CONNECTIONS):
         self._ssl_ctx = ssl_ctx
         super().__init__(address, handler, max_connections)
 
@@ -706,7 +708,9 @@ class POP3Service:
             return False
         try:
             ensure_certs(self.cert_file, self.key_file)
-            self._server = _ReuseServer((self.bind_ip, self.port), POP3Handler, self.max_connections)
+            self._server = _ReuseServer(
+                (self.bind_ip, self.port), POP3Handler, self.max_connections
+            )
             self._server._mail_hostname = self.hostname
             self._server._mail_cert_path = self.cert_file
             self._server._mail_key_path = self.key_file
@@ -768,7 +772,9 @@ class POP3SService:
             return False
         try:
             ssl_ctx = self._build_ssl_context()
-            self._server = _SSLReuseServer((self.bind_ip, self.port), POP3Handler, ssl_ctx, self.max_connections)
+            self._server = _SSLReuseServer(
+                (self.bind_ip, self.port), POP3Handler, ssl_ctx, self.max_connections
+            )
             self._server._mail_hostname = self.hostname
             self._server._mail_cert_path = ''
             self._server._mail_key_path = ''
@@ -964,7 +970,9 @@ class IMAPService:
             return False
         try:
             ensure_certs(self.cert_file, self.key_file)
-            self._server = _ReuseServer((self.bind_ip, self.port), IMAPHandler, self.max_connections)
+            self._server = _ReuseServer(
+                (self.bind_ip, self.port), IMAPHandler, self.max_connections
+            )
             self._server._mail_hostname = self.hostname
             self._server._mail_cert_path = self.cert_file
             self._server._mail_key_path = self.key_file
@@ -1026,7 +1034,9 @@ class IMAPSService:
             return False
         try:
             ssl_ctx = self._build_ssl_context()
-            self._server = _SSLReuseServer((self.bind_ip, self.port), IMAPHandler, ssl_ctx, self.max_connections)
+            self._server = _SSLReuseServer(
+                (self.bind_ip, self.port), IMAPHandler, ssl_ctx, self.max_connections
+            )
             self._server._mail_hostname = self.hostname
             self._server._mail_cert_path = ''
             self._server._mail_key_path = ''

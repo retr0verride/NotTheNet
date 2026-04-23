@@ -157,7 +157,7 @@ class DoTService:
         while self.running:
             try:
                 client_sock, addr = self._server_sock.accept()
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 break

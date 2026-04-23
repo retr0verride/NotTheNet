@@ -237,7 +237,7 @@ class TestSMTPConnectionCap(unittest.TestCase):
                 s.settimeout(1.0)
                 try:
                     s.recv(256)   # consume banner so the slot stays open
-                except socket.timeout:
+                except TimeoutError:
                     pass
             time.sleep(0.1)
 

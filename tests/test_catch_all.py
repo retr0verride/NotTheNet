@@ -220,7 +220,7 @@ class TestCatchAllTCPLifecycle:
                 # Generic banner is empty; server may just close the connection
                 try:
                     data = s.recv(4096)
-                except (socket.timeout, OSError):
+                except (TimeoutError, OSError):
                     data = b""
                 # Either empty or closed — both acceptable
                 assert data is not None

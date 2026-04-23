@@ -119,7 +119,7 @@ class ICMPResponder:
         while not self._stop.is_set():
             try:
                 raw, addr = self._sock.recvfrom(65535)
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 break

@@ -31,7 +31,7 @@ Security notes (OpenSSF):
 import logging
 import socket
 import threading
-from typing import Callable
+from collections.abc import Callable
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -297,7 +297,7 @@ class RedisService:
         while not self._stop.is_set():
             try:
                 conn, addr = self._sock.accept()
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 break

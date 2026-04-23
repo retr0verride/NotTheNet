@@ -40,7 +40,8 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
 
-    def __init__(self, server_address, request_handler_class, max_connections: int = _MAX_CONNECTIONS):
+    def __init__(self, server_address, request_handler_class,
+                 max_connections: int = _MAX_CONNECTIONS):
         self._sem = threading.BoundedSemaphore(max_connections)
         super().__init__(server_address, request_handler_class)
 

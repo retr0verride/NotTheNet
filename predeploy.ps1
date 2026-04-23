@@ -63,7 +63,6 @@ Step "3/10  Security scan (bandit)"
 $prevEAP = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
 $banditOut = & $Python -m bandit -r . `
-    --exclude .venv,tests,tools `
     --severity-level high 2>&1
 $banditExit = $LASTEXITCODE
 $ErrorActionPreference = $prevEAP
@@ -122,7 +121,8 @@ if (Test-Path "CHANGELOG.md") {
 
 # ── 9. pyproject.toml Python version floor ──────────────────────────────────
 Step "9/10  pyproject.toml version floor"
-$pyMin = (Select-String -Path "pyproject.toml" -Pattern 'requires-python\s*=\s*"([^"]+)"' -ErrorAction SilentlyContinue)?.Matches[0]?.Groups[1]?.Value
+$pyMinMatch = Select-String -Path "pyproject.toml" -Pattern 'requires-python\s*=\s*"([^"]+)"' -ErrorAction SilentlyContinue
+$pyMin = if ($pyMinMatch) { $pyMinMatch.Matches[0].Groups[1].Value } else { "" }
 if ($pyMin -and $pyMin -match "3\.9") {
     Fail "pyproject.toml still targets Python 3.9 (EOL); update requires-python"
 } else {

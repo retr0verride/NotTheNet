@@ -26,8 +26,9 @@ import logging
 import os
 import threading
 import time
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any, Callable
+from typing import Any
 from urllib.parse import urlsplit
 
 from infrastructure.logging.setup import get_trace_id, set_trace_id

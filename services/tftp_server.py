@@ -167,7 +167,7 @@ class _TFTPTransferThread(threading.Thread):
                     op, blk = struct.unpack("!HH", ack[:4])
                     if op == _OP_ACK and blk == 1:
                         break  # Transfer complete
-            except socket.timeout:
+            except TimeoutError:
                 retries -= 1
         logger.debug("TFTP RRQ [%s] complete", safe_addr)
 
@@ -204,7 +204,7 @@ class _TFTPTransferThread(threading.Thread):
             while True:
                 try:
                     pkt, _ = sock.recvfrom(4 + _BLOCK_SIZE)
-                except socket.timeout:
+                except TimeoutError:
                     break
                 if len(pkt) < 4:
                     break
@@ -273,7 +273,7 @@ class TFTPService:
         while not self._stop_event.is_set():
             try:
                 data, addr = self._sock.recvfrom(512)
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 break

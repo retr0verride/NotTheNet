@@ -181,7 +181,7 @@ class VNCService:
         while not self._stop.is_set():
             try:
                 conn, addr = self._sock.accept()
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 break

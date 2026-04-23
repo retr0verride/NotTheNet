@@ -66,7 +66,7 @@ class TestIRCPingTimeout(unittest.TestCase):
                         data += chunk
                         if b"PING" in data:
                             break
-                    except socket.timeout:
+                    except TimeoutError:
                         break
 
         client.close()
@@ -120,7 +120,7 @@ class TestIRCPingTimeout(unittest.TestCase):
                 while b"PING" not in data and time.monotonic() < deadline:
                     try:
                         data += client.recv(4096)
-                    except socket.timeout:
+                    except TimeoutError:
                         break
 
                 if b"PING" in data:
