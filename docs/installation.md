@@ -185,15 +185,27 @@ The install script and `.deb` both register a desktop entry so NotTheNet appears
 
 ## Upgrading
 
+Upgrades work **within** the same install method. Do not mix them.
+
+**Script install:**
 ```bash
 cd ~/NotTheNet
 sudo bash update.sh
 ```
+Backs up `config.json`, pulls the latest code, re-installs the package, and restores your config.
 
-The script backs up `config.json`, pulls the latest code, re-installs the package, and restores your config. Your settings are never overwritten.
+**`.deb` install:**
+```bash
+cd ~/NotTheNet        # or wherever you built it
+git pull origin main
+sudo bash build-deb.sh
+sudo dpkg -i dist/notthenet_*.deb
+```
+`dpkg -i` on a newer `.deb` is an in-place upgrade — it replaces `/opt/notthenet/` cleanly.
 
-To see what new config keys were added in a new release:
+> **Do not run `update.sh` if you installed from a `.deb`.** `update.sh` looks for a venv in the repo directory (`~/NotTheNet/venv/` or `~/NotTheNet/.venv/`); a `.deb` install puts the venv in `/opt/notthenet/venv/` and `update.sh` will exit with an error.
 
+To see what new config keys were added in a release:
 ```bash
 diff config.json <(git show origin/main:config.json)
 ```
