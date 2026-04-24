@@ -261,8 +261,34 @@ class IPTablesManager:
 
     def __init__(self, config: dict):
         self.enabled = config.get("auto_iptables", True)
-        self.interface = config.get("interface", "eth0")
         self.mode = config.get("iptables_mode", "loopback")
+        # Interface: autodetect when blank or when configured value doesn't
+        # exist on this host.  Avoids the classic install footgun where a
+        # config shipped from one environment (vmbr1, ens33, wlan0, ...) is
+        # invalid on the next.
+        configured_iface = (config.get("interface") or "").strip()
+        # Only attempt autodetect on Linux (where /proc/net/dev exists and
+        # `ip` is available).  Off-Linux (tests on Windows/macOS) trust the
+        # configured value as-is — runtime validation will catch real errors.
+        if not os.path.exists("/proc/net/dev"):
+            self.interface = configured_iface or "eth0"
+        elif configured_iface and self._validate_interface(configured_iface):
+            self.interface = configured_iface
+        else:
+            detected = self._detect_default_interface()
+            if detected:
+                if configured_iface:
+                    logger.warning(
+                        "Configured interface '%s' not found; auto-detected '%s' from default route.",
+                        sanitize_log_string(configured_iface), detected,
+                    )
+                else:
+                    logger.info("Interface auto-detected: %s", detected)
+                self.interface = detected
+            else:
+                # No usable interface found; keep configured value so the
+                # later validation in apply_rules surfaces a clean error.
+                self.interface = configured_iface or "eth0"
         bind_ip = config.get("bind_ip", "0.0.0.0")
         configured_redirect = config.get("redirect_ip", "127.0.0.1")
         # In gateway mode, DNAT must rewrite victim packets to a *real*
@@ -307,29 +333,55 @@ class IPTablesManager:
         self._filter_icmp_drop_applied = False
         self._prev_ip_forward: str | None = None  # restored on stop
 
-    @staticmethod
-    def _derive_gateway_ip(bind_ip: str) -> str | None:
+    def _derive_gateway_ip(self, bind_ip: str) -> str | None:
         """Pick a routable IP for DNAT targets in gateway mode.
 
-        Prefers an explicit `bind_ip` other than 0.0.0.0/127.0.0.1.  If
-        bind_ip is the wildcard, fall back to the first non-loopback IPv4
-        on any interface (matches what most users mean by "the lab IP").
-        Returns None if nothing usable is found.
+        Prefers an explicit `bind_ip` other than 0.0.0.0/127.0.0.1.  Otherwise
+        falls back to the first global IPv4 on `self.interface`, then to any
+        non-loopback IPv4 on the host.  Returns None if nothing is usable.
         """
         if bind_ip and bind_ip not in ("0.0.0.0", "127.0.0.1"):
             return bind_ip
+        # Try the configured/detected interface first so multi-homed hosts
+        # don't pick an unrelated address.
+        iface_ip = self._first_ipv4_on(self.interface) if self.interface else None
+        if iface_ip:
+            return iface_ip
+        return self._first_ipv4_on(None)
+
+    @staticmethod
+    def _first_ipv4_on(iface: str | None) -> str | None:
+        """Return the first global IPv4 on `iface` (or any iface if None)."""
+        cmd = ["ip", "-4", "-o", "addr", "show", "scope", "global"]
+        if iface:
+            cmd += ["dev", iface]
         try:
-            code, out, _ = _run(["ip", "-4", "-o", "addr", "show", "scope", "global"])
+            code, out, _ = _run(cmd)
             if code != 0:
                 return None
             for line in out.splitlines():
                 # Format: "2: eth0    inet 10.10.10.1/24 brd ..."
                 parts = line.split()
                 if "inet" in parts:
-                    cidr = parts[parts.index("inet") + 1]
-                    ip = cidr.split("/", 1)[0]
+                    ip = parts[parts.index("inet") + 1].split("/", 1)[0]
                     if ip and not ip.startswith("127."):
                         return ip
+        except OSError:
+            return None
+        return None
+
+    @staticmethod
+    def _detect_default_interface() -> str | None:
+        """Return the interface used by the host's default IPv4 route, or None."""
+        try:
+            code, out, _ = _run(["ip", "-4", "route", "show", "default"])
+            if code != 0:
+                return None
+            # Format: "default via 10.10.10.254 dev eth0 proto ..."
+            for line in out.splitlines():
+                parts = line.split()
+                if "dev" in parts:
+                    return parts[parts.index("dev") + 1]
         except OSError:
             return None
         return None

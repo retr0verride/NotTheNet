@@ -171,8 +171,15 @@ class ServiceManager:
             logger.warning("harden-lab.sh not found at %s — skipping hardening", script)
             return
 
-        interface = self.config.get("general", "interface") or "vmbr1"
-        gateway_ip = self.config.get("general", "bind_ip") or "10.10.10.1"
+        # Avoid hardcoded fallbacks (vmbr1/10.10.10.1) that only match one lab
+        # topology.  When unset, leave blank and let harden-lab.sh autodetect
+        # via `ip route` so the same config works across Kali/Proxmox/cloud.
+        interface = self.config.get("general", "interface") or ""
+        gateway_ip = self.config.get("general", "bind_ip") or ""
+        if not interface or not gateway_ip:
+            logger.info(
+                "harden-lab: interface/bind_ip unset, letting script autodetect from default route"
+            )
 
         cmd = ["bash", script, "--bridge", interface, "--gateway-ip", gateway_ip, "--skip-mount"]
         try:

@@ -49,6 +49,25 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
+# ── Autodetect bridge / gateway when caller passed defaults ──────────────
+# Lets `service_manager._apply_hardening` pass through unset values without
+# pinning Proxmox-specific names that don't exist on Kali / cloud / WSL.
+if [[ "$BRIDGE_IF" == "vmbr1" ]] && ! ip link show vmbr1 >/dev/null 2>&1; then
+    detected_if="$(ip -4 route show default 2>/dev/null | awk '/default/ {print $5; exit}')"
+    if [[ -n "$detected_if" ]]; then
+        echo "[i] Bridge '$BRIDGE_IF' not found; using default-route interface '$detected_if'."
+        BRIDGE_IF="$detected_if"
+    fi
+fi
+if [[ "$GATEWAY_IP" == "10.10.10.1" ]] && ! ip -4 addr show | grep -q "inet 10\.10\.10\.1/"; then
+    detected_ip="$(ip -4 -o addr show dev "$BRIDGE_IF" scope global 2>/dev/null \
+        | awk '{print $4}' | cut -d/ -f1 | head -n1)"
+    if [[ -n "$detected_ip" ]]; then
+        echo "[i] Gateway '$GATEWAY_IP' not assigned; using '$detected_ip' from $BRIDGE_IF."
+        GATEWAY_IP="$detected_ip"
+    fi
+fi
+
 echo "═══════════════════════════════════════════════════════"
 echo "  NotTheNet Lab Hardening"
 echo "  Bridge:        $BRIDGE_IF"

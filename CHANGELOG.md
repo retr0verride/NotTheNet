@@ -8,7 +8,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 ## [Unreleased]
 
 ### Fixed
+- **`network/iptables_manager.py`: invalid configured interface no longer aborts startup** — if `general.interface` is blank or doesn't exist on the host (e.g. shipped default of one environment imported into another), `IPTablesManager.__init__` now auto-detects the default-route interface via `ip -4 route show default` and uses that. Companion to the redirect_ip auto-derive: a single sane default config now works on Kali, Proxmox, cloud, and WSL without per-host edits.
+- **`service_manager.py`: removed hardcoded `vmbr1` / `10.10.10.1` fallbacks in `_apply_hardening`** — these only matched one Proxmox-specific topology and silently corrupted the lab on every other host.  When `general.interface` / `general.bind_ip` are unset, the values are passed through blank and `harden-lab.sh` autodetects from the default route.
+- **`harden-lab.sh`: autodetects bridge + gateway IP** when invoked with the legacy Proxmox defaults that don't exist on the current host.  Falls back to the default-route interface and its first global IPv4.
+
+### Added
+- `IPTablesManager._detect_default_interface`, `_first_ipv4_on`, refactored `_derive_gateway_ip` — small, single-purpose, fully unit-tested (7 new regression tests in `test_iptables_manager.py::TestAutoDetection`, total 304→311 passing).
+
+## [2026.04.23-7]
+
+### Fixed
 - **`network/iptables_manager.py`: gateway mode DNAT'd to `127.0.0.1`, dropping all victim traffic** — `redirect_ip` defaulted to `127.0.0.1` (fine for single-host sinkhole mode), but in gateway mode the kernel drops cross-interface packets routed to loopback (no `route_localnet` set, and even with it the transparent-proxy semantics break). Result: every victim packet hit the DNAT rule, got rewritten to `127.0.0.1:<port>`, and was silently dropped by the routing layer. `IPTablesManager.__init__` now auto-derives `redirect_ip` in gateway mode: prefers a non-wildcard `bind_ip`, falls back to the first non-loopback IPv4 from `ip -4 -o addr show scope global`. A single `bind_ip` edit is now sufficient to wire up a gateway lab; `redirect_ip` no longer needs to be set in lockstep.
+
+## [2026.04.23-6]
+
+### Fixed
 - **`config.json`: shipped `general.interface` defaulted to `vmbr1` (Proxmox bridge name)** — introduced in commit `76c8097` alongside the `bind_ip = 10.10.10.1` lab default. On any non-Proxmox host (i.e. every fresh Kali install), `iptables_manager` logged `Interface 'vmbr1' not found; check config general.interface` at every Start. Restored to `eth0` to match the documented default; lab/gateway users override per `docs/lab-setup.md`.
 - **`config.json`: shipped defaults bound to `10.0.0.1` (a Proxmox-lab IP not present on most machines)** — every TCP/UDP service failed at boot with `[Errno 99] Cannot assign requested address` on stock installs. `general.bind_ip` is now `0.0.0.0`, `general.redirect_ip` and `dns.resolve_to` are now `127.0.0.1`, matching the documented defaults in `docs/configuration.md`. Lab/gateway-mode users should set these explicitly per `docs/lab-setup.md`.
 - **`build-deb.sh`: polkit `exec.path` set to Python interpreter instead of launcher** — the `sed` substituted `NOTTHENET_GUI_PLACEHOLDER` with `/opt/notthenet/venv/bin/python`, but the launcher invokes `pkexec "$SELF"` where `$SELF` = `/usr/local/bin/notthenet-gui`. Mismatched `exec.path` prevented polkit from matching the named action; `pkexec` then stripped `DISPLAY`/`XAUTHORITY` and Tk silently failed to open after the auth prompt. The desktop icon appeared dead while CLI worked. Now substitutes to `/usr/local/bin/notthenet-gui`, matching `notthenet-install.sh` and `install-offline.sh`.

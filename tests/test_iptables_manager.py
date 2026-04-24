@@ -193,3 +193,43 @@ class TestModeConfig:
     def test_apply_rules_disabled(self):
         mgr = IPTablesManager({"auto_iptables": False})
         assert not mgr.apply_rules({"tcp": [80]})
+
+
+# ── Auto-detection helpers (interface + gateway IP) ─────────────────────────
+
+class TestAutoDetection:
+    """Verify autodetect helpers used to make defaults work across labs."""
+
+    def test_first_ipv4_on_parses_ip_addr_output(self):
+        sample = "2: eth0    inet 10.10.10.1/24 brd 10.10.10.255 scope global eth0\n"
+        with patch("network.iptables_manager._run", return_value=(0, sample, "")):
+            assert IPTablesManager._first_ipv4_on("eth0") == "10.10.10.1"
+
+    def test_first_ipv4_on_skips_loopback(self):
+        sample = "1: lo    inet 127.0.0.1/8 scope host lo\n"
+        with patch("network.iptables_manager._run", return_value=(0, sample, "")):
+            assert IPTablesManager._first_ipv4_on(None) is None
+
+    def test_first_ipv4_on_returns_none_when_ip_missing(self):
+        with patch("network.iptables_manager._run", return_value=(127, "", "not found")):
+            assert IPTablesManager._first_ipv4_on("eth0") is None
+
+    def test_detect_default_interface_parses_ip_route(self):
+        sample = "default via 10.10.10.254 dev eth0 proto dhcp metric 100\n"
+        with patch("network.iptables_manager._run", return_value=(0, sample, "")):
+            assert IPTablesManager._detect_default_interface() == "eth0"
+
+    def test_detect_default_interface_returns_none_on_failure(self):
+        with patch("network.iptables_manager._run", return_value=(2, "", "err")):
+            assert IPTablesManager._detect_default_interface() is None
+
+    def test_derive_gateway_ip_prefers_explicit_bind_ip(self):
+        mgr = IPTablesManager({"interface": "eth0", "iptables_mode": "loopback"})
+        assert mgr._derive_gateway_ip("10.10.10.1") == "10.10.10.1"
+
+    def test_derive_gateway_ip_falls_back_to_interface_ipv4(self):
+        sample = "2: eth0    inet 10.10.10.1/24 brd ... scope global eth0\n"
+        mgr = IPTablesManager({"interface": "eth0", "iptables_mode": "loopback"})
+        with patch("network.iptables_manager._run", return_value=(0, sample, "")):
+            assert mgr._derive_gateway_ip("0.0.0.0") == "10.10.10.1"
+
