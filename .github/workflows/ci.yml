@@ -68,41 +68,26 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: Install lint tools
+      - name: Install shellcheck (apt)
         run: |
-          python -m pip install --upgrade pip
-          pip install \
-            ruff==0.15.2 \
-            "bandit[toml]==1.9.4" \
-            bandit-sarif-formatter==1.1.1 \
-            pip-audit==2.10.0 \
-            mypy==1.19.1 \
-            pydantic==2.13.2 \
-            pydantic-settings==2.13.1 \
-            openapi-spec-validator==0.8.4
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends shellcheck
 
-      - name: ruff (style + import order)
-        run: ruff check . --output-format=github
+      - name: Run consolidated checks (single source of truth)
+        # All lint/SAST logic lives in scripts/checks.py — same script local
+        # devs run via predeploy.{ps1,sh}. --skip-tests because the test job
+        # below runs pytest across the Python version matrix.
+        run: python scripts/checks.py --skip-tests
 
-      - name: mypy — legacy code (informational)
-        run: mypy notthenet.py services/ network/ utils/
-        continue-on-error: true   # existing code lacks strict annotations
-
-      - name: mypy — new layers (strict, blocking)
+      - name: Generate bandit SARIF for GitHub Security
+        if: always()
         run: |
-          mypy domain/ application/ infrastructure/ \
-            --strict \
-            --ignore-missing-imports \
-            --explicit-package-bases
-
-      - name: bandit (SAST — fail on HIGH severity)
-        run: |
+          pip install --quiet "bandit[toml]==1.9.4" bandit-sarif-formatter==1.1.1
           bandit -r . \
-            --exclude .venv,tests,tools \
+            -c pyproject.toml \
             --severity-level high \
             --format sarif \
-            --output bandit-results.sarif
-        continue-on-error: false
+            --output bandit-results.sarif || true
 
       - name: Upload SARIF to GitHub Security
         if: always()
@@ -110,45 +95,6 @@ jobs:
         with:
           sarif_file: bandit-results.sarif
           category: bandit
-
-      - name: pip-audit (dependency CVE scan)
-        run: pip-audit --requirement requirements.txt --strict
-
-      - name: Validate OpenAPI spec
-        run: openapi-spec-validator openapi.yaml
-
-      - name: shellcheck (shell script linting)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends shellcheck
-          find . -name '*.sh' \
-            -not -path './.git/*' \
-            -not -path './.venv/*' \
-            -not -path './notthenet-bundle.sh' \
-            -print0 \
-          | xargs -0 shellcheck --severity=warning
-
-      - name: Audit placeholder consistency
-        run: |
-          # Collect every *_PLACEHOLDER token defined across all asset templates.
-          PLACEHOLDERS=$(grep -roh '[A-Z][A-Z_]*_PLACEHOLDER' assets/ | sort -u)
-          if [[ -z "$PLACEHOLDERS" ]]; then
-            echo "No placeholders found in assets/ — nothing to audit."
-            exit 0
-          fi
-          echo "Placeholders found: $(echo "$PLACEHOLDERS" | tr '\n' ' ')"
-
-          INSTALL_SCRIPTS="build-deb.sh notthenet-install.sh"
-          FAILED=0
-          for P in $PLACEHOLDERS; do
-            for S in $INSTALL_SCRIPTS; do
-              if ! grep -q "s|${P}|" "$S"; then
-                echo "MISSING substitution: $P not handled in $S"
-                FAILED=1
-              fi
-            done
-          done
-          exit $FAILED
 
 # ── Unit tests (matrix) ──────────────────────────────────────────────────────
   test:
