@@ -191,8 +191,13 @@ fi
 if ! [[ "$VICTIM_SUBNET" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$ ]]; then
     echo "  ✗ Invalid VICTIM_SUBNET: $VICTIM_SUBNET — skipping lateral movement blocks"
 else
+    # 445 (SMB) and 3389 (RDP) are NOT blocked here — NotTheNet sinkholes both
+    # via dedicated services.  Blocking them would drop DNAT-redirected victim
+    # traffic before it reaches NTN's listener.  WinRM (5985/5986) and raw
+    # WMI/NetBIOS (135/139/137/138) have no NTN sinkhole and are genuine
+    # Kali-exploitation channels, so those remain blocked.
     for _proto in tcp udp; do
-        for _port in 135 139 445 3389 5985 5986; do
+        for _port in 135 139 5985 5986; do
             iptables -A INPUT -i "$BRIDGE_IF" -s "$VICTIM_SUBNET" \
                 -p "$_proto" --dport "$_port" -j DROP \
                 -m comment --comment "NOTTHENET_HARDEN: block lateral movement -> Kali"
@@ -205,7 +210,8 @@ else
             -m comment --comment "NOTTHENET_HARDEN: block lateral movement -> Kali"
     done
 
-    echo "  ✓ Lateral movement ports (SMB/RDP/WMI/WinRM) from $VICTIM_SUBNET: BLOCKED on $BRIDGE_IF${VICTIM_IP:+ (except $VICTIM_IP via ACCEPT)}"
+    echo "  ✓ Lateral movement ports (WMI/WinRM/NetBIOS) from $VICTIM_SUBNET: BLOCKED on $BRIDGE_IF"
+    echo "  -- SMB/RDP (445/3389) NOT blocked: handled by NotTheNet sinkholes"
 fi
 echo "  Done."
 
