@@ -7,8 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ## [Unreleased]
 
-### Fixed
-- **`network/iptables_manager.py`: invalid configured interface no longer aborts startup** — if `general.interface` is blank or doesn't exist on the host (e.g. shipped default of one environment imported into another), `IPTablesManager.__init__` now auto-detects the default-route interface via `ip -4 route show default` and uses that. Companion to the redirect_ip auto-derive: a single sane default config now works on Kali, Proxmox, cloud, and WSL without per-host edits.
+## [2026.04.24-1]
+
+### Added
+- **`network/iptables_manager.py`: promiscuous mode support (`general.promisc_mode`)** — when `true`, enables promiscuous mode on the lab interface at start and restores the original state on stop. Required to capture VM-to-VM traffic (e.g. EternalBlue lateral movement between two victim VMs on the same bridge) that never passes through Kali's routing stack. Follows the same save/restore pattern as `ip_forward`: state is read from `/sys/class/net/<iface>/flags`, restored in `remove_rules()`, and backed up in the `atexit` handler as a last-resort safety net. Defaults to `false` (no behaviour change for single-victim labs).
+- **`config.json`: `general.promisc_mode: false`** — new config key surfacing the above option. — if `general.interface` is blank or doesn't exist on the host (e.g. shipped default of one environment imported into another), `IPTablesManager.__init__` now auto-detects the default-route interface via `ip -4 route show default` and uses that. Companion to the redirect_ip auto-derive: a single sane default config now works on Kali, Proxmox, cloud, and WSL without per-host edits.
 - **`service_manager.py`: removed hardcoded `vmbr1` / `10.10.10.1` fallbacks in `_apply_hardening`** — these only matched one Proxmox-specific topology and silently corrupted the lab on every other host.  When `general.interface` / `general.bind_ip` are unset, the values are passed through blank and `harden-lab.sh` autodetects from the default route.
 - **`harden-lab.sh`: autodetects bridge + gateway IP** when invoked with the legacy Proxmox defaults that don't exist on the current host.  Falls back to the default-route interface and its first global IPv4.
 

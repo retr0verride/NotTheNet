@@ -1,7 +1,7 @@
 {
   "general": {
     "bind_ip": "0.0.0.0",
-    "redirect_ip": "",
+    "redirect_ip": "10.10.10.1",
     "log_dir": "logs",
     "log_level": "INFO",
     "log_to_file": true,
@@ -20,7 +20,8 @@
     "drop_privileges_user": "nobody",
     "drop_privileges_group": "nogroup",
     "process_masquerade": true,
-    "process_name": "[kworker/u2:1-events]"
+    "process_name": "[kworker/u2:1-events]",
+    "promisc_mode": false
   },
   "dns": {
     "enabled": true,

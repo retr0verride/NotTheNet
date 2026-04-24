@@ -39,6 +39,11 @@ _IPTABLES_SAVE_FILE = os.path.join(_SNAPSHOT_DIR, ".iptables_save.rules")
 _MANGLE_SAVE_FILE = os.path.join(_SNAPSHOT_DIR, ".mangle_save.rules")
 _FILTER_SAVE_FILE = os.path.join(_SNAPSHOT_DIR, ".filter_save.rules")
 
+# Tracks interfaces whose promisc state was changed at start so atexit can
+# restore them if remove_rules() is never called (crash / SIGABRT).
+# Maps {iface_name: original_bool}.
+_promisc_restore: dict[str, bool] = {}
+
 
 def _atexit_restore_snapshots() -> None:
     """Last-resort iptables cleanup when the process exits without a clean shutdown.
@@ -62,6 +67,17 @@ def _atexit_restore_snapshots() -> None:
                     pass
             else:
                 logger.error("atexit: %s restore failed: %s", table, err)
+
+    # Restore any promiscuous-mode state that remove_rules() didn't clean up.
+    _atexit_restore_promisc()
+
+
+def _atexit_restore_promisc() -> None:
+    """Restore promisc state for any interfaces changed at start but not yet restored."""
+    for iface, was_on in _promisc_restore.items():
+        if _set_promisc(iface, was_on):
+            logger.info("atexit: promisc restored to %s on %s.", "on" if was_on else "off", iface)
+    _promisc_restore.clear()
 
 
 atexit.register(_atexit_restore_snapshots)
@@ -247,6 +263,33 @@ def _write_ip_forward(value: str) -> bool:
         return False
 
 
+def _read_promisc(iface: str) -> bool | None:
+    """Return current promiscuous-mode state for *iface*, or None on error.
+
+    Reads the IFF_PROMISC bit (0x100) from /sys/class/net/<iface>/flags.
+    Only meaningful on Linux; returns None on non-Linux hosts.
+    """
+    try:
+        with open(f"/sys/class/net/{iface}/flags", encoding="utf-8") as f:
+            flags = int(f.read().strip(), 16)
+        return bool(flags & 0x100)
+    except OSError:
+        return None
+
+
+def _set_promisc(iface: str, enabled: bool) -> bool:
+    """Enable or disable promiscuous mode on *iface* via `ip link set`.
+
+    Returns True on success.  Uses the `ip` command (no shell=True).
+    """
+    state = "on" if enabled else "off"
+    code, _, err = _run(["ip", "link", "set", iface, "promisc", state])
+    if code == 0:
+        return True
+    logger.warning("Could not set promisc %s on %s: %s", state, iface, err.strip())
+    return False
+
+
 class IPTablesManager:
     """
     Manages iptables rules to redirect traffic to fake services.
@@ -262,6 +305,7 @@ class IPTablesManager:
     def __init__(self, config: dict):
         self.enabled = config.get("auto_iptables", True)
         self.mode = config.get("iptables_mode", "loopback")
+        self.promisc_mode: bool = bool(config.get("promisc_mode", False))
         # Interface: autodetect when blank or when configured value doesn't
         # exist on this host.  Avoids the classic install footgun where a
         # config shipped from one environment (vmbr1, ens33, wlan0, ...) is
@@ -337,6 +381,7 @@ class IPTablesManager:
         self._filter_saved = False
         self._filter_icmp_drop_applied = False
         self._prev_ip_forward: str | None = None  # restored on stop
+        self._prev_promisc: bool | None = None    # restored on stop
 
     def _derive_gateway_ip(self, bind_ip: str) -> str | None:
         """Pick a routable IP for DNAT targets in gateway mode.
@@ -499,6 +544,7 @@ class IPTablesManager:
         ok_count += self._apply_icmp_redirect(chain, table_flag, icmp_enabled)
         ok_count += self._apply_icmp_drop()
         self._apply_ip_forward()
+        self._apply_promisc()
 
         logger.info(
             "Applied %d iptables NAT rules (chain=%s, mode=%s)",
@@ -654,6 +700,35 @@ class IPTablesManager:
                     "to reach the real internet. Run: echo 0 > /proc/sys/net/ipv4/ip_forward"
                 )
 
+    def _apply_promisc(self) -> None:
+        """Enable promiscuous mode on the lab interface if configured.
+
+        Reads the current state so we only restore what we actually changed.
+        No-ops when ``promisc_mode`` is False or the NIC is already promiscuous.
+        """
+        if not self.promisc_mode:
+            return
+        current = _read_promisc(self.interface)
+        if current is None:
+            logger.warning(
+                "Cannot read promisc state for %s — /sys unavailable; skipping.",
+                self.interface,
+            )
+            return
+        if current:
+            logger.debug("promisc already enabled on %s.", self.interface)
+            return
+        if _set_promisc(self.interface, True):
+            self._prev_promisc = False  # was off — restore to off on stop
+            _promisc_restore[self.interface] = False  # atexit safety net
+            logger.info(
+                "Promiscuous mode enabled on %s "
+                "(VM-to-VM traffic now visible; will restore on stop).",
+                self.interface,
+            )
+        else:
+            logger.warning("Failed to enable promiscuous mode on %s.", self.interface)
+
     def _apply_ttl_mangle(self) -> None:
         """Apply TTL-spoofing mangle rule if spoof_ttl > 0."""
         if self.spoof_ttl <= 0:
@@ -745,6 +820,17 @@ class IPTablesManager:
                 if _write_ip_forward(self._prev_ip_forward):
                     logger.info("ip_forward restored to %s.", self._prev_ip_forward)
                 self._prev_ip_forward = None
+
+            # Restore promiscuous mode
+            if self._prev_promisc is not None:
+                if _set_promisc(self.interface, self._prev_promisc):
+                    logger.info(
+                        "Promiscuous mode restored to %s on %s.",
+                        "on" if self._prev_promisc else "off",
+                        self.interface,
+                    )
+                _promisc_restore.pop(self.interface, None)
+                self._prev_promisc = None
 
             self._remove_auxiliary_rules()
         finally:
