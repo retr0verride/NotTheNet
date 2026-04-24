@@ -78,9 +78,12 @@ class _GeneralPage(tk.Frame):
              "IP address that all services bind to.\n"
              "Use 0.0.0.0 to listen on every interface,\n"
              "or a specific IP to restrict to one interface."),
-            ("Redirect IP",   "redirect_ip",  "10.10.10.1",
-             "IP returned for all DNS A/AAAA queries unless\n"
-             "overridden by a custom record in the section below."),
+            ("Redirect IP",   "redirect_ip",  "",
+             "Where iptables DNAT redirects victim traffic.\n"
+             "Leave blank (or 'auto') to auto-derive from the interface IP \u2014 recommended.\n"
+             "Set explicitly only if you have multiple lab IPs and need to pick one.\n"
+             "NEVER set to 127.0.0.1 in gateway mode (kernel drops cross-interface\n"
+             "packets routed to loopback)."),
             ("Interface",     "interface",    "eth0",
              "Network interface for iptables REDIRECT rules (e.g. eth0, ens33).\n"
              "Run 'ip link' to list available interfaces."),

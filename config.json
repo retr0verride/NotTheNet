@@ -1,7 +1,7 @@
 {
   "general": {
     "bind_ip": "0.0.0.0",
-    "redirect_ip": "127.0.0.1",
+    "redirect_ip": "",
     "log_dir": "logs",
     "log_level": "INFO",
     "log_to_file": true,

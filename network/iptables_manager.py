@@ -291,13 +291,14 @@ class IPTablesManager:
                 # later validation in apply_rules surfaces a clean error.
                 self.interface = configured_iface or "eth0"
         bind_ip = config.get("bind_ip", "0.0.0.0")
-        configured_redirect = config.get("redirect_ip", "127.0.0.1")
+        configured_redirect = config.get("redirect_ip", "")
         # In gateway mode, DNAT must rewrite victim packets to a *real*
         # interface IP — not 127.0.0.1.  Linux drops cross-interface packets
         # routed to loopback unless route_localnet=1, and even then it breaks
         # transparent-proxy semantics for the victim.  Auto-derive the right
         # target so a single IP edit (bind_ip) is sufficient for gateway labs.
-        if self.mode == "gateway" and configured_redirect in ("127.0.0.1", "0.0.0.0"):
+        # Sentinels that trigger auto-derive: "", "auto", "127.0.0.1", "0.0.0.0".
+        if self.mode == "gateway" and configured_redirect in ("", "auto", "127.0.0.1", "0.0.0.0"):
             derived = self._derive_gateway_ip(bind_ip)
             if derived:
                 logger.info(
@@ -312,9 +313,12 @@ class IPTablesManager:
                     "(bind_ip=%s, interface=%s); victim traffic will not reach services.",
                     bind_ip, self.interface,
                 )
-                self.redirect_ip = configured_redirect
+                # Fall back to loopback to avoid passing empty string to iptables.
+                self.redirect_ip = configured_redirect or "127.0.0.1"
         else:
-            self.redirect_ip = configured_redirect
+            # Non-gateway (loopback) mode: empty string would break iptables;
+            # default to loopback which is what loopback mode wants anyway.
+            self.redirect_ip = configured_redirect or "127.0.0.1"
         # When > 0, add a mangle POSTROUTING TTL rule so outgoing packets
         # appear to have traversed internet routing hops rather than being
         # served from a directly-connected host.

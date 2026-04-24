@@ -147,9 +147,13 @@ def validate_config(config_data: dict) -> list:
     if not ok:
         errors.append(f"general.bind_ip is invalid: {general.get('bind_ip')}")
 
-    ok, _ = validate_ip(general.get("redirect_ip", "127.0.0.1"))
-    if not ok:
-        errors.append(f"general.redirect_ip is invalid: {general.get('redirect_ip')}")
+    redirect_ip_val = general.get("redirect_ip", "")
+    # Empty string / "auto" are valid sentinels meaning "auto-derive from
+    # interface in gateway mode".  See network/iptables_manager.py.
+    if redirect_ip_val and redirect_ip_val != "auto":
+        ok, _ = validate_ip(redirect_ip_val)
+        if not ok:
+            errors.append(f"general.redirect_ip is invalid: {redirect_ip_val}")
 
     spoof_ip = str(general.get("spoof_public_ip", "") or "").strip()
     if spoof_ip:
