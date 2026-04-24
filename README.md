@@ -21,7 +21,10 @@ NotTheNet simulates the internet for malware being detonated in an isolated lab.
 
 ## Quick Start
 
+Run from a writable directory you own (e.g. your home dir). Do **not** clone into `/opt/notthenet/` — that path is the install target of the `.deb` package and will be overwritten.
+
 ```bash
+cd ~
 git clone https://github.com/retr0verride/NotTheNet
 cd NotTheNet
 bash build-deb.sh

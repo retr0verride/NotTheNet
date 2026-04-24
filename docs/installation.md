@@ -43,9 +43,12 @@
 
 Installs to `/opt/notthenet/`. Clean uninstall via `apt`. Preferred for all end-user installs.
 
+> ⚠ **Do not clone into `/opt/notthenet/`.** That directory is the install target of the `.deb` and will be replaced by `dpkg -i`, leaving your shell with a stale CWD (`getcwd: cannot access parent directories`). Clone into your home directory instead.
+
 ### Install
 
 ```bash
+cd ~
 git clone https://github.com/retr0verride/NotTheNet.git
 cd NotTheNet
 bash build-deb.sh
