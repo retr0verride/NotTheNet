@@ -31,7 +31,7 @@ def _open_path_external(path: str) -> None:
 # ---------------------------------------------------------------------------
 
 APP_TITLE = "NotTheNet \u2014 Fake Internet Simulator"
-APP_VERSION = "2026.04.24-1"
+APP_VERSION = "2026.04.24-2"
 PAD = 8
 FIELD_WIDTH = 22
 LOG_MAX_LINES = 2000
@@ -395,3 +395,4 @@ def _row(parent, label: str, widget_factory, row: int,
             tooltip(lbl, tip)
             tooltip(w, tip)
     return w
+
