@@ -1,4 +1,4 @@
-# ship.ps1 — Full release workflow for NotTheNet
+# ship.ps1 -- Full release workflow for NotTheNet
 # Runs predeploy checks, generates offline bundle installer + zip.
 #
 # Usage:  .\ship.ps1
@@ -15,17 +15,17 @@ function Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
 function Pass($msg) { Write-Host "    OK: $msg" -ForegroundColor Green }
 function Fail($msg) { Write-Host "    FAIL: $msg" -ForegroundColor Red; exit 1 }
 
-# ── Bump version: YYYY.MM.DD-N (same day → N+1, new day → 1) ─────────────────
+# -- Bump version: YYYY.MM.DD-N (same day -> N+1, new day -> 1) -----------------
 # Read from BOTH files and take the higher build number to avoid rollback when
 # they drift (e.g. gui/widgets.py was manually bumped without updating pyproject.toml).
-# Note: notthenet.py imports APP_VERSION from gui.widgets — it is not the source of truth.
+# Note: notthenet.py imports APP_VERSION from gui.widgets -- it is not the source of truth.
 $pyprojectVer = (Select-String -Path pyproject.toml -Pattern '^version\s*=\s*"(.+)"').Matches[0].Groups[1].Value
 if (-not $pyprojectVer) { Fail "Could not read version from pyproject.toml" }
 
 $appVerLine = (Select-String -Path gui/widgets.py -Pattern '^APP_VERSION\s*=\s*"(.+)"').Matches[0].Groups[1].Value
 if (-not $appVerLine) { Fail "Could not read APP_VERSION from gui/widgets.py" }
 
-# Normalise post-style (2026.3.19.post9) → dash-style (2026.03.19-9) for comparison
+# Normalise post-style (2026.3.19.post9) -> dash-style (2026.03.19-9) for comparison
 function ConvertTo-DashVer($v) {
     if ($v -match '^(\d{4})\.(\d{1,2})\.(\d{1,2})\.post(\d+)$') {
         return "{0}.{1:D2}.{2:D2}-{3}" -f $Matches[1], [int]$Matches[2], [int]$Matches[3], [int]$Matches[4]
@@ -70,7 +70,7 @@ if ($curVer -match '^(\d{4}\.\d{2}\.\d{2})-(\d+)$') {
 
 Step "Shipping version $ver  (was $curVer)"
 
-# ── Predeploy checks ──────────────────────────────────────────────────────────
+# -- Predeploy checks ----------------------------------------------------------
 if (-not $SkipPredeploy) {
     Step "Running predeploy checks"
     & .\predeploy.ps1
@@ -80,7 +80,7 @@ if (-not $SkipPredeploy) {
     Write-Host "    (predeploy skipped)" -ForegroundColor Yellow
 }
 
-# ── Offline bundle (wheels baked in) ─────────────────────────────────────────
+# -- Offline bundle (wheels baked in) -----------------------------------------
 # make-bundle.ps1 always writes dist\NotTheNet-<ver>.zip; -SkipChecks avoids
 # re-running predeploy (we already ran it above).
 Step "Building offline installer bundle"
@@ -91,16 +91,16 @@ if ($LASTEXITCODE -ne 0) { Fail "make-bundle.ps1 failed" }
 $distDir  = Join-Path (Get-Location) "dist"
 $bundleDst = Join-Path $distDir "NotTheNet-${ver}.zip"
 if (-not (Test-Path $bundleDst)) { Fail "Cannot find $bundleDst" }
-Pass "Zip → $bundleDst ($( '{0:N1}' -f ((Get-Item $bundleDst).Length/1MB) ) MB)"
+Pass "Zip -> $bundleDst ($( '{0:N1}' -f ((Get-Item $bundleDst).Length/1MB) ) MB)"
 
-# ── Summary ───────────────────────────────────────────────────────────────────
+# -- Summary -------------------------------------------------------------------
 Write-Host ""
 Write-Host "NotTheNet $ver ready in dist/" -ForegroundColor Green
 Write-Host "  NotTheNet-${ver}.zip" -ForegroundColor Green
 Write-Host ""
 Write-Host "To create an ISO, add these files to your ISO tool (e.g. AnyBurn)." -ForegroundColor Yellow
 
-# ── Commit, tag, push ────────────────────────────────────────────────────────
+# -- Commit, tag, push --------------------------------------------------------
 if ($SkipPush) {
     Write-Host "`n(commit/tag/push skipped via -SkipPush)" -ForegroundColor Yellow
     exit 0
@@ -121,7 +121,7 @@ if (-not $staged) {
 
 Step "Tagging v$ver"
 $tag = "v$ver"
-if ((git tag -l $tag) -eq $tag) { Fail "tag $tag already exists locally — bump the version or delete the tag" }
+if ((git tag -l $tag) -eq $tag) { Fail "tag $tag already exists locally -- bump the version or delete the tag" }
 git tag -a $tag -m "Release $ver"
 if ($LASTEXITCODE -ne 0) { Fail "git tag failed" }
 Pass "tagged $tag"

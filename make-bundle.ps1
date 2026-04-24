@@ -52,10 +52,15 @@ if (-not (Get-Command pip -ErrorAction SilentlyContinue)) {
 $tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ("notthenet_bundle_" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $tmpDir | Out-Null
 
+# Native pip commands write informational notices to stderr; PS5.1 with Stop
+# throws NativeCommandError on any stderr. Switch to Continue for the pip
+# download section -- each command checks $LASTEXITCODE itself.
+$ErrorActionPreference = "Continue"
+
 try {
     # dnslib â€” pure Python, platform-independent
     info "Downloading dnslib==0.9.26..."
-    pip download dnslib==0.9.26 --dest $tmpDir --quiet
+    pip download dnslib==0.9.26 --dest $tmpDir --quiet --disable-pip-version-check
     if ($LASTEXITCODE -ne 0) { fatal "Failed to download dnslib." }
 
     # cryptography â€” binary wheel; try Python 3.13 first (Kali 2025+), then 3.12, 3.11
@@ -78,7 +83,7 @@ try {
             --only-binary :all: `
             --no-deps `
             --dest $tmpDir `
-            --quiet 2>&1 | Out-Null
+            --quiet --disable-pip-version-check 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) { $cryptoOk = $true; break }
         warn "  Not available for that target, trying next..."
     }
@@ -95,8 +100,9 @@ try {
             --implementation cp `
             --abi $t.abi `
             --only-binary :all: `
+            --pre `
             --dest $tmpDir `
-            --quiet 2>&1 | Out-Null
+            --quiet --disable-pip-version-check 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) { $cffiOk = $true; break }
     }
     if (-not $cffiOk) { fatal "Could not download a cffi wheel for Linux x86_64." }
@@ -113,13 +119,14 @@ try {
             --only-binary :all: `
             --no-deps `
             --dest $tmpDir `
-            --quiet 2>&1 | Out-Null
+            --quiet --disable-pip-version-check 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) { $sptOk = $true; break }
         warn "  Not available for that target, trying next..."
     }
     if (-not $sptOk) { warn "Could not download setproctitle -- process masquerade will be unavailable." }
 
     $wheels = @(Get-ChildItem -Path $tmpDir -Filter "*.whl")
+    $ErrorActionPreference = "Stop"  # restore after pip section
     if ($wheels.Count -eq 0) { fatal "No wheels found after download." }
     info "Bundling $($wheels.Count) wheel(s):"
     $wheels | ForEach-Object { info "  $($_.Name)  ($([math]::Round($_.Length/1KB, 0)) KB)" }
