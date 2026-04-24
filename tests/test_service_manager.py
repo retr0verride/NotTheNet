@@ -154,10 +154,13 @@ class TestEvictConflicting:
             assert svc in _CONFLICTING_SYSTEM_SERVICES
 
     @patch("service_manager.shutil.which", return_value=None)
-    def test_no_systemctl_is_noop(self, mock_which, tmp_path):
+    @patch("service_manager.subprocess.run")
+    def test_no_systemctl_is_noop(self, mock_subprocess, mock_which, tmp_path):
         cfg = _cfg(tmp_path)
         sm = ServiceManager(cfg)
-        sm._evict_conflicting_services()  # should not raise
+        sm._evict_conflicting_services()
+        # Without systemctl, no subprocess calls should be made
+        mock_subprocess.assert_not_called()
 
 
 # ── Start / stop lifecycle ───────────────────────────────────────────────────

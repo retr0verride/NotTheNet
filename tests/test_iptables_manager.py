@@ -99,7 +99,12 @@ class TestRuleBuilding:
                 "-m", "comment", "--comment", _RULE_COMMENT]
         assert mgr._add_rule(rule)
         assert rule in mgr._rules_applied
-        mock_run.assert_called_once()
+        # Verify the actual iptables command constructed (not just that _run was called)
+        called_args = mock_run.call_args[0][0]
+        assert called_args[0] == "iptables"
+        assert "-t" in called_args
+        assert "DNAT" in called_args
+        assert "10.0.0.1:80" in called_args
 
     @patch("network.iptables_manager._run", return_value=(1, "", "error"))
     def test_add_rule_failure_not_tracked(self, mock_run):
@@ -127,6 +132,10 @@ class TestRuleBuilding:
         ports = {"tcp": [80, 443], "udp": [53]}
         count = mgr._apply_service_redirects(ports, "PREROUTING", ["-t", "nat"])
         assert count == 3
+        # Verify each port appears in exactly one iptables command
+        all_args = [call[0][0] for call in mock_run.call_args_list]
+        seen_ports = {a for args in all_args for a in args if a in ("80", "443", "53")}
+        assert seen_ports == {"80", "443", "53"}
 
     @patch("network.iptables_manager._run", return_value=(0, "", ""))
     def test_service_redirects_skip_invalid_proto(self, mock_run):
@@ -147,6 +156,12 @@ class TestRuleBuilding:
         # 2 RETURN rules for excluded ports + 1 catch-all DNAT = 3 _add_rule calls
         assert count == 1  # only DNAT rules are counted
         assert mock_run.call_count == 3
+        # RETURN rules must reference the excluded ports; DNAT must target catch-all port
+        all_args = [call[0][0] for call in mock_run.call_args_list]
+        flat = [str(a) for args in all_args for a in args]
+        assert "RETURN" in flat
+        assert any("9999" in a for a in flat)  # catch-all port in DNAT destination
+        assert "22" in flat or "3389" in flat
 
 
 # ── TTL validation ───────────────────────────────────────────────────────────

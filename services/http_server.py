@@ -73,10 +73,9 @@ _CT_JSON = "application/json"
 _CT_HTML = "text/html"
 _CT_PLAIN = "text/plain"
 
-# Well-known public-IP-check services. When spoof_public_ip is set and a
-# request Host header matches one of these, the handler returns the spoofed
-# IP instead of the normal response body. This defeats the most common
-# sandbox-evasion technique of checking "am I on the real internet?".
+# When spoof_public_ip is set and a request Host matches one of these,
+# the handler returns the spoofed IP. Defeats the most common sandbox-evasion
+# technique: checking "am I on the real internet?".
 _IP_CHECK_HOSTS = frozenset({
     "api.ipify.org", "api4.ipify.org", "api6.ipify.org",
     "icanhazip.com", "ipv4.icanhazip.com",
@@ -215,7 +214,7 @@ _STUB_CRL_LOCK = threading.Lock()
 def _get_stub_crl() -> bytes:
     """Return a minimal valid DER-encoded CRL (empty revocation list)."""
     global _STUB_CRL_CACHE  # noqa: PLW0603  # NOSONAR
-    if _STUB_CRL_CACHE is not None:
+    if _STUB_CRL_CACHE is not None:  # unsynchronized read — safe under CPython GIL
         return _STUB_CRL_CACHE
     with _STUB_CRL_LOCK:
         if _STUB_CRL_CACHE is not None:  # re-check after acquiring the lock
@@ -240,8 +239,7 @@ def _get_stub_crl() -> bytes:
             )
             _STUB_CRL_CACHE = crl.public_bytes(serialization.Encoding.DER)
         except Exception:  # noqa: BLE001
-            # Fallback: return a minimal plausible binary blob
-            _STUB_CRL_CACHE = b"\x30\x00"
+            _STUB_CRL_CACHE = b"\x30\x00"  # empty DER SEQUENCE — CryptoAPI treats as soft-fail
     return _STUB_CRL_CACHE
 
 

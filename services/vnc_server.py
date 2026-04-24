@@ -121,6 +121,7 @@ class _VNCSession(threading.Thread):
 
             result = self._do_handshake()
             if result is None:
+                logger.debug("VNC handshake failed from %s — closing", safe_addr)
                 return
             client_ver, sec_choice = result
 
@@ -129,6 +130,7 @@ class _VNCSession(threading.Thread):
                 return
 
             if sec_choice != 2:
+                logger.debug("VNC unknown security type %d from %s — closing", sec_choice, safe_addr)
                 return
 
             self._handle_vnc_auth(safe_addr, client_ver)

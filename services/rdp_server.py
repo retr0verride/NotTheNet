@@ -104,6 +104,7 @@ class _RDPSession(threading.Thread):
 
             body = self._read_tpkt()
             if body is None:
+                logger.debug("RDP bad TPKT from %s — closing", safe_addr)
                 return
 
             username = self._extract_cookie_user(body)

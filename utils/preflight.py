@@ -44,19 +44,20 @@ class PreflightReport:
     hardening: list[CheckResult] = field(default_factory=list)
 
     @property
+    def all_checks(self) -> list[CheckResult]:
+        return self.stealth + self.certs + self.network + self.ports + self.hardening
+
+    @property
     def failures(self) -> list[CheckResult]:
-        all_checks = self.stealth + self.certs + self.network + self.ports + self.hardening
-        return [c for c in all_checks if c.status == FAIL]
+        return [c for c in self.all_checks if c.status == FAIL]
 
     @property
     def warnings(self) -> list[CheckResult]:
-        all_checks = self.stealth + self.certs + self.network + self.ports + self.hardening
-        return [c for c in all_checks if c.status == WARN]
+        return [c for c in self.all_checks if c.status == WARN]
 
     @property
     def fixable_items(self) -> list[CheckResult]:
-        all_checks = self.stealth + self.certs + self.network + self.ports + self.hardening
-        return [c for c in all_checks if c.fixable]
+        return [c for c in self.all_checks if c.fixable]
 
 
 # ── Individual checks ─────────────────────────────────────────────────────
