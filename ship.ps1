@@ -60,8 +60,8 @@ if ($curVer -match '^(\d{4}\.\d{2}\.\d{2})-(\d+)$') {
     $ver = "$today-1"
 }
 
-# Patch pyproject.toml
-(Get-Content pyproject.toml) -replace "^version\s*=\s*`".*`"", "version = `"$ver`"" |
+# Patch pyproject.toml — match only the bare 'version = ...' key, not 'target-version'
+(Get-Content pyproject.toml) -replace '(?<![-\w])\bversion\s*=\s*"[^"]*"', "version = `"$ver`"" |
     Set-Content pyproject.toml
 
 # Patch gui/widgets.py
@@ -84,7 +84,7 @@ if (-not $SkipPredeploy) {
 # make-bundle.ps1 always writes dist\NotTheNet-<ver>.zip; -SkipChecks avoids
 # re-running predeploy (we already ran it above).
 Step "Building offline installer bundle"
-& .\make-bundle.ps1 -SkipChecks
+& .\make-bundle.ps1 -SkipChecks -SkipRelease
 if ($LASTEXITCODE -ne 0) { Fail "make-bundle.ps1 failed" }
 
 # Locate the zip make-bundle.ps1 wrote to dist/

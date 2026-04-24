@@ -49,7 +49,7 @@ include = ["services*", "network*", "utils*"]
 
 [tool.ruff]
 line-length = 100
-target-version = "2026.04.24-2"
+target-version = "py311"
 exclude = ["tools/iptc_diagnostic.py"]
 
 [tool.ruff.lint]
