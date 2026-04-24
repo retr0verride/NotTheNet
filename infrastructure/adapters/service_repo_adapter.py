@@ -25,12 +25,19 @@ class ServiceRepoAdapter:
     ServiceManager is constructed lazily on the first ``start_all()`` call
     so that the container can be built without triggering OS-level side-effects
     (iptables writes, raw sockets) during testing.
+
+    Call ``probe()`` in tests or health checks to force instantiation early
+    and surface config errors before the first ``start_all()``.
     """
 
     def __init__(self, config_store: IConfigStore) -> None:
         self._config = config_store
         # ServiceManager, typed as object to avoid circular import
         self._manager: ServiceManager | None = None
+
+    def probe(self) -> None:
+        """Force-instantiate ServiceManager. Use in tests to catch config errors early."""
+        self._get_manager()
 
     def _get_manager(self) -> ServiceManager:
         if self._manager is None:

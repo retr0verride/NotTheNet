@@ -225,3 +225,40 @@ class TestBuildServicePorts:
         # No services running → both empty
         assert ports["tcp"] == []
         assert ports["udp"] == []
+
+
+# ── ServiceRepoAdapter ────────────────────────────────────────────────────────
+
+class TestServiceRepoAdapter:
+    """Verify adapter lifecycle and lazy-init contract."""
+
+    def _adapter(self, tmp_path):
+        from config import Config
+        from infrastructure.adapters.service_repo_adapter import ServiceRepoAdapter
+
+        cfg = Config.__new__(Config)
+        cfg._data = _cfg(tmp_path)._data
+        cfg._path = str(tmp_path / "config.json")
+        return ServiceRepoAdapter(cfg)
+
+    def test_manager_not_created_at_init(self, tmp_path):
+        adapter = self._adapter(tmp_path)
+        assert adapter._manager is None
+
+    def test_probe_instantiates_manager(self, tmp_path):
+        adapter = self._adapter(tmp_path)
+        adapter.probe()
+        assert adapter._manager is not None
+
+    def test_stop_all_before_start_is_noop(self, tmp_path):
+        """stop_all() before start_all() must not raise (manager is None)."""
+        adapter = self._adapter(tmp_path)
+        adapter.stop_all()  # should not raise
+
+    def test_is_running_before_start_returns_false(self, tmp_path):
+        adapter = self._adapter(tmp_path)
+        assert adapter.is_running("dns") is False
+
+    def test_get_status_before_start_returns_empty(self, tmp_path):
+        adapter = self._adapter(tmp_path)
+        assert adapter.get_status() == []
