@@ -7,6 +7,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ## [Unreleased]
 
+### Fixed
+- **`ship.ps1`: version bump regex clobbered `target-version` in `pyproject.toml`** — the pattern `^version\s*=\s*".*"` also matched `target-version = "py311"`, replacing it with the CalVer string and crashing ruff's TOML parser on the next run. Replaced with a negative-lookbehind pattern `(?<![-\w])\bversion\s*=\s*"[^"]*"` that matches only the bare `version` key.
+- **`make-bundle.ps1`: `NativeCommandError` on pip's stderr output** — `$ErrorActionPreference = "Stop"` caused PowerShell 5.1 to throw on any native-command stderr (e.g. pip's "new version" update notices). Scoped the git/gh push section and all `pip download` loops to `ErrorActionPreference = "Continue"`. Added `--disable-pip-version-check` to all four `pip download` calls to suppress the notices at source.
+- **`make-bundle.ps1`: cffi wheel download failed for Python 3.13** — only a pre-release wheel (`cffi 2.0.0b1`) exists on PyPI for Python 3.13; download silently produced no wheel without `--pre`. Added `--pre` to the cffi download call.
+- **`make-bundle.ps1` / `ship.ps1`: double-tagging when called from `ship.ps1`** — both scripts independently tried to push a release tag, causing `gh release create` to fail on re-runs. Added `-SkipRelease` switch to `make-bundle.ps1`; `ship.ps1` passes `-SkipRelease` and owns the tag/push step exclusively.
+- **`pyproject.toml`: ruff `target-version` was `py311`, causing UP017/UP042 violations** — with `target-version = "py311"`, ruff flagged `timezone.utc` (UP017 → `datetime.UTC`) and `class Foo(str, Enum)` (UP042 → `StrEnum`). Both are Python 3.11+ additions and broke the Python 3.10 CI matrix. Set `target-version = "py310"` so ruff does not suggest constructs unavailable on the minimum supported version.
+
 ## [2026.04.24-1]
 
 ### Added
