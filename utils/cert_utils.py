@@ -27,7 +27,7 @@ import stat
 import struct
 import threading
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +137,7 @@ def generate_self_signed_cert(
         for dns in san_dns:
             san_list.append(x509.DNSName(dns))
 
-        now = datetime.now(UTC)
+        now = datetime.now(timezone.utc)
         cert = (
             x509.CertificateBuilder()
             .subject_name(subject)
@@ -268,7 +268,7 @@ def generate_ca_cert(
             x509.NameAttribute(NameOID.COMMON_NAME, common_name),
         ])
 
-        now = datetime.now(UTC)
+        now = datetime.now(timezone.utc)
         cert = (
             x509.CertificateBuilder()
             .subject_name(name)
@@ -388,7 +388,7 @@ def forge_domain_cert(
     except ValueError:
         pass
 
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     cert = (
         x509.CertificateBuilder()
         .subject_name(subject)
