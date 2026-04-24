@@ -164,6 +164,45 @@ class TestRuleBuilding:
         assert "22" in flat or "3389" in flat
 
 
+class TestPassthroughSubnets:
+    """Verify passthrough_subnets: valid CIDRs accepted, invalid rejected, RETURN rules emitted."""
+
+    def _mgr(self, **overrides) -> IPTablesManager:
+        cfg = {"auto_iptables": True, "interface": "eth0",
+               "redirect_ip": "10.0.0.1", "iptables_mode": "gateway"}
+        cfg.update(overrides)
+        return IPTablesManager(cfg)
+
+    def test_valid_cidr_accepted(self):
+        mgr = self._mgr(passthrough_subnets=["10.10.10.0/24"])
+        assert mgr.passthrough_subnets == ["10.10.10.0/24"]
+
+    def test_invalid_cidr_rejected(self):
+        mgr = self._mgr(passthrough_subnets=["not-a-cidr", "300.0.0.1/24", "10.0.0.0/33"])
+        assert mgr.passthrough_subnets == []
+
+    def test_mixed_valid_invalid(self):
+        mgr = self._mgr(passthrough_subnets=["10.10.10.0/24", "bad", "192.168.0.0/16"])
+        assert mgr.passthrough_subnets == ["10.10.10.0/24", "192.168.0.0/16"]
+
+    @patch("network.iptables_manager._run", return_value=(0, "", ""))
+    def test_passthrough_subnets_creates_return_rules(self, mock_run):
+        mgr = self._mgr(passthrough_subnets=["10.10.10.0/24"])
+        count = mgr._apply_passthrough_subnets("PREROUTING", ["-t", "nat"])
+        assert count == 1
+        all_args = [call[0][0] for call in mock_run.call_args_list]
+        flat = [str(a) for args in all_args for a in args]
+        assert "RETURN" in flat
+        assert "10.10.10.0/24" in flat
+
+    @patch("network.iptables_manager._run", return_value=(0, "", ""))
+    def test_empty_passthrough_subnets_no_rules(self, mock_run):
+        mgr = self._mgr(passthrough_subnets=[])
+        count = mgr._apply_passthrough_subnets("PREROUTING", ["-t", "nat"])
+        assert count == 0
+        mock_run.assert_not_called()
+
+
 # ── TTL validation ───────────────────────────────────────────────────────────
 
 class TestTTLValidation:

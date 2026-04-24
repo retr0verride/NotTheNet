@@ -374,6 +374,20 @@ class IPTablesManager:
             )
             raw_ttl = 0
         self.spoof_ttl = raw_ttl
+        # Subnets whose traffic bypasses DNAT redirect rules (RETURN inserted
+        # before service rules in PREROUTING/OUTPUT).  Enables victim-to-victim
+        # spread in a lab where bridge-nf-call-iptables=1 routes intra-bridge
+        # packets through iptables.
+        raw_subnets: list = config.get("passthrough_subnets", []) or []
+        self.passthrough_subnets: list[str] = [
+            s for s in raw_subnets if isinstance(s, str) and self._valid_cidr(s)
+        ]
+        skipped = len(raw_subnets) - len(self.passthrough_subnets)
+        if skipped:
+            logger.warning(
+                "passthrough_subnets: %d entry/entries rejected (invalid CIDR).",
+                skipped,
+            )
         self._rules_applied: list[list[str]] = []
         self._saved = False
         self._ttl_rule_applied = False
@@ -435,6 +449,19 @@ class IPTablesManager:
         except OSError:
             return None
         return None
+
+    @staticmethod
+    def _valid_cidr(cidr: str) -> bool:
+        """Return True if *cidr* is a valid IPv4 CIDR string (e.g. '10.10.10.0/24')."""
+        import re
+        m = re.match(
+            r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})$", cidr
+        )
+        if not m:
+            return False
+        octets = [int(m.group(i)) for i in range(1, 5)]
+        prefix = int(m.group(5))
+        return all(0 <= o <= 255 for o in octets) and 0 <= prefix <= 32
 
     def _validate_interface(self, iface: str) -> bool:
         """Validate interface name against /proc/net/dev."""
@@ -534,6 +561,7 @@ class IPTablesManager:
             "-m", "comment", "--comment", _RULE_COMMENT,
         ]
         self._add_rule(conntrack_rule)
+        ok_count += self._apply_passthrough_subnets(chain, table_flag)
         ok_count += self._apply_service_redirects(service_ports, chain, table_flag)
 
         ok_count += self._apply_catch_all(
@@ -556,6 +584,33 @@ class IPTablesManager:
         return ok_count > 0
 
     # -- Extracted helpers for apply_rules (CC reduction) --------------------
+
+    def _apply_passthrough_subnets(
+        self,
+        chain: str,
+        table_flag: list[str],
+    ) -> int:
+        """Insert RETURN rules for passthrough_subnets before any DNAT rules.
+
+        Traffic destined for these CIDRs skips all NTN redirection and is
+        forwarded normally (or delivered locally).  The primary use case is
+        allowing victim-to-victim SMB/RDP spread in a Proxmox lab where
+        bridge-nf-call-iptables=1 routes intra-bridge packets through iptables.
+        """
+        count = 0
+        for cidr in self.passthrough_subnets:
+            rule = table_flag + [
+                "-I", chain, "2",
+                "-d", cidr,
+                "-j", "RETURN",
+                "-m", "comment", "--comment", _RULE_COMMENT,
+            ]
+            if self._add_rule(rule):
+                count += 1
+                logger.info(
+                    "Passthrough (no DNAT) for %s via %s chain.", cidr, chain,
+                )
+        return count
 
     def _apply_service_redirects(
         self,

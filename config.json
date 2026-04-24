@@ -21,7 +21,8 @@
     "drop_privileges_group": "nogroup",
     "process_masquerade": true,
     "process_name": "[kworker/u2:1-events]",
-    "promisc_mode": false
+    "promisc_mode": false,
+    "passthrough_subnets": ["10.10.10.0/24"]
   },
   "dns": {
     "enabled": true,
