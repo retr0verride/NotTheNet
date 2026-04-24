@@ -13,8 +13,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Auto-detect version from source; fall back to hardcoded value
-VERSION=$(grep -oP 'APP_VERSION\s*=\s*"\K[^"]+' "${SCRIPT_DIR}/gui/widgets.py" 2>/dev/null || echo "2026.04.22-1")
+# Extract version from source — hard-fail if the constant is missing or renamed.
+VERSION=$(grep -oP 'APP_VERSION\s*=\s*"\K[^"]+' "${SCRIPT_DIR}/gui/widgets.py" 2>/dev/null) || {
+    echo "[!] Could not extract APP_VERSION from gui/widgets.py — aborting."
+    exit 1
+}
 PKG="notthenet"
 ARCH="all"
 DEB_NAME="${PKG}_${VERSION}_${ARCH}.deb"
@@ -158,7 +161,7 @@ PYEOF
 fi
 
 # ── Log directories ───────────────────────────────────────────────────────────
-mkdir -p "$OPT/logs/emails" "$OPT/logs/ftp_uploads"
+mkdir -p "$OPT/logs/emails" "$OPT/logs/ftp_uploads" "$OPT/logs/tftp_uploads"
 chmod 700 "$OPT/logs"
 
 # ── GUI launcher (/usr/local/bin/notthenet-gui) ───────────────────────────────

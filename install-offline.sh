@@ -10,7 +10,7 @@
 #        sudo bash install-offline.sh
 #
 # What this script does (same as notthenet-install.sh except pip is offline):
-#   1. Checks Python 3.9+
+#   1. Checks Python 3.10+
 #   2. Creates a virtualenv in ./venv
 #   3. Installs pinned Python deps from ./wheelhouse (no network needed)
 #   4. Generates a self-signed TLS certificate
@@ -51,8 +51,8 @@ PYTHON=$(command -v python3 2>/dev/null || true)
 PYVER=$("$PYTHON" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
 PYMAJ=$(echo "$PYVER" | cut -d. -f1)
 PYMIN=$(echo "$PYVER" | cut -d. -f2)
-if [[ $PYMAJ -lt 3 ]] || { [[ $PYMAJ -eq 3 ]] && [[ $PYMIN -lt 9 ]]; }; then
-    error "Python 3.9+ required (found $PYVER)."
+if [[ $PYMAJ -lt 3 ]] || { [[ $PYMAJ -eq 3 ]] && [[ $PYMIN -lt 10 ]]; }; then
+    error "Python 3.10+ required (found $PYVER)."
 fi
 info "Python $PYVER found at $PYTHON"
 

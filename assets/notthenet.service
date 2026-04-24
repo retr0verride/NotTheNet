@@ -4,13 +4,13 @@
 
 [Unit]
 Description=NotTheNet Fake Internet Simulator
-Documentation=file:///opt/NotTheNet/docs/index.md
+Documentation=file:///opt/notthenet/docs/index.md
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/NotTheNet
+WorkingDirectory=/opt/notthenet
 Environment=PYTHONUNBUFFERED=1
 
 # ── Pre-start: kill conflicting services ──────────────────────
@@ -26,21 +26,21 @@ ExecStartPre=-/usr/bin/systemctl stop smbd.service
 ExecStartPre=-/usr/bin/systemctl stop nmbd.service
 
 # ── Pre-start: mount logs as tmpfs (noexec) ──────────────────
-ExecStartPre=-/usr/bin/mkdir -p /opt/NotTheNet/logs
-ExecStartPre=-/usr/bin/mount -t tmpfs -o size=512M,noexec,nosuid,nodev,mode=0700 tmpfs /opt/NotTheNet/logs
-ExecStartPre=-/usr/bin/mkdir -p /opt/NotTheNet/logs/emails /opt/NotTheNet/logs/ftp_uploads
+ExecStartPre=-/usr/bin/mkdir -p /opt/notthenet/logs
+ExecStartPre=-/usr/bin/mount -t tmpfs -o size=512M,noexec,nosuid,nodev,mode=0700 tmpfs /opt/notthenet/logs
+ExecStartPre=-/usr/bin/mkdir -p /opt/notthenet/logs/emails /opt/notthenet/logs/ftp_uploads /opt/notthenet/logs/tftp_uploads
 
 # ── Main process ─────────────────────────────────────────────
-ExecStart=/opt/NotTheNet/.venv/bin/python /opt/NotTheNet/notthenet.py --nogui --config /opt/NotTheNet/config.json
+ExecStart=/opt/notthenet/venv/bin/python /opt/notthenet/notthenet.py --nogui --config /opt/notthenet/config.json
 
 # ── Cleanup on stop ──────────────────────────────────────────
 # Restore iptables from pre-start snapshots if the process didn't clean up
 # (e.g. SIGKILL, OOM, crash).  The '-' prefix means "don't fail the unit
 # if the file doesn't exist".
-ExecStopPost=-/bin/sh -c 'test -f /opt/NotTheNet/logs/.iptables_save.rules && iptables -t nat -F && iptables-restore /opt/NotTheNet/logs/.iptables_save.rules && rm -f /opt/NotTheNet/logs/.iptables_save.rules'
-ExecStopPost=-/bin/sh -c 'test -f /opt/NotTheNet/logs/.mangle_save.rules && iptables -t mangle -F && iptables-restore /opt/NotTheNet/logs/.mangle_save.rules && rm -f /opt/NotTheNet/logs/.mangle_save.rules'
-ExecStopPost=-/bin/sh -c 'test -f /opt/NotTheNet/logs/.filter_save.rules && iptables -t filter -F && iptables-restore /opt/NotTheNet/logs/.filter_save.rules && rm -f /opt/NotTheNet/logs/.filter_save.rules'
-ExecStopPost=-/usr/bin/umount /opt/NotTheNet/logs
+ExecStopPost=-/bin/sh -c 'test -f /opt/notthenet/logs/.iptables_save.rules && iptables -t nat -F && iptables-restore /opt/notthenet/logs/.iptables_save.rules && rm -f /opt/notthenet/logs/.iptables_save.rules'
+ExecStopPost=-/bin/sh -c 'test -f /opt/notthenet/logs/.mangle_save.rules && iptables -t mangle -F && iptables-restore /opt/notthenet/logs/.mangle_save.rules && rm -f /opt/notthenet/logs/.mangle_save.rules'
+ExecStopPost=-/bin/sh -c 'test -f /opt/notthenet/logs/.filter_save.rules && iptables -t filter -F && iptables-restore /opt/notthenet/logs/.filter_save.rules && rm -f /opt/notthenet/logs/.filter_save.rules'
+ExecStopPost=-/usr/bin/umount /opt/notthenet/logs
 
 Restart=on-failure
 RestartSec=5
@@ -50,7 +50,7 @@ TimeoutStopSec=15
 # Hardening (systemd-level)
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths=/opt/NotTheNet/logs /opt/NotTheNet/certs
+ReadWritePaths=/opt/notthenet/logs /opt/notthenet/certs
 PrivateTmp=true
 # NoNewPrivileges=no is required because the service drops from root to
 # nobody:nogroup via seteuid/setegid after binding privileged ports.  The

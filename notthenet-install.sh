@@ -129,7 +129,8 @@ fi
 # ── Create log/upload directories ─────────────────────────────────────────────
 for dir in "${SCRIPT_DIR}/logs" \
            "${SCRIPT_DIR}/logs/emails" \
-           "${SCRIPT_DIR}/logs/ftp_uploads"; do
+           "${SCRIPT_DIR}/logs/ftp_uploads" \
+           "${SCRIPT_DIR}/logs/tftp_uploads"; do
     mkdir -p "$dir"
     chmod 700 "$dir"
 done

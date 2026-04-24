@@ -375,7 +375,7 @@ class DNSService:
                 try:
                     srv.stop()
                 except Exception:
-                    logger.debug("Suppressed error", exc_info=True)
+                    logger.debug("DNS server stop failed", exc_info=True)
         self._server_udp = None
         self._server_tcp = None
         logger.info("DNS service stopped.")

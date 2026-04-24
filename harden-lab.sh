@@ -256,7 +256,7 @@ echo "  Done."
 
 # ── 4. Verify isolation ──────────────────────────────────────────────────
 echo ""
-echo "[4/5] Verifying isolation..."
+echo "[4/4] Verifying isolation..."
 
 # Check bridge interface exists
 if ip link show "$BRIDGE_IF" &>/dev/null; then
