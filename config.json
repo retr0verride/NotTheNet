@@ -8,7 +8,7 @@
     "auto_iptables": true,
     "auto_evict_services": true,
     "auto_hardening": true,
-    "interface": "vmbr1",
+    "interface": "eth0",
     "iptables_mode": "gateway",
     "spoof_public_ip": "98.6.112.145",
     "json_logging": true,
