@@ -38,7 +38,8 @@ for table in nat filter; do
     for chain in OUTPUT PREROUTING FORWARD INPUT; do
         while iptables -t "$table" -S "$chain" 2>/dev/null | grep -q "NOTTHENET"; do
             rule=$(iptables -t "$table" -S "$chain" | grep "NOTTHENET" | head -1)
-            iptables -t "$table" $(echo "$rule" | sed 's/^-A/-D/') 2>/dev/null || break
+            read -ra del_rule <<< "$(echo "$rule" | sed 's/^-A/-D/')"
+            iptables -t "$table" "${del_rule[@]}" 2>/dev/null || break
         done
     done
 done
