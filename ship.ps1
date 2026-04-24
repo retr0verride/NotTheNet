@@ -109,7 +109,7 @@ if ($SkipPush) {
 Step "Committing version bump"
 # Stage only the files ship.ps1 mutates; never blanket-add (avoids sweeping in
 # unrelated WIP changes).
-git add pyproject.toml gui/widgets.py | Out-Null
+git add pyproject.toml gui/widgets.py 2>&1 | Out-Null
 $staged = (git diff --cached --name-only) -join ", "
 if (-not $staged) {
     Write-Host "    (no version-bump changes to commit)" -ForegroundColor Yellow

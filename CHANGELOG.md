@@ -7,7 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ## [Unreleased]
 
+## [2026.04.24-9] — 2026-04-24
+
 ### Fixed
+- **`service_manager.py`: DNS resolved all names to `127.0.0.1` in gateway mode, blocking malware spread** — `_special_builders` did not inject the derived `redirect_ip` into the DNS config (unlike HTTP/HTTPS which already did). `dns.resolve_to` stayed at the default `"127.0.0.1"`, which resolves to the victim's own loopback in gateway mode. Any malware following a DNS-discovered target then tried to connect to itself, so lateral spread never initiated. Fixed: in gateway mode, `resolve_to` is now auto-derived from the effective `redirect_ip` whenever it is the loopback sentinel. Explicit non-loopback values are preserved. Sinkhole mode is unaffected. Three regression tests added.
+- **`ship.ps1`: `git add` CRLF warning caused NativeCommandError, aborting the commit/tag step** — git's `"CRLF will be replaced by LF"` warning goes to stderr; PowerShell 5.1 with `$ErrorActionPreference = "Stop"` treated it as a hard error. Redirected stderr to null on the `git add` line (`2>&1 | Out-Null`).
 - **`ship.ps1`: version bump regex clobbered `target-version` in `pyproject.toml`** — the pattern `^version\s*=\s*".*"` also matched `target-version = "py311"`, replacing it with the CalVer string and crashing ruff's TOML parser on the next run. Replaced with a negative-lookbehind pattern `(?<![-\w])\bversion\s*=\s*"[^"]*"` that matches only the bare `version` key.
 - **`make-bundle.ps1`: `NativeCommandError` on pip's stderr output** — `$ErrorActionPreference = "Stop"` caused PowerShell 5.1 to throw on any native-command stderr (e.g. pip's "new version" update notices). Scoped the git/gh push section and all `pip download` loops to `ErrorActionPreference = "Continue"`. Added `--disable-pip-version-check` to all four `pip download` calls to suppress the notices at source.
 - **`make-bundle.ps1`: cffi wheel download failed for Python 3.13** — only a pre-release wheel (`cffi 2.0.0b1`) exists on PyPI for Python 3.13; download silently produced no wheel without `--pre`. Added `--pre` to the cffi download call.
