@@ -1,7 +1,7 @@
 {
   "general": {
-    "bind_ip": "10.0.0.1",
-    "redirect_ip": "10.0.0.1",
+    "bind_ip": "0.0.0.0",
+    "redirect_ip": "127.0.0.1",
     "log_dir": "logs",
     "log_level": "INFO",
     "log_to_file": true,
@@ -25,7 +25,7 @@
   "dns": {
     "enabled": true,
     "port": 53,
-    "resolve_to": "10.0.0.1",
+    "resolve_to": "127.0.0.1",
     "ttl": 300,
     "handle_ptr": true,
     "custom_records": {

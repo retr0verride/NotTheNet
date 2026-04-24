@@ -8,6 +8,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 ## [Unreleased]
 
 ### Fixed
+- **`config.json`: shipped defaults bound to `10.0.0.1` (a Proxmox-lab IP not present on most machines)** — every TCP/UDP service failed at boot with `[Errno 99] Cannot assign requested address` on stock installs. `general.bind_ip` is now `0.0.0.0`, `general.redirect_ip` and `dns.resolve_to` are now `127.0.0.1`, matching the documented defaults in `docs/configuration.md`. Lab/gateway-mode users should set these explicitly per `docs/lab-setup.md`.
 - **`build-deb.sh`: polkit `exec.path` set to Python interpreter instead of launcher** — the `sed` substituted `NOTTHENET_GUI_PLACEHOLDER` with `/opt/notthenet/venv/bin/python`, but the launcher invokes `pkexec "$SELF"` where `$SELF` = `/usr/local/bin/notthenet-gui`. Mismatched `exec.path` prevented polkit from matching the named action; `pkexec` then stripped `DISPLAY`/`XAUTHORITY` and Tk silently failed to open after the auth prompt. The desktop icon appeared dead while CLI worked. Now substitutes to `/usr/local/bin/notthenet-gui`, matching `notthenet-install.sh` and `install-offline.sh`.
 - **`assets/notthenet-icon.svg`: globe icon regressed to spoke/star design** — commit `ee769d0` ("fix: missing launcher/icon assets…") re-added the icon as a different SVG (radial gradient + 4 spokes + diagonal slash) instead of restoring the original teal-wireframe globe + red prohibition design from `70622b2`. Restored the original globe SVG byte-for-byte from `70622b2:assets/notthenet-icon.svg`.
 
