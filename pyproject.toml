@@ -50,7 +50,7 @@ include = ["services*", "network*", "utils*"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-exclude = ["test_iptc.py"]
+exclude = ["tools/iptc_diagnostic.py"]
 
 [tool.ruff.lint]
 select = [

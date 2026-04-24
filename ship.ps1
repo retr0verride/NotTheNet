@@ -5,7 +5,8 @@
 #         .\ship.ps1 -SkipPredeploy   (skip lint/type/test if you just bumped a hotfix)
 
 param(
-    [switch]$SkipPredeploy
+    [switch]$SkipPredeploy,
+    [switch]$SkipPush         # build only; don't commit/tag/push
 )
 
 $ErrorActionPreference = "Stop"
@@ -98,3 +99,39 @@ Write-Host "NotTheNet $ver ready in dist/" -ForegroundColor Green
 Write-Host "  NotTheNet-${ver}.zip" -ForegroundColor Green
 Write-Host ""
 Write-Host "To create an ISO, add these files to your ISO tool (e.g. AnyBurn)." -ForegroundColor Yellow
+
+# ── Commit, tag, push ────────────────────────────────────────────────────────
+if ($SkipPush) {
+    Write-Host "`n(commit/tag/push skipped via -SkipPush)" -ForegroundColor Yellow
+    exit 0
+}
+
+Step "Committing version bump"
+# Stage only the files ship.ps1 mutates; never blanket-add (avoids sweeping in
+# unrelated WIP changes).
+git add pyproject.toml gui/widgets.py | Out-Null
+$staged = (git diff --cached --name-only) -join ", "
+if (-not $staged) {
+    Write-Host "    (no version-bump changes to commit)" -ForegroundColor Yellow
+} else {
+    git commit -m "chore(release): $ver" | Out-Null
+    if ($LASTEXITCODE -ne 0) { Fail "git commit failed" }
+    Pass "committed: $staged"
+}
+
+Step "Tagging v$ver"
+$tag = "v$ver"
+if ((git tag -l $tag) -eq $tag) { Fail "tag $tag already exists locally — bump the version or delete the tag" }
+git tag -a $tag -m "Release $ver"
+if ($LASTEXITCODE -ne 0) { Fail "git tag failed" }
+Pass "tagged $tag"
+
+Step "Pushing main + tag to origin"
+git push origin main
+if ($LASTEXITCODE -ne 0) { Fail "git push origin main failed" }
+git push origin $tag
+if ($LASTEXITCODE -ne 0) { Fail "git push origin $tag failed" }
+Pass "pushed main and $tag"
+
+Write-Host ""
+Write-Host "Watch CI: https://github.com/retr0verride/NotTheNet/actions/workflows/ci.yml" -ForegroundColor Cyan

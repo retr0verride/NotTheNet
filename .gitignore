@@ -74,6 +74,9 @@ wheelhouse/
 # ── mypy cache ────────────────────────────────────────────────────────────────
 .mypy_cache/
 
+# ── ruff cache ────────────────────────────────────────────────────────────────
+.ruff_cache/
+
 # Generated single-file bundle (produced by make-bundle.ps1)
 notthenet-bundle.sh
 
