@@ -180,7 +180,10 @@ class TestModeConfig:
         assert mgr.redirect_ip == "127.0.0.1"
 
     def test_gateway_mode(self):
-        mgr = IPTablesManager({"iptables_mode": "gateway", "interface": "br0"})
+        # Patch _validate_interface so the autodetect fallback (added in -8)
+        # doesn't override the configured value when br0 isn't a real iface.
+        with patch.object(IPTablesManager, "_validate_interface", return_value=True):
+            mgr = IPTablesManager({"iptables_mode": "gateway", "interface": "br0"})
         assert mgr.mode == "gateway"
         assert mgr.interface == "br0"
 
