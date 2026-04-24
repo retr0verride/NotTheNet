@@ -64,9 +64,9 @@ bash predeploy.sh
 .\predeploy.ps1
 ```
 
-This runs: **ruff** (lint) → **mypy** (type check) → **bandit** (security scan) → **pytest** (tests) → **build**.
+Both wrappers invoke `scripts/checks.py` — the same script CI runs. It executes 12 steps: secret scan, ruff, mypy (informational + strict on `domain/application/infrastructure`), bandit, pip-audit, OpenAPI validation, shellcheck, placeholder audit, pytest with coverage gate, version consistency, CHANGELOG check, Python floor check, and stale `_dyn_*` cert sweep. Use `--skip-tests` for a fast pass or `--only 1,3` for a subset.
 
-All five stages must pass before submitting a PR.
+All steps must pass before submitting a PR.
 
 ### 6. Commit and push
 

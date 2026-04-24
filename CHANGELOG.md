@@ -7,6 +7,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ## [Unreleased]
 
+### Added
+- **`scripts/checks.py`**: single source of truth for all 12 lint/SAST/test/audit steps, invoked locally by `predeploy.{ps1,sh}` and by the CI lint job. Cross-platform Python 3.10+, supports `--skip-install`, `--skip-tests`, `--only N,M,...`. Replaces ~180 lines of duplicated logic across the two predeploy scripts and the CI workflow.
+- **`ship.ps1`: commit/tag/push stage** — after the bundle build, the script now stages `pyproject.toml` + `gui/widgets.py`, commits as `chore(release): <ver>`, creates an annotated `v<ver>` tag, and pushes branch + tag separately to `origin`. New `-SkipPush` switch builds artifacts without touching git.
+
+### Changed
+- **`predeploy.ps1` / `predeploy.sh` reduced to 5-line wrappers** that delegate to `scripts/checks.py`. The CI lint job collapses 9 inline steps into a single `python scripts/checks.py --skip-tests` invocation.
+- **Bandit configuration** moved to `pyproject.toml [tool.bandit]` (`exclude_dirs`, `skips`); all invocations now pass `-c pyproject.toml` to prevent scanning `.venv/` (which had been false-flagging pip's vendored xmlrpc).
+- **`docs/development.md`, `docs/lab-setup.md`, `CONTRIBUTING.md`**: updated to describe the unified `scripts/checks.py` flow and the new one-command `ship.ps1` release path.
+
+### Fixed
+- **`notthenet-uninstall.sh:41` shellcheck SC2046** — unquoted command substitution caused word-splitting warnings; replaced with bash array expansion (`read -ra del_rule <<< "..."`) so the `iptables -D` call is correctly tokenised.
+- **CI lint job: shellcheck install errors swallowed** — `apt-get install ... 2>/dev/null` masked package failures and was missing `apt-get update`; both fixed so install errors surface immediately.
+- **Windows: `cp1252` UnicodeEncodeError on box-drawing chars** in step headers when output was piped — `scripts/checks.py` now reconfigures `sys.stdout` to UTF-8 and exports `PYTHONIOENCODING=utf-8` / `PYTHONUTF8=1` for subprocesses.
+
+### Removed
+- **`tests/_irc_debug.py.skip`**: defunct debug stub, unreferenced anywhere.
+- **`test_iptc.py` (root)**: moved to `tools/iptc_diagnostic.py` (it was a manual diagnostic script, not a pytest test); ruff exclude path updated.
+
 ---
 
 ## [2026.04.23-2] — 2026-04-23

@@ -326,8 +326,8 @@ sudo bash notthenet-install.sh
 **Air-gapped Kali (USB bundle from Windows):**
 
 ```bash
-# On Windows -- build bundle, push to GitHub, create release:
-.\make-bundle.ps1
+# On Windows -- bump version, run all checks, build bundle, commit, tag, push:
+.\ship.ps1
 
 # On Kali -- unzip and install from USB:
 unzip /media/usb/NotTheNet-*.zip

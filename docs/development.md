@@ -45,7 +45,7 @@ VS Code will detect the `.venv` automatically. If prompted, select it as the Pyt
 bash predeploy.sh
 ```
 
-This runs ruff (lint), mypy (type check), bandit (security scan), pytest (300+ tests), and builds the package. **All checks must pass before pushing.**
+Thin wrapper around `scripts/checks.py` (the same script CI runs). Executes ruff, mypy (strict on `domain/application/infrastructure`, informational elsewhere), bandit, pip-audit, OpenAPI validation, shellcheck, placeholder audit, pytest with coverage, version/changelog/python-floor/cert-freshness checks. **All checks must pass before pushing.** Use `--skip-tests` for a fast lint-only pass, or `--only 1,3` to run specific steps.
 
 ---
 
@@ -75,7 +75,17 @@ code .
 .\predeploy.ps1
 ```
 
-This runs ruff (lint), mypy (type check), bandit (security scan), pytest (300+ tests), and builds the package. **All checks must pass before pushing.**
+Thin wrapper around `scripts/checks.py` (the same script CI runs). Executes ruff, mypy (strict on `domain/application/infrastructure`, informational elsewhere), bandit, pip-audit, OpenAPI validation, shellcheck, placeholder audit, pytest with coverage, version/changelog/python-floor/cert-freshness checks. **All checks must pass before pushing.** Use `--skip-tests` for a fast lint-only pass, or `--only 1,3` to run specific steps.
+
+### 4. Cut a release
+
+```powershell
+.\ship.ps1                # bump version, run predeploy, build bundle, commit, tag, push
+.\ship.ps1 -SkipPush      # build artifacts only (no git ops)
+.\ship.ps1 -SkipPredeploy # skip checks (use sparingly)
+```
+
+`ship.ps1` is the one-command release path: it bumps `pyproject.toml` + `gui/widgets.py` to today's `YYYY.MM.DD-N`, runs `predeploy.ps1`, calls `make-bundle.ps1 -SkipChecks` to produce `dist/NotTheNet-<ver>.zip` + `dist/notthenet-bundle.sh`, then `git commit -m "chore(release): <ver>"`, `git tag -a v<ver>`, and pushes branch + tag to `origin`. CI re-runs the same `scripts/checks.py` server-side and (on tag push) builds the `.deb` and drafts a GitHub Release.
 
 ---
 
