@@ -24,7 +24,8 @@
 param(
     [string]$Output = ".\dist\notthenet-bundle.sh",
     [string]$ZipOutput = "",
-    [switch]$SkipChecks
+    [switch]$SkipChecks,
+    [switch]$SkipRelease   # skip git push + gh release (used when called from ship.ps1)
 )
 
 $ErrorActionPreference = "Stop"
@@ -682,47 +683,50 @@ fi
             Write-Warning "AnyBurn not found at $abcmd -- skipping ISO creation"
         }
 
-        # ── Git push + GitHub release ──────────────────────────────────
-        # git writes notices/warnings to stderr; use Continue so NativeCommandError
-        # is not thrown, then check $LASTEXITCODE manually.
-        $ErrorActionPreference = "Continue"
-        info "Pushing to GitHub..."
-        git add -A
-        $status = git status --porcelain
-        if ($status) {
-            git commit -m "release: v$ver" --quiet 2>&1 | Out-Null
-        }
-        git push origin HEAD:main --quiet 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) { warn "git push failed (exit $LASTEXITCODE)." }
-        else { info "Pushed to main." }
-
-        # Create or update GitHub release (requires gh CLI)
-        if (Get-Command gh -ErrorAction SilentlyContinue) {
-            $tag = "v$ver"
-            info "Creating GitHub release $tag..."
-            # Delete existing release+tag if re-building same version
-            $ErrorActionPreference = 'SilentlyContinue'
-            gh release delete $tag --yes 2>&1 | Out-Null
-            git tag -d $tag 2>&1 | Out-Null
-            git push origin ":refs/tags/$tag" 2>&1 | Out-Null
-            $ErrorActionPreference = 'Continue'
-
-            # Collect assets
-            $assets = @($zipPath)
-            if (Test-Path $isoPath) { $assets += $isoPath }
-
-            gh release create $tag $assets `
-                --title "NotTheNet $ver" `
-                --notes "Release $ver`n`nSee [CHANGELOG.md](https://github.com/retr0verride/NotTheNet/blob/main/CHANGELOG.md) for details." `
-                --latest
-            if ($LASTEXITCODE -eq 0) {
-                info "GitHub release $tag created with $($assets.Count) asset(s)."
-            } else {
-                warn "gh release create failed (exit $LASTEXITCODE). Create manually."
-            }
+        # -- Git push + GitHub release ------------------------------------------
+        if ($SkipRelease) {
+            info "Skipping git push + GitHub release (-SkipRelease)."
         } else {
-            warn "gh CLI not found -- skipping GitHub release. Install: winget install GitHub.cli"
-        }
+            # git/gh write notices/warnings to stderr; Continue prevents NativeCommandError.
+            $ErrorActionPreference = "Continue"
+            info "Pushing to GitHub..."
+            git add -A
+            $status = git status --porcelain
+            if ($status) {
+                git commit -m "release: v$ver" --quiet 2>&1 | Out-Null
+            }
+            git push origin HEAD:main --quiet 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) { warn "git push failed (exit $LASTEXITCODE)." }
+            else { info "Pushed to main." }
+
+            # Create or update GitHub release (requires gh CLI)
+            if (Get-Command gh -ErrorAction SilentlyContinue) {
+                $tag = "v$ver"
+                info "Creating GitHub release $tag..."
+                # Delete existing release+tag if re-building same version
+                $ErrorActionPreference = 'SilentlyContinue'
+                gh release delete $tag --yes 2>&1 | Out-Null
+                git tag -d $tag 2>&1 | Out-Null
+                git push origin ":refs/tags/$tag" 2>&1 | Out-Null
+                $ErrorActionPreference = 'Continue'
+
+                # Collect assets
+                $assets = @($zipPath)
+                if (Test-Path $isoPath) { $assets += $isoPath }
+
+                gh release create $tag $assets `
+                    --title "NotTheNet $ver" `
+                    --notes "Release $ver`n`nSee [CHANGELOG.md](https://github.com/retr0verride/NotTheNet/blob/main/CHANGELOG.md) for details." `
+                    --latest
+                if ($LASTEXITCODE -eq 0) {
+                    info "GitHub release $tag created with $($assets.Count) asset(s)."
+                } else {
+                    warn "gh release create failed (exit $LASTEXITCODE). Create manually."
+                }
+            } else {
+                warn "gh CLI not found -- skipping GitHub release. Install: winget install GitHub.cli"
+            }
+        } # end if -not $SkipRelease
     }
 
 } finally {

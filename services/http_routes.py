@@ -13,7 +13,7 @@ import random
 import re
 import select
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import parse_qs
 
 from services.doh_websocket import (
@@ -240,7 +240,7 @@ def route_discord(handler, max_body_size: int, json_content_type: str) -> bool:
             "webhook_id": webhook_id,
             "attachments": [],
             "embeds": [],
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
     ).encode()
     try:

@@ -27,7 +27,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor  # type: ignore[attr-defined]
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlparse
 
 from services.doh_websocket import is_doh_request, is_websocket_upgrade
@@ -229,7 +229,7 @@ def _get_stub_crl() -> bytes:
             issuer = cx509.Name([
                 cx509.NameAttribute(NameOID.COMMON_NAME, "DigiCert Global Root CA"),
             ])
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             crl = (
                 cx509.CertificateRevocationListBuilder()
                 .issuer_name(issuer)
@@ -279,7 +279,7 @@ _MAX_BODY_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 # Computed once at module load to approximate a deployed server whose content was
 # last updated ~60 days before startup â€” prevents absence-of-header fingerprinting.
 _SERVER_LAST_MODIFIED = (
-    datetime.now(timezone.utc) - timedelta(days=60)
+    datetime.now(UTC) - timedelta(days=60)
 ).strftime("%a, %d %b %Y 12:00:00 GMT")
 
 # RFC 1918 private address ranges â€” returning one of these as a "public" IP

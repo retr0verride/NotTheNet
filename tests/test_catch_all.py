@@ -89,7 +89,7 @@ class TestBuildTLSContext:
 
         key = rsa.generate_private_key(65537, 2048)
         subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "test")])
-        now = datetime.datetime.now(datetime.timezone.utc)
+        now = datetime.datetime.now(datetime.UTC)
         cert = (
             x509.CertificateBuilder()
             .subject_name(subject)

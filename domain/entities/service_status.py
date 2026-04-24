@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 
-class ServiceState(str, Enum):
+class ServiceState(StrEnum):
     STOPPED = "stopped"
     STARTING = "starting"
     RUNNING = "running"
