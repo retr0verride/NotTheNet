@@ -25,9 +25,25 @@ import signal
 import sys
 
 # Ensure the project root is on sys.path so sibling packages resolve correctly.
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _SCRIPT_DIR)
 
-from gui.widgets import APP_VERSION  # noqa: F401  — single source of truth
+# Recover from a stale CWD before anything tries to use a relative path.
+# Common trigger: user cloned the repo, then `dpkg -i` overwrote the install
+# directory and the shell's CWD now points at a deleted inode.  Every
+# subprocess.Popen() call without an explicit cwd= would fail with ENOENT,
+# log_dir="logs" creation would crash, etc.
+try:
+    os.getcwd()
+except (FileNotFoundError, OSError):
+    print(
+        f"[!] Current working directory is stale (deleted) — "
+        f"chdir() to {_SCRIPT_DIR}",
+        file=sys.stderr,
+    )
+    os.chdir(_SCRIPT_DIR)
+
+from gui.widgets import APP_VERSION  # noqa: F401,E402  — single source of truth
 
 
 def _headless_main() -> None:
