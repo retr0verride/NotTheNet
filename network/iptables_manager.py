@@ -262,8 +262,32 @@ class IPTablesManager:
     def __init__(self, config: dict):
         self.enabled = config.get("auto_iptables", True)
         self.interface = config.get("interface", "eth0")
-        self.redirect_ip = config.get("redirect_ip", "127.0.0.1")
         self.mode = config.get("iptables_mode", "loopback")
+        bind_ip = config.get("bind_ip", "0.0.0.0")
+        configured_redirect = config.get("redirect_ip", "127.0.0.1")
+        # In gateway mode, DNAT must rewrite victim packets to a *real*
+        # interface IP — not 127.0.0.1.  Linux drops cross-interface packets
+        # routed to loopback unless route_localnet=1, and even then it breaks
+        # transparent-proxy semantics for the victim.  Auto-derive the right
+        # target so a single IP edit (bind_ip) is sufficient for gateway labs.
+        if self.mode == "gateway" and configured_redirect in ("127.0.0.1", "0.0.0.0"):
+            derived = self._derive_gateway_ip(bind_ip)
+            if derived:
+                logger.info(
+                    "gateway mode: redirect_ip auto-derived to %s "
+                    "(configured value %s is unreachable from victim)",
+                    derived, configured_redirect,
+                )
+                self.redirect_ip = derived
+            else:
+                logger.warning(
+                    "gateway mode but cannot derive a routable redirect_ip "
+                    "(bind_ip=%s, interface=%s); victim traffic will not reach services.",
+                    bind_ip, self.interface,
+                )
+                self.redirect_ip = configured_redirect
+        else:
+            self.redirect_ip = configured_redirect
         # When > 0, add a mangle POSTROUTING TTL rule so outgoing packets
         # appear to have traversed internet routing hops rather than being
         # served from a directly-connected host.
@@ -282,6 +306,33 @@ class IPTablesManager:
         self._filter_saved = False
         self._filter_icmp_drop_applied = False
         self._prev_ip_forward: str | None = None  # restored on stop
+
+    @staticmethod
+    def _derive_gateway_ip(bind_ip: str) -> str | None:
+        """Pick a routable IP for DNAT targets in gateway mode.
+
+        Prefers an explicit `bind_ip` other than 0.0.0.0/127.0.0.1.  If
+        bind_ip is the wildcard, fall back to the first non-loopback IPv4
+        on any interface (matches what most users mean by "the lab IP").
+        Returns None if nothing usable is found.
+        """
+        if bind_ip and bind_ip not in ("0.0.0.0", "127.0.0.1"):
+            return bind_ip
+        try:
+            code, out, _ = _run(["ip", "-4", "-o", "addr", "show", "scope", "global"])
+            if code != 0:
+                return None
+            for line in out.splitlines():
+                # Format: "2: eth0    inet 10.10.10.1/24 brd ..."
+                parts = line.split()
+                if "inet" in parts:
+                    cidr = parts[parts.index("inet") + 1]
+                    ip = cidr.split("/", 1)[0]
+                    if ip and not ip.startswith("127."):
+                        return ip
+        except OSError:
+            return None
+        return None
 
     def _validate_interface(self, iface: str) -> bool:
         """Validate interface name against /proc/net/dev."""
