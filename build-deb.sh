@@ -172,8 +172,12 @@ chmod 755 /usr/local/bin/notthenet-gui
 
 # ── Polkit action ─────────────────────────────────────────────────────────────
 if [[ -d /usr/share/polkit-1/actions ]]; then
+    # exec.path MUST match the binary passed to pkexec ($SELF in the launcher),
+    # which is /usr/local/bin/notthenet-gui. If this mismatches, polkit cannot
+    # match the named action and pkexec strips DISPLAY/XAUTHORITY → Tk silently
+    # fails to open the window after the auth prompt.
     sed \
-        -e "s|NOTTHENET_GUI_PLACEHOLDER|/opt/notthenet/venv/bin/python|g" \
+        -e "s|NOTTHENET_GUI_PLACEHOLDER|/usr/local/bin/notthenet-gui|g" \
         "$OPT/assets/com.retr0verride.notthenet.policy" \
         > /usr/share/polkit-1/actions/com.retr0verride.notthenet.policy
     chmod 644 /usr/share/polkit-1/actions/com.retr0verride.notthenet.policy
