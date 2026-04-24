@@ -138,6 +138,15 @@ class _GeneralPage(tk.Frame):
              "the selected OS. Defeats malware that fingerprints the\n"
              "network stack (e.g. checking TTL=128 for Windows).\n"
              "Select the target OS below."),
+            ("Promiscuous mode (multi-victim)", "promisc_mode", False,
+             "Enable promiscuous mode on the lab interface at start and\n"
+             "restore the original state on stop.\n\n"
+             "Required when two or more victim VMs are on the same bridge\n"
+             "(e.g. WannaCry spreading from 10.10.10.7 to 10.10.10.8) —\n"
+             "VM-to-VM traffic never passes through Kali's routing stack\n"
+             "and is invisible without promisc mode.\n\n"
+             "Not needed for single-victim labs where all traffic already\n"
+             "flows through the gateway."),
         ]
         for i, (label, key, default, tip) in enumerate(check_fields):
             val = self.cfg.get("general", key)
