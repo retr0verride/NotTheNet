@@ -24,6 +24,7 @@ Open an issue on the [GitHub Issue Tracker](https://github.com/retr0verride/NotT
 ### 1. Fork and branch
 
 ```bash
+cd ~
 git clone https://github.com/<you>/NotTheNet
 cd NotTheNet
 git checkout -b feat/my-change

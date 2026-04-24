@@ -71,8 +71,9 @@ sudo apt --fix-broken install   # only needed if dpkg reports missing deps
 ### Upgrade
 
 ```bash
-cd NotTheNet          # the repo you cloned during install
+cd ~/NotTheNet                # the repo you cloned during install
 git pull origin main
+rm -f dist/*.deb              # remove stale builds so the glob below is unambiguous
 bash build-deb.sh
 sudo dpkg -i dist/notthenet_*.deb
 ```
@@ -153,6 +154,7 @@ For contributors and anyone editing the source. Installs **in the cloned directo
 ### Install
 
 ```bash
+cd ~
 git clone https://github.com/retr0verride/NotTheNet.git
 cd NotTheNet
 sudo bash notthenet-install.sh

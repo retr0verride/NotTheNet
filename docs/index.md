@@ -36,6 +36,7 @@ Man page: [`man/notthenet.1`](../man/notthenet.1)
 **Recommended — `.deb` package on Kali:**
 
 ```bash
+cd ~
 git clone https://github.com/retr0verride/NotTheNet
 cd NotTheNet
 bash build-deb.sh
