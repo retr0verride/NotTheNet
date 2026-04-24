@@ -279,7 +279,8 @@ class IPTablesManager:
             if detected:
                 if configured_iface:
                     logger.warning(
-                        "Configured interface '%s' not found; auto-detected '%s' from default route.",
+                        "Configured interface '%s' not found; "
+                        "auto-detected '%s' from default route.",
                         sanitize_log_string(configured_iface), detected,
                     )
                 else:
