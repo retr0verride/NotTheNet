@@ -134,18 +134,29 @@ else
     echo "  ⚠ ip6tables not found — IPv6 forwarding NOT blocked"
 fi
 
-# Ensure IP forwarding is OFF. NTN uses REDIRECT/DNAT rules (INPUT chain only)
-# and does not route between interfaces. Keeping ip_forward=0 removes the
-# kernel-level escape route even if iptables FORWARD rules are flushed.
+# ip_forward: set to 0 here so that if NTN hasn't started yet (or is running
+# in loopback mode) there is no kernel-level escape route.  When NTN starts in
+# gateway mode it writes ip_forward=1 itself and restores 0 on stop.  This
+# line is therefore the safe baseline, not the final runtime value.
 echo 0 > /proc/sys/net/ipv4/ip_forward
-echo "  ✓ ip_forward: disabled (sinkhole mode — not required for REDIRECT/DNAT)"
+echo "  ✓ ip_forward: baseline 0 (NTN gateway mode will re-enable on start)"
+
+# Allow intra-bridge forwarding (victim ↔ victim) BEFORE any DROP rules.
+# Required when bridge-nf-call-iptables=1 routes bridged packets through
+# iptables FORWARD.  Without this rule, if the FORWARD default policy is DROP
+# (common after system hardening), victim-to-victim spread is silently blocked
+# even though passthrough_subnets skips DNAT in PREROUTING.  Insert at
+# position 1 so it beats all existing FORWARD rules.
+iptables -I FORWARD 1 -i "$BRIDGE_IF" -o "$BRIDGE_IF" -j ACCEPT \
+    -m comment --comment "NOTTHENET_HARDEN: allow intra-bridge fwd (victim spread)"
+echo "  ✓ FORWARD $BRIDGE_IF → $BRIDGE_IF: ALLOWED (victim-to-victim spread)"
 
 # Block ALL forwarding between bridge (victim network) and management NIC.
 # Skip if bridge and mgmt are the same interface (single-NIC setups).
 if [[ "$BRIDGE_IF" != "$MGMT_IF" ]]; then
-    iptables -I FORWARD 1 -i "$BRIDGE_IF" -o "$MGMT_IF" -j DROP \
+    iptables -I FORWARD 2 -i "$BRIDGE_IF" -o "$MGMT_IF" -j DROP \
         -m comment --comment "NOTTHENET_HARDEN: block pivot bridge→mgmt"
-    iptables -I FORWARD 2 -i "$MGMT_IF" -o "$BRIDGE_IF" -j DROP \
+    iptables -I FORWARD 3 -i "$MGMT_IF" -o "$BRIDGE_IF" -j DROP \
         -m comment --comment "NOTTHENET_HARDEN: block pivot mgmt→bridge"
 
     # Block NEW inbound connections from the analysis subnet on the management NIC.
@@ -196,8 +207,11 @@ else
     # traffic before it reaches NTN's listener.  WinRM (5985/5986) and raw
     # WMI/NetBIOS (135/139/137/138) have no NTN sinkhole and are genuine
     # Kali-exploitation channels, so those remain blocked.
+    # SSH (22) is also blocked: passthrough_subnets exempts victim→Kali:22 from
+    # DNAT, so without this INPUT DROP, malware doing SSH lateral movement could
+    # hit the real Kali SSH daemon directly.
     for _proto in tcp udp; do
-        for _port in 135 139 5985 5986; do
+        for _port in 22 135 139 5985 5986; do
             iptables -A INPUT -i "$BRIDGE_IF" -s "$VICTIM_SUBNET" \
                 -p "$_proto" --dport "$_port" -j DROP \
                 -m comment --comment "NOTTHENET_HARDEN: block lateral movement -> Kali"
@@ -210,7 +224,7 @@ else
             -m comment --comment "NOTTHENET_HARDEN: block lateral movement -> Kali"
     done
 
-    echo "  ✓ Lateral movement ports (WMI/WinRM/NetBIOS) from $VICTIM_SUBNET: BLOCKED on $BRIDGE_IF"
+    echo "  ✓ Lateral movement ports (SSH/WMI/WinRM/NetBIOS) from $VICTIM_SUBNET: BLOCKED on $BRIDGE_IF"
     echo "  -- SMB/RDP (445/3389) NOT blocked: handled by NotTheNet sinkholes"
 fi
 echo "  Done."

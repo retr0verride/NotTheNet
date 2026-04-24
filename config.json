@@ -281,7 +281,7 @@
   },
   "victim": {
     "username": "Desktop10FVM",
-    "ip": "10.10.10.10",
+    "ip": "10.10.10.7",
     "auto_detect_ip": true,
     "subnet_mask": 24
   }
