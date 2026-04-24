@@ -395,6 +395,42 @@ class ServiceManager:
             }, {"bind_ip": bind_ip}
         return None
 
+    def _resolve_redirect_ip(self, bind_ip: str) -> str:
+        """Mirror IPTablesManager auto-derive so services log the *effective* target.
+
+        In gateway mode an empty / "auto" / loopback / 0.0.0.0 redirect_ip is a
+        sentinel meaning "derive from interface IP".  Without this mirror,
+        services would log "defaulting to 127.0.0.1" even though iptables is
+        DNATing victim traffic to the real interface IP — confusing the user.
+        """
+        configured = self.config.get("general", "redirect_ip") or ""
+        mode = self.config.get("general", "iptables_mode") or "gateway"
+        sentinels = ("", "auto", "127.0.0.1", "0.0.0.0")
+        if mode == "gateway" and configured in sentinels:
+            iface = self.config.get("general", "interface") or ""
+            if not iface:
+                iface = IPTablesManager._detect_default_interface() or ""
+            if bind_ip and bind_ip not in ("0.0.0.0", "127.0.0.1"):
+                derived = bind_ip
+            else:
+                derived = (
+                    IPTablesManager._first_ipv4_on(iface)
+                    or IPTablesManager._first_ipv4_on(None)
+                )
+            if derived:
+                logger.info(
+                    "redirect_ip auto-derived to %s (gateway mode, configured=%r)",
+                    derived, configured,
+                )
+                return derived
+            logger.warning(
+                "gateway mode but no routable IPv4 found (interface=%s); "
+                "falling back to 127.0.0.1 — victim traffic will not reach services.",
+                iface or "<unset>",
+            )
+            return "127.0.0.1"
+        return configured or "127.0.0.1"
+
     def _start_all_services(self) -> tuple[list[str], list[str]]:
         """Instantiate and start every service from the registry.
 
@@ -403,12 +439,7 @@ class ServiceManager:
         bind_ip = self.config.get("general", "bind_ip") or "0.0.0.0"
         spoof_ip = str(self.config.get("general", "spoof_public_ip") or "")
         https_cfg = self.config.get_section("https")
-        redirect_ip = self.config.get("general", "redirect_ip") or "127.0.0.1"
-        if not self.config.get("general", "redirect_ip"):
-            logger.warning(
-                "general.redirect_ip is not set; defaulting to 127.0.0.1. "
-                "Services may not be reachable from gateway mode."
-            )
+        redirect_ip = self._resolve_redirect_ip(bind_ip)
 
         started: list[str] = []
         failed: list[str] = []

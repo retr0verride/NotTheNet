@@ -733,6 +733,10 @@ class IPTablesManager:
 
             if self._filter_saved and _restore_filter_snapshot():
                 self._filter_saved = False
+                # The snapshot restore wipes our ICMP DROP rule too, so the
+                # explicit -D in _remove_auxiliary_rules would fail with
+                # "Bad rule (does a matching rule exist?)".  Clear the flag.
+                self._filter_icmp_drop_applied = False
             else:
                 logger.debug("No filter snapshot available; skipping filter restore.")
 
