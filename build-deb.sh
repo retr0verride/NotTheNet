@@ -162,11 +162,12 @@ mkdir -p "$OPT/logs/emails" "$OPT/logs/ftp_uploads"
 chmod 700 "$OPT/logs"
 
 # ── GUI launcher (/usr/local/bin/notthenet-gui) ───────────────────────────────
-cat > /usr/local/bin/notthenet-gui << 'EOF'
-#!/usr/bin/env bash
-# NotTheNet GUI launcher (via pkexec for root privileges)
-exec pkexec /opt/notthenet/venv/bin/python /opt/notthenet/notthenet.py "$@"
-EOF
+# Use the shared template (assets/notthenet-gui-launcher) so the deb and
+# script installs produce identical launchers with polkit + xterm fallback.
+sed \
+    -e "s|VENV_PYTHON_PLACEHOLDER|/opt/notthenet/venv/bin/python|g" \
+    -e "s|SCRIPT_PLACEHOLDER|/opt/notthenet/notthenet.py|g" \
+    "$OPT/assets/notthenet-gui-launcher" > /usr/local/bin/notthenet-gui
 chmod 755 /usr/local/bin/notthenet-gui
 
 # ── Polkit action ─────────────────────────────────────────────────────────────
