@@ -7,6 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ## [Unreleased]
 
+### Fixed
+- **`assets/notthenet-icon.svg`: globe icon regressed to spoke/star design** — commit `ee769d0` ("fix: missing launcher/icon assets…") re-added the icon as a different SVG (radial gradient + 4 spokes + diagonal slash) instead of restoring the original teal-wireframe globe + red prohibition design from `70622b2`. Restored the original globe SVG byte-for-byte from `70622b2:assets/notthenet-icon.svg`.
+
 ### Added
 - **`scripts/checks.py`**: single source of truth for all 12 lint/SAST/test/audit steps, invoked locally by `predeploy.{ps1,sh}` and by the CI lint job. Cross-platform Python 3.10+, supports `--skip-install`, `--skip-tests`, `--only N,M,...`. Replaces ~180 lines of duplicated logic across the two predeploy scripts and the CI workflow.
 - **`ship.ps1`: commit/tag/push stage** — after the bundle build, the script now stages `pyproject.toml` + `gui/widgets.py`, commits as `chore(release): <ver>`, creates an annotated `v<ver>` tag, and pushes branch + tag separately to `origin`. New `-SkipPush` switch builds artifacts without touching git.
