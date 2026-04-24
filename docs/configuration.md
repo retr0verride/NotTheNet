@@ -103,7 +103,7 @@ Fake DNS server — resolves every query to `resolve_to`.
 |-----|------|---------|-------------|
 | `enabled` | bool | `true` | Enable the DNS service. |
 | `port` | int | `53` | UDP + TCP port to listen on. |
-| `resolve_to` | string | `"127.0.0.1"` | IP address returned for all A/AAAA queries. |
+| `resolve_to` | string | `"127.0.0.1"` | IP address returned for all A/AAAA queries. **In `gateway` mode**, if this is `"127.0.0.1"` (the default), NotTheNet automatically overrides it with the effective `redirect_ip` at startup — so malware following DNS-discovered targets connects to the sinkhole rather than the victim's own loopback. Set an explicit non-loopback IP here to override that behaviour. |
 | `ttl` | int | `300` | DNS TTL in seconds for synthesised records. |
 | `handle_ptr` | bool | `true` | When `true`, PTR (reverse DNS) queries return a synthetic ISP-style hostname derived from the queried IP (e.g. `static-192-168-1-100.res.example.net`). When `false`, PTR queries get no answer. |
 | `custom_records` | object | `{}` | Per-hostname overrides. Keys are lowercase hostnames; values are IP addresses. These take priority over all other resolver logic. See [Custom DNS Records](#custom-dns-records). |

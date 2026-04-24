@@ -262,3 +262,58 @@ class TestServiceRepoAdapter:
     def test_get_status_before_start_returns_empty(self, tmp_path):
         adapter = self._adapter(tmp_path)
         assert adapter.get_status() == []
+
+
+# ── DNS resolve_to auto-derive in gateway mode ───────────────────────────────
+
+class TestDnsResolveTo:
+    """Regression: gateway mode must derive resolve_to from redirect_ip, not loopback."""
+
+    def _sm(self, tmp_path, overrides=None):
+        cfg = _cfg(tmp_path, overrides)
+        return ServiceManager(cfg)
+
+    def test_gateway_mode_overrides_loopback_resolve_to(self, tmp_path):
+        """When iptables_mode=gateway and resolve_to=127.0.0.1, DNS builder must
+        replace resolve_to with the derived redirect_ip so malware following
+        DNS-discovered targets reaches NTN instead of the victim's loopback."""
+        sm = self._sm(tmp_path, {
+            "general": {"iptables_mode": "gateway", "redirect_ip": "10.10.10.1"},
+            "dns": {"resolve_to": "127.0.0.1", "enabled": False},
+        })
+        from service_manager import _SERVICE_REGISTRY
+        dns_spec = next(s for s in _SERVICE_REGISTRY if s.name == "dns")
+        cfg_out, _ = sm._special_builders(
+            dns_spec, "0.0.0.0", "98.6.112.145", "10.10.10.1",
+            {"cert_file": "", "key_file": ""},
+        )
+        assert cfg_out["resolve_to"] == "10.10.10.1"
+
+    def test_gateway_mode_respects_explicit_resolve_to(self, tmp_path):
+        """An explicit non-loopback resolve_to must be preserved in gateway mode."""
+        sm = self._sm(tmp_path, {
+            "general": {"iptables_mode": "gateway", "redirect_ip": "10.10.10.1"},
+            "dns": {"resolve_to": "192.168.1.99", "enabled": False},
+        })
+        from service_manager import _SERVICE_REGISTRY
+        dns_spec = next(s for s in _SERVICE_REGISTRY if s.name == "dns")
+        cfg_out, _ = sm._special_builders(
+            dns_spec, "0.0.0.0", "98.6.112.145", "10.10.10.1",
+            {"cert_file": "", "key_file": ""},
+        )
+        assert cfg_out["resolve_to"] == "192.168.1.99"
+
+    def test_sinkhole_mode_keeps_loopback_resolve_to(self, tmp_path):
+        """In sinkhole mode, resolve_to=127.0.0.1 must NOT be replaced."""
+        sm = self._sm(tmp_path, {
+            "general": {"iptables_mode": "sinkhole", "redirect_ip": "127.0.0.1"},
+            "dns": {"resolve_to": "127.0.0.1", "enabled": False},
+        })
+        from service_manager import _SERVICE_REGISTRY
+        dns_spec = next(s for s in _SERVICE_REGISTRY if s.name == "dns")
+        cfg_out, _ = sm._special_builders(
+            dns_spec, "127.0.0.1", "1.2.3.4", "127.0.0.1",
+            {"cert_file": "", "key_file": ""},
+        )
+        assert cfg_out["resolve_to"] == "127.0.0.1"
+

@@ -368,11 +368,26 @@ class ServiceManager:
         spoof_ip: str, redirect_ip: str, https_cfg: dict,
     ) -> tuple[dict, dict] | None:
         """Return (config, extra_kwargs) for services needing custom config, or None."""
-        if spec.name == "dns":
-            return {**self.config.get_section("dns"), "bind_ip": bind_ip}, {}
-        if spec.name == "dot":
+        if spec.name in ("dns", "dot"):
+            # In gateway mode, DNS must resolve names to the sinkhole IP so that
+            # malware following DNS-discovered targets connects back to NTN rather
+            # than to the victim's own loopback (127.0.0.1).  Override resolve_to
+            # with the effective redirect_ip whenever the config carries the
+            # loopback sentinel — the same auto-derive pattern used by HTTP/HTTPS.
+            dns_cfg = self.config.get_section("dns")
+            mode = self.config.get("general", "iptables_mode") or "gateway"
+            configured_resolve = dns_cfg.get("resolve_to") or ""
+            if mode == "gateway" and configured_resolve in ("", "127.0.0.1"):
+                dns_cfg = {**dns_cfg, "resolve_to": redirect_ip}
+                logger.info(
+                    "dns.resolve_to auto-derived to %s (gateway mode, configured=%r)",
+                    redirect_ip, configured_resolve,
+                )
+            if spec.name == "dns":
+                return {**dns_cfg, "bind_ip": bind_ip}, {}
+            # dot
             return {
-                **self.config.get_section("dns"),
+                **dns_cfg,
                 **self.config.get_section("dot"),
                 "port":      int(self.config.get("dot", "port") or 853),
                 "enabled":   (self.config.get("dot", "enabled")
