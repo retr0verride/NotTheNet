@@ -683,14 +683,18 @@ fi
         }
 
         # ── Git push + GitHub release ──────────────────────────────────
+        # git writes notices/warnings to stderr; use Continue so NativeCommandError
+        # is not thrown, then check $LASTEXITCODE manually.
+        $ErrorActionPreference = "Continue"
         info "Pushing to GitHub..."
         git add -A
         $status = git status --porcelain
         if ($status) {
-            git commit -m "release: v$ver" --quiet
+            git commit -m "release: v$ver" --quiet 2>&1 | Out-Null
         }
         git push origin HEAD:main --quiet 2>&1 | Out-Null
-        info "Pushed to main."
+        if ($LASTEXITCODE -ne 0) { warn "git push failed (exit $LASTEXITCODE)." }
+        else { info "Pushed to main." }
 
         # Create or update GitHub release (requires gh CLI)
         if (Get-Command gh -ErrorAction SilentlyContinue) {
