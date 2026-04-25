@@ -7,6 +7,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ## [Unreleased]
 
+## [2026.04.24-14] — 2026-04-24
+
+### Fixed
+- **`network/iptables_manager.py`: victim-to-victim SMB spread blocked even with `passthrough_subnets` set.** Root cause was the passthrough rule using destination-only matching (`-d <cidr> -j RETURN`); when the user's deployed `config.json` lacked the field (older deploys, manual edits) intra-LAN traffic fell through to the service DNAT and got redirected to NTN's fake SMB on Kali, trapping the worm on the sinkhole host. Two fixes:
+  - Tightened the rule to **`-s <cidr> -d <cidr> -j RETURN`** so it exempts only intra-LAN traffic. Victim->Kali probes still get caught by NTN's DNAT (Kali is in the LAN, but the source isn't always in it).
+  - In **gateway mode**, when `passthrough_subnets` is empty, **auto-derive the LAN CIDR from the gateway interface** (e.g. interface IP `10.10.10.1/24` -> passthrough `10.10.10.0/24`). Worm-style `/24` scans now spread between victims out of the box without operator config.
+- **`config.json`: `smb.enabled` re-enabled by default** (`true`). With the iptables fix above, the fake SMB server no longer blocks lateral movement, so operators get SMB capture *and* worm-spread observation simultaneously.
+
+### Tests
+- `tests/test_iptables_manager.py`: assert passthrough rule contains both `-s` and `-d` matching the LAN CIDR; new test `test_gateway_mode_auto_derives_intra_lan_passthrough` mocks `_first_ipv4_cidr_on` to verify auto-derivation; new `test_empty_passthrough_subnets_sinkhole_mode_no_rules` verifies sinkhole mode does not auto-derive.
+
 ## [2026.04.24-13] — 2026-04-24
 
 ### Changed

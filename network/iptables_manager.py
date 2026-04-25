@@ -416,6 +416,12 @@ class IPTablesManager:
     @staticmethod
     def _first_ipv4_on(iface: str | None) -> str | None:
         """Return the first global IPv4 on `iface` (or any iface if None)."""
+        ip_cidr = IPTablesManager._first_ipv4_cidr_on(iface)
+        return ip_cidr.split("/", 1)[0] if ip_cidr else None
+
+    @staticmethod
+    def _first_ipv4_cidr_on(iface: str | None) -> str | None:
+        """Return the first global IPv4 with prefix on `iface` (e.g. '10.10.10.1/24')."""
         cmd = ["ip", "-4", "-o", "addr", "show", "scope", "global"]
         if iface:
             cmd += ["dev", iface]
@@ -427,12 +433,23 @@ class IPTablesManager:
                 # Format: "2: eth0    inet 10.10.10.1/24 brd ..."
                 parts = line.split()
                 if "inet" in parts:
-                    ip = parts[parts.index("inet") + 1].split("/", 1)[0]
-                    if ip and not ip.startswith("127."):
-                        return ip
+                    cidr = parts[parts.index("inet") + 1]
+                    if cidr and not cidr.startswith("127."):
+                        return cidr
         except OSError:
             return None
         return None
+
+    @staticmethod
+    def _network_cidr(host_cidr: str) -> str | None:
+        """Convert a host CIDR like '10.10.10.1/24' into the network CIDR
+        '10.10.10.0/24'. Returns None on parse failure."""
+        try:
+            import ipaddress
+            net = ipaddress.ip_network(host_cidr, strict=False)
+            return str(net)
+        except (ValueError, TypeError):
+            return None
 
     @staticmethod
     def _detect_default_interface() -> str | None:
@@ -592,15 +609,38 @@ class IPTablesManager:
     ) -> int:
         """Insert RETURN rules for passthrough_subnets before any DNAT rules.
 
-        Traffic destined for these CIDRs skips all NTN redirection and is
-        forwarded normally (or delivered locally).  The primary use case is
-        allowing victim-to-victim SMB/RDP spread in a Proxmox lab where
-        bridge-nf-call-iptables=1 routes intra-bridge packets through iptables.
+        Traffic where BOTH source and destination are inside one of these
+        CIDRs skips all NTN redirection and is forwarded normally.  The
+        primary use case is allowing victim-to-victim SMB/RDP/lateral spread
+        in a Proxmox lab where bridge-nf-call-iptables=1 routes intra-bridge
+        packets through iptables.
+
+        We require BOTH `-s` and `-d` to match so that victim->Kali traffic
+        (where dst is Kali, also inside the LAN CIDR) is still caught by
+        NTN's DNAT rules.  Earlier versions used dst-only RETURN, which
+        accidentally exempted victim->Kali probes from the sinkhole.
+
+        In gateway mode, if `passthrough_subnets` is empty, auto-derive the
+        LAN CIDR from the gateway interface so worm-style /24 scans spread
+        out-of-the-box without operator config.
         """
+        subnets = list(self.passthrough_subnets)
+        if self.mode == "gateway" and not subnets:
+            host_cidr = self._first_ipv4_cidr_on(self.interface)
+            net_cidr = self._network_cidr(host_cidr) if host_cidr else None
+            if net_cidr:
+                subnets = [net_cidr]
+                logger.info(
+                    "Auto-derived passthrough_subnet %s from interface %s "
+                    "(intra-LAN traffic will bypass DNAT to enable lateral "
+                    "spread between victims).",
+                    net_cidr, self.interface,
+                )
         count = 0
-        for cidr in self.passthrough_subnets:
+        for cidr in subnets:
             rule = table_flag + [
                 "-I", chain, "2",
+                "-s", cidr,
                 "-d", cidr,
                 "-j", "RETURN",
                 "-m", "comment", "--comment", _RULE_COMMENT,
@@ -608,7 +648,8 @@ class IPTablesManager:
             if self._add_rule(rule):
                 count += 1
                 logger.info(
-                    "Passthrough (no DNAT) for %s via %s chain.", cidr, chain,
+                    "Passthrough (no DNAT) for intra-LAN %s via %s chain.",
+                    cidr, chain,
                 )
         return count
 

@@ -191,13 +191,40 @@ class TestPassthroughSubnets:
         count = mgr._apply_passthrough_subnets("PREROUTING", ["-t", "nat"])
         assert count == 1
         all_args = [call[0][0] for call in mock_run.call_args_list]
-        flat = [str(a) for args in all_args for a in args]
-        assert "RETURN" in flat
-        assert "10.10.10.0/24" in flat
+        # Rule must require BOTH source and destination inside the LAN so that
+        # victim->Kali traffic is still caught by NTN's DNAT (only intra-LAN
+        # spread is exempted).
+        emitted = next(a for a in all_args if "RETURN" in a)
+        assert "-s" in emitted and "-d" in emitted
+        s_idx = emitted.index("-s")
+        d_idx = emitted.index("-d")
+        assert emitted[s_idx + 1] == "10.10.10.0/24"
+        assert emitted[d_idx + 1] == "10.10.10.0/24"
 
     @patch("network.iptables_manager._run", return_value=(0, "", ""))
-    def test_empty_passthrough_subnets_no_rules(self, mock_run):
+    def test_gateway_mode_auto_derives_intra_lan_passthrough(self, mock_run):
+        """In gateway mode with no explicit passthrough_subnets, the LAN CIDR
+        must be auto-derived from the interface so worm-style /24 scans can
+        spread between victims out of the box."""
         mgr = self._mgr(passthrough_subnets=[])
+        with patch.object(
+            IPTablesManager, "_first_ipv4_cidr_on", return_value="10.10.10.1/24",
+        ):
+            count = mgr._apply_passthrough_subnets("PREROUTING", ["-t", "nat"])
+        assert count == 1
+        emitted = next(c[0][0] for c in mock_run.call_args_list if "RETURN" in c[0][0])
+        # Network CIDR derived from host CIDR (10.10.10.1/24 -> 10.10.10.0/24).
+        assert "10.10.10.0/24" in emitted
+        assert "-s" in emitted and "-d" in emitted
+
+    @patch("network.iptables_manager._run", return_value=(0, "", ""))
+    def test_empty_passthrough_subnets_sinkhole_mode_no_rules(self, mock_run):
+        """Sinkhole mode (non-gateway) must NOT auto-derive: NTN is supposed
+        to capture everything on the host, including its own LAN."""
+        cfg = {"auto_iptables": True, "interface": "eth0",
+               "redirect_ip": "10.0.0.1", "iptables_mode": "sinkhole",
+               "passthrough_subnets": []}
+        mgr = IPTablesManager(cfg)
         count = mgr._apply_passthrough_subnets("PREROUTING", ["-t", "nat"])
         assert count == 0
         mock_run.assert_not_called()
