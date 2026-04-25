@@ -172,26 +172,28 @@ Click **💾 Save**.
 
 ---
 
-## Part 3 — FlareVM (Windows VM) Setup
+## Part 3 — Windows Victim VM Setup
+
+You can use any Windows VM as the victim — a plain Windows 10 or 11 install is enough to run samples and observe what they do. **FlareVM is optional.** It adds dedicated analysis tools (debuggers, disassemblers, packet capture utilities) for deeper examination, but you don't need it to get started.
 
 ### 3.1 Create a Windows VM
 
 You need a Windows 10 or 11 ISO. Microsoft offers free 90-day evaluation ISOs at [https://www.microsoft.com/en-us/evalcenter/](https://www.microsoft.com/en-us/evalcenter/).
 
 **[VirtualBox]:**
-1. **New** → Name: `flarevm`, Type: Windows, Version: Windows 10 (64-bit)
-2. RAM: 8 GB minimum, 16 GB recommended
-3. Disk: 100 GB (FlareVM tools take a lot of space)
+1. **New** → Name: `victim-win`, Type: Windows, Version: Windows 10 (64-bit)
+2. RAM: 4 GB minimum (8–16 GB if installing FlareVM)
+3. Disk: 60 GB+ (100 GB if installing FlareVM)
 4. Network: **do not add a NIC yet** — you'll configure it in step 3.2
 
 **[VMware]:**
 1. **Create a New Virtual Machine** → Typical → select the Windows ISO
-2. RAM: 8 GB+, Disk: 100 GB+
+2. RAM: 4 GB+, Disk: 60 GB+
 3. Before finishing, **Customize Hardware** → remove or disconnect the default NIC — you'll add the right one in step 3.2
 
-### 3.2 Set FlareVM's NIC to the isolated network
+### 3.2 Set the victim VM's NIC to the isolated network
 
-FlareVM gets **only one NIC** and it must be on the isolated lab network — no NAT, no internet.
+The victim VM gets **only one NIC** and it must be on the isolated lab network — no NAT, no internet.
 
 **[VirtualBox]:**
 1. VM Settings → Network → Adapter 1
@@ -208,7 +210,7 @@ FlareVM gets **only one NIC** and it must be on the isolated lab network — no 
 
 Boot from the ISO and run a standard Windows install. At the network screen, choose **I don't have internet** → **Continue with limited setup** → create a local account. No Microsoft account needed.
 
-### 3.4 Set a static IP on FlareVM
+### 3.4 Set a static IP on the victim VM
 
 Windows Control Panel → **Network and Sharing Center → Change adapter settings** → right-click the NIC → **Properties → IPv4 → Properties**:
 
@@ -228,7 +230,47 @@ ping 10.0.0.1
 ```
 You should get replies from Kali.
 
-### 3.5 Install FlareVM
+### 3.5 Remove Windows Defender and disable security hardening
+
+**This step is not optional.** Windows Defender will detect and quarantine most real malware samples before they run — or silently kill network connections without any indication. If you detonate a sample without disabling Defender first, the malware appears to do nothing, when it has actually been killed at startup.
+
+SmartScreen, UAC, and Virtualization-Based Security (VBS) have the same problem. In an isolated lab with no internet they provide no real protection, but they do interfere with analysis.
+
+> **Credit:** The steps below use [**windows-defender-remover**](https://github.com/ionuttbara/windows-defender-remover) by [Ionuț Bară](https://github.com/ionuttbara). It removes Defender's AV engine, Security Center, SmartScreen, VBS, and related services in a single pass.
+
+**Getting the tool onto the VM:** temporarily add a NAT NIC (same method used for FlareVM install in step 3.6 below), download the `.exe`, then remove the NAT NIC — or copy it from your host via shared folder.
+
+1. Download `Defender.Remover.exe` from the [releases page](https://github.com/ionuttbara/windows-defender-remover/releases)
+2. Copy it to the victim VM
+3. Open PowerShell as Administrator and run:
+
+```powershell
+# Silent full removal — no interactive prompts; reboots automatically
+.\Defender.Remover.exe /r
+```
+
+4. Reboot when prompted.
+
+After rebooting, also disable UAC, SmartScreen, and Windows Firewall:
+
+```powershell
+# Disable UAC
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" `
+    -Name "EnableLUA" -Value 0 -Type DWord
+
+# Disable SmartScreen
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer" `
+    -Name "SmartScreenEnabled" -Value "Off"
+
+# Disable Windows Firewall (safe — the isolated network provides containment)
+Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
+```
+
+> These changes make the VM intentionally insecure. That's the point — malware needs to run without interference so you can observe what it actually does. Never apply these settings to a machine connected to the real internet.
+
+### 3.6 (Optional) Install FlareVM
+
+FlareVM is a free collection of malware analysis tools built by Mandiant (now part of Google). It installs on top of Windows using a PowerShell + Chocolatey script and adds hundreds of tools — debuggers, disassemblers, hex editors, network monitors. **Skip this if you just want to run samples and watch the NotTheNet log.** Come back later if you want to dig into a sample in depth.
 
 FlareVM needs internet to download its tools (~10–15 GB). Temporarily add a second NIC with internet access to download everything, then remove it when done.
 
@@ -252,17 +294,7 @@ Unblock-File $installer
 
 The installer shows a GUI where you pick which tools to install. The defaults are a good starting point. This takes 1–2 hours.
 
-**After FlareVM finishes installing:** shut down the VM, go back to VM settings, and **remove the NAT NIC**. FlareVM now has only the `labnet` NIC — no real internet.
-
-Re-apply the static IP from step 3.4 (FlareVM may have switched to DHCP while the NAT NIC was attached).
-
-### 3.6 Disable Windows Firewall
-
-The Windows Firewall blocks WMI and some remote management features that NotTheNet's preflight checker uses. Since FlareVM has no real internet, the firewall protects nothing here.
-
-```powershell
-Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
-```
+**After FlareVM finishes installing:** shut down the VM, remove the NAT NIC. Re-apply the static IP from step 3.4 (FlareVM may have switched to DHCP). Re-run the Defender removal and hardening steps from section 3.5 — FlareVM may re-enable some security components during install.
 
 ### 3.7 Take a clean snapshot
 

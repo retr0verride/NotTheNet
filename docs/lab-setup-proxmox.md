@@ -416,9 +416,9 @@ sudo iptables -t nat -L PREROUTING -n -v | grep NOTTHENET
 
 ---
 
-## Part 3 — FlareVM Setup
+## Part 3 — Windows Victim VM Setup
 
-FlareVM is a free collection of malware analysis tools that installs on top of a regular Windows VM. It was created by Mandiant (now part of Google). Rather than shipping as its own OS, it runs a PowerShell script that uses Chocolatey (a Windows package manager) to automatically install hundreds of tools — debuggers, disassemblers, hex editors, network monitors, and more. You start with a plain Windows install and FlareVM turns it into an analysis workstation.
+You can use any Windows VM as the victim — a plain Windows 10 or 11 install is enough to run samples and observe what they do. **FlareVM is optional.** It adds dedicated analysis tools (debuggers, disassemblers, packet capture utilities) for deeper examination, but you don't need it to get started.
 
 ### 3.1 Create the Windows VM in Proxmox
 
@@ -426,15 +426,15 @@ Proxmox → **Create VM**:
 
 | Setting | Value |
 |---------|-------|
-| Name | `flarevm` |
+| Name | `victim-win` (or `flarevm` if you plan to install FlareVM) |
 | ISO | Windows 10/11 installer ISO |
 | OS type | Microsoft Windows |
-| Disk | 100 GB+ (FlareVM tools are large) |
-| CPU | 4+ cores |
-| RAM | 8 GB+ (16 GB recommended) |
+| Disk | 60 GB+ (100 GB+ if installing FlareVM) |
+| CPU | 2+ cores (4+ for FlareVM) |
+| RAM | 4 GB+ (8–16 GB for FlareVM) |
 | **Network** | `vmbr1` **only** — no `vmbr0` |
 
-> Attaching only `vmbr1` means FlareVM has **no path to the internet**, only to Kali. This is intentional and critical for containment.
+> Attaching only `vmbr1` means the victim VM has **no path to the internet**, only to Kali. This is intentional and critical for containment.
 
 ### 3.2 Install Windows
 
@@ -446,7 +446,7 @@ After install, remove the ISO: **Hardware → CD/DVD → Do not use any media**.
 
 If the VM shows poor disk/network performance, download the VirtIO ISO from the Proxmox mirrors, attach it, and run the VirtIO installer from it. For analysis VMs this is optional.
 
-### 3.4 Set a static IP on FlareVM
+### 3.4 Set a static IP on the victim VM
 
 Open **Control Panel → Network and Sharing Center → Change adapter settings**.
 
@@ -469,19 +469,65 @@ Click **OK**. Verify connectivity to Kali:
 ping 10.0.0.1
 ```
 
-### 3.5 Install FlareVM
+### 3.5 Remove Windows Defender and disable security hardening
 
-> **FlareVM needs real internet to install.** Before running the installer, temporarily switch FlareVM's NIC to `vmbr0` so it can download its components (around 10–15 GB).
+**This step is not optional.** Windows Defender will detect and quarantine most real malware samples before they run — or silently kill network connections without any indication. If you detonate a sample without disabling Defender first, the malware appears to do nothing, when it has actually been killed at startup.
 
-**Switch FlareVM to internet temporarily:**
+SmartScreen, UAC, and Virtualization-Based Security (VBS) have the same problem. In an isolated lab with no internet they provide no real protection, but they do interfere with analysis.
 
-Proxmox → **flarevm → Hardware → Network Device (net0) → Edit → Bridge: `vmbr0`** → OK.
+> **Credit:** The steps below use [**windows-defender-remover**](https://github.com/ionuttbara/windows-defender-remover) by [Ionuț Bară](https://github.com/ionuttbara). It removes Defender's AV engine, Security Center, SmartScreen, VBS, and related services in a single pass.
 
-Inside FlareVM, set this NIC to DHCP (**Network Settings → adapter → Properties → IPv4 → Obtain automatically**) and verify you have internet (`curl https://www.google.com` or open a browser).
+**Getting the tool onto the VM:** temporarily switch the NIC to `vmbr0`, download the `.exe`, then switch back to `vmbr1` — or copy it from your host via the Python HTTP server method described in Part 6.
 
-**FlareVM install steps:**
+1. Download `Defender.Remover.exe` from the [releases page](https://github.com/ionuttbara/windows-defender-remover/releases)
+2. Copy it to the victim VM
+3. Open PowerShell as Administrator and run:
 
-Open PowerShell as Administrator on FlareVM:
+```powershell
+# Silent full removal — no interactive prompts; reboots automatically
+.\Defender.Remover.exe /r
+```
+
+4. Reboot when prompted.
+
+After rebooting, also disable UAC, SmartScreen, and Windows Firewall:
+
+```powershell
+# Disable UAC
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" `
+    -Name "EnableLUA" -Value 0 -Type DWord
+
+# Disable SmartScreen
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer" `
+    -Name "SmartScreenEnabled" -Value "Off"
+
+# Disable Windows Firewall (safe — the isolated bridge provides containment)
+Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
+
+# Verify WMI is running (needed for NotTheNet's preflight checker)
+Get-Service Winmgmt | Select-Object Status
+```
+
+> These changes make the VM intentionally insecure. That's the point — malware needs to run without interference so you can observe what it actually does. Never apply these settings to a machine with real internet access.
+
+If you prefer to keep the firewall on and only open WMI:
+```powershell
+netsh advfirewall firewall set rule group="Windows Management Instrumentation (WMI)" new enable=yes
+```
+
+### 3.6 (Optional) Install FlareVM
+
+FlareVM is a free collection of malware analysis tools built by Mandiant (now part of Google). It installs on top of a plain Windows VM using a PowerShell + Chocolatey script and adds hundreds of tools — debuggers, disassemblers, hex editors, network monitors. **Skip this if you just want to run samples and watch the NotTheNet log.** Come back and install it later if you need deeper analysis capability.
+
+> **FlareVM needs real internet to install** — around 10–15 GB of downloads. Temporarily switch the NIC to `vmbr0` for the duration, then switch back.
+
+**Switch to internet temporarily:**
+
+Proxmox → **victim-win → Hardware → Network Device (net0) → Edit → Bridge: `vmbr0`** → OK.
+
+Inside the VM, set this NIC to DHCP (**Network Settings → adapter → Properties → IPv4 → Obtain automatically**) and verify you have internet.
+
+**Install FlareVM** — open PowerShell as Administrator:
 
 ```powershell
 Set-ExecutionPolicy Unrestricted -Force
@@ -495,45 +541,24 @@ Unblock-File $installer
 & $installer
 ```
 
-The installer opens a GUI where you pick which tool packages to install. The defaults are a reasonable starting point for a first-time setup. The install takes 1–2 hours — it's downloading and installing hundreds of packages, so leave it running and come back.
+The installer opens a GUI where you pick which tool packages to install. The defaults are a reasonable starting point. The install takes 1–2 hours — it's downloading and configuring hundreds of packages.
 
-**After FlareVM install completes — switch back to the isolated bridge:**
+**After FlareVM finishes — switch back to the isolated bridge:**
 
-Proxmox → **flarevm → Hardware → Network Device (net0) → Edit → Bridge: `vmbr1`** → OK.
+Proxmox → **victim-win → Hardware → Network Device (net0) → Edit → Bridge: `vmbr1`** → OK.
 
-Then inside FlareVM, re-apply the static IP from section 3.4 (it will have been overwritten by DHCP). From this point on FlareVM has no real internet.
-
-### 3.6 Enable WMI and disable Windows Firewall
-
-NotTheNet's **Preflight** checks (the pre-flight checker that runs before analysis) can remotely verify FlareVM's configuration. This uses WMI (Windows Management Instrumentation), which is blocked by Windows Firewall by default.
-
-Open an **Administrator PowerShell** on FlareVM and run:
-
-```powershell
-# Disable Windows Firewall (safe — the isolated bridge provides containment)
-Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
-
-# Verify WMI service is running
-Get-Service Winmgmt | Select-Object Status
-```
-
-> **Why disable the firewall entirely?** FlareVM has no internet — it only connects to Kali. The firewall provides no security benefit here but it blocks remote management features. Disabling it avoids chasing individual firewall rules.
-
-If you prefer to keep the firewall on, enable only WMI:
-```powershell
-netsh advfirewall firewall set rule group="Windows Management Instrumentation (WMI)" new enable=yes
-```
+Re-apply the static IP from section 3.4 (DHCP will have overwritten it). Re-run the Defender removal and hardening steps from section 3.5 — FlareVM may re-enable some security components during install.
 
 ### 3.7 Take a clean baseline snapshot
 
-Before detonating anything, snapshot FlareVM in a known-good state:
+Before detonating anything, snapshot the VM in a known-good state:
 
-Proxmox → **flarevm → Snapshots → Take Snapshot**
+Proxmox → **victim-win → Snapshots → Take Snapshot**
 
 | Field | Value |
 |-------|-------|
 | Name | `clean-baseline` |
-| Description | `Pre-detonation — FlareVM installed, no samples` |
+| Description | `Pre-detonation — Defender removed, firewall off, no samples` |
 | Include RAM | Optional (faster rollback with RAM, larger snapshot without) |
 
 ---
