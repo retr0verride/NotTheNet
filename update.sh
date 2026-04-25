@@ -258,11 +258,19 @@ if [[ $EUID -eq 0 ]]; then
         echo "[*] Icon updated"
     fi
 
-    # .desktop file
+    # .desktop file & launcher
+    if [[ -f "${SCRIPT_DIR}/assets/notthenet-gui-launcher" ]]; then
+        sed \
+            -e "s|VENV_PYTHON_PLACEHOLDER|${SCRIPT_DIR}/.venv/bin/python|g" \
+            -e "s|SCRIPT_PLACEHOLDER|${SCRIPT_DIR}/notthenet.py|g" \
+            "${SCRIPT_DIR}/assets/notthenet-gui-launcher" > /usr/local/bin/notthenet-gui
+        chmod 0755 /usr/local/bin/notthenet-gui
+    fi
+
     if [[ -f "${SCRIPT_DIR}/assets/notthenet.desktop" ]]; then
         install -Dm644 "${SCRIPT_DIR}/assets/notthenet.desktop" \
             /usr/share/applications/notthenet.desktop
-        sed -i "s|NOTTHENET_EXEC_PLACEHOLDER|${SCRIPT_DIR}/assets/notthenet-gui-launcher|g" /usr/share/applications/notthenet.desktop
+        sed -i "s|NOTTHENET_EXEC_PLACEHOLDER|/usr/local/bin/notthenet-gui|g" /usr/share/applications/notthenet.desktop
         update-desktop-database -q /usr/share/applications 2>/dev/null || true
         echo "[*] Desktop entry updated"
     fi
