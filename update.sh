@@ -262,6 +262,7 @@ if [[ $EUID -eq 0 ]]; then
     if [[ -f "${SCRIPT_DIR}/assets/notthenet.desktop" ]]; then
         install -Dm644 "${SCRIPT_DIR}/assets/notthenet.desktop" \
             /usr/share/applications/notthenet.desktop
+        sed -i "s|NOTTHENET_EXEC_PLACEHOLDER|${SCRIPT_DIR}/assets/notthenet-gui-launcher|g" /usr/share/applications/notthenet.desktop
         update-desktop-database -q /usr/share/applications 2>/dev/null || true
         echo "[*] Desktop entry updated"
     fi
