@@ -338,7 +338,7 @@ You need two machines connected by an isolated network — no real internet acce
          vmbr1 (isolated virtual switch)
 ```
 
-> **Need help setting this up?** See the [Lab Setup](lab-setup.md) guide for a complete walkthrough.
+> **Need help setting this up?** See the [Proxmox Lab Setup](lab-setup-proxmox.md) or [VirtualBox / VMware Lab Setup](lab-setup-vbox.md) guide.
 
 ### Step-by-Step
 

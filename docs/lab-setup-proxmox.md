@@ -1,4 +1,4 @@
-# Lab Walkthrough: NotTheNet + Kali + FlareVM on Proxmox
+# Lab Setup: Proxmox + Kali + FlareVM
 
 > **Goal:** Build a fully isolated malware analysis lab where all network traffic from a Windows sandbox (FlareVM) is intercepted by NotTheNet running on Kali — so the malware thinks it has internet access, but everything goes to your fake servers instead.
 

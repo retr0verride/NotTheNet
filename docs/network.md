@@ -245,7 +245,7 @@ Other ports you might want to exclude:
 
 ## Network Namespace Isolation (Advanced)
 
-> **This section is for advanced users.** If you're using the standard Proxmox lab setup described in [Lab Setup](lab-setup.md), you can skip this.
+> **This section is for advanced users.** If you're using the standard Proxmox lab setup described in [Lab Setup: Proxmox](lab-setup-proxmox.md), you can skip this.
 
 For maximum isolation, you can run malware inside a dedicated Linux network namespace where **all** traffic is controlled by NotTheNet. This is useful if you're running Linux malware directly on Kali without a separate VM.
 

@@ -1,6 +1,6 @@
 ﻿# Installation Guide
 
-> If you're building an isolated lab from scratch, read [Lab Setup](lab-setup.md) first.
+> If you're building an isolated lab from scratch, read the [Proxmox Lab Setup](lab-setup-proxmox.md) or [VirtualBox / VMware Lab Setup](lab-setup-vbox.md) guide first.
 
 ## Table of Contents
 

@@ -96,7 +96,8 @@ See [docs/installation.md](docs/installation.md) for all three install methods (
 | [Usage](docs/usage.md) | GUI walkthrough, CLI mode, analysis workflow |
 | [Services](docs/services.md) | Per-service technical reference |
 | [Network & iptables](docs/network.md) | Traffic redirection, loopback vs gateway, TTL mangle |
-| [Lab Setup](docs/lab-setup.md) | Proxmox + Kali + FlareVM wiring guide |
+| [Lab Setup: Proxmox](docs/lab-setup-proxmox.md) | Proxmox + Kali + FlareVM — recommended for dedicated hardware |
+| [Lab Setup: VirtualBox / VMware](docs/lab-setup-vbox.md) | VirtualBox or VMware Workstation — works on a Windows/Mac laptop |
 | [Safe Detonation](docs/safe-detonation.md) | Proxmox snapshots, KVM cloaking, artifact handling |
 | [Security Hardening](docs/security-hardening.md) | Lab isolation, privilege model, OpenSSF practices |
 | [Troubleshooting](docs/troubleshooting.md) | Common errors and fixes |

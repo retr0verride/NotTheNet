@@ -150,7 +150,7 @@ rm -f logs/events_$(date +%Y-%m-%d)_s*.jsonl
 
 Some malware checks if it's running inside a virtual machine and refuses to execute if it detects one. To defeat this, you can modify the Proxmox VM config to hide the virtualisation layer.
 
-> **For the full step-by-step guide**, see [Lab Setup → Part 8: Anti-Detection Hardening](lab-setup.md#part-8--anti-detection-hardening).
+> **For the full step-by-step guide**, see [Lab Setup: Proxmox → Part 8: Anti-Detection Hardening](lab-setup-proxmox.md#part-8--anti-detection-hardening).
 
 Here's a quick summary of the key settings to add to `/etc/pve/qemu-server/<VMID>.conf` on the Proxmox host:
 

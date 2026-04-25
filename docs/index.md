@@ -8,7 +8,7 @@ Welcome to the NotTheNet documentation. NotTheNet is a **fake internet simulator
 
 When you detonate (run) a malware sample in a lab, the malware tries to connect to the internet — it makes DNS lookups, downloads files, sends stolen data, and phones home to command-and-control (C2) servers. NotTheNet pretends to be the entire internet so the malware behaves normally while you watch, but nothing ever leaves your lab.
 
-> **New to malware analysis?** Start with the [Lab Setup](lab-setup.md) guide, which walks you through building an isolated lab from scratch on Proxmox.
+> **New to malware analysis?** Start with the lab setup guide. If you have a spare PC or server, use the [Proxmox guide](lab-setup-proxmox.md). If you're working on a Windows or Mac laptop, use the [VirtualBox / VMware guide](lab-setup-vbox.md).
 
 ---
 
@@ -23,7 +23,8 @@ When you detonate (run) a malware sample in a lab, the malware tries to connect 
 | [Network & iptables](network.md) | How NotTheNet redirects traffic and what iptables rules it creates |
 | [Security Hardening](security-hardening.md) | How to lock down your lab so malware cannot escape |
 | [Troubleshooting](troubleshooting.md) | Common problems and how to fix them |
-| [Lab Setup: Proxmox + Kali + FlareVM](lab-setup.md) | Build an isolated malware analysis lab from scratch |
+| [Lab Setup: Proxmox + Kali + FlareVM](lab-setup-proxmox.md) | Proxmox — recommended for dedicated hardware or a home server |
+| [Lab Setup: VirtualBox / VMware](lab-setup-vbox.md) | VirtualBox or VMware Workstation — works on a Windows or Mac laptop |
 | [Safe Detonation](safe-detonation.md) | Step-by-step checklist for safely running a malware sample |
 | [Development Setup](development.md) | For contributors: dev environment, tests, project structure |
 
