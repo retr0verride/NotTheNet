@@ -490,8 +490,8 @@ class DashboardMixin(_DashboardHost):
              "the kernel issues genuine echo-replies automatically."),
             ("smb",     "\u25c8  SMB",
              "Fake SMB server (TCP/445) \u2014 captures SMBv1/v2 negotiate requests.\n"
-             "Flags EternalBlue (MS17-010) probes. Used by WannaCry, NotPetya,\n"
-             "Emotet, ransomware lateral movement."),
+             "Flags EternalBlue (MS17-010) probes. Sniff-and-drop mode lets worms\n"
+             "bypass the honeypot for lateral spread in Gateway mode."),
             ("rdp",     "\u25c8  RDP",
              "Fake RDP server (TCP/3389) \u2014 extracts Windows username from the\n"
              "TPKT mstshash cookie before any encryption. Used by NLBrute,\n"
