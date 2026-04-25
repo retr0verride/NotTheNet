@@ -212,7 +212,7 @@ class _SMBSession(threading.Thread):
                         src_ip=self.addr[0],
                         note="Simulated SMBv1 NEGOTIATE response sent; no real exploit occurred."
                     )
-                
+
                 if self.mode == "sniff_and_drop":
                     # Fast fail - force RST so WannaCry moves on to LAN scan
                     self.conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
