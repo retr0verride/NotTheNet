@@ -1,8 +1,8 @@
 # Lab Walkthrough: NotTheNet + Kali + FlareVM on Proxmox
 
-> **Goal:** Build a fully isolated malware analysis lab where all network traffic from a Windows sandbox (FlareVM) is transparently intercepted by NotTheNet running on Kali — no real internet reachable from the sample.
+> **Goal:** Build a fully isolated malware analysis lab where all network traffic from a Windows sandbox (FlareVM) is intercepted by NotTheNet running on Kali — so the malware thinks it has internet access, but everything goes to your fake servers instead.
 
-This walkthrough is step-by-step. You don't need to be an expert — each step explains **what** you're doing and **why**.
+If you've never built a lab like this before, that's fine. Each step explains what you're doing and why. Don't skip the "why" notes — they'll save you hours of troubleshooting when something isn't working.
 
 ---
 
@@ -25,7 +25,7 @@ graph TD
     end
 ```
 
-Each VM has **one NIC**. During setup you switch that NIC to `vmbr0` for internet access, then switch it back to `vmbr1` for analysis. When both VMs are on `vmbr1`, FlareVM has **no route to the real internet** — only to NotTheNet on Kali.
+A NIC (Network Interface Card) is what a computer uses to connect to a network — physical machines have physical NICs, VMs have virtual ones. Each VM here has one NIC. During setup you connect that NIC to `vmbr0` (which has real internet) to download software. Once everything is installed, you move both NICs to `vmbr1`. From that point, FlareVM has no path to the real internet — it can only reach Kali at `10.0.0.1`, which is where NotTheNet is running.
 
 ---
 
@@ -205,7 +205,7 @@ The `--update` flag skips the interactive prompt and always copies new files int
 
 ### 1.1 Create the isolated lab bridge
 
-A "bridge" in Proxmox is like a virtual network switch. You're going to create one (`vmbr1`) that connects your VMs to each other but has **no connection to the real internet**.
+A bridge in Proxmox is a virtual network switch — think of it as a dumb hub that exists only inside the computer. VMs connected to it can talk to each other, but if you don't give the bridge a physical uplink (i.e. a real network port on the server), nothing can talk to the outside world. That's exactly what we want: an isolated network the malware cannot escape from.
 
 In Proxmox web UI: **Node → System → Network → Create → Linux Bridge**
 
@@ -337,11 +337,11 @@ ip addr show
 
 ### 2.4 IP forwarding
 
-IP forwarding allows packets to flow from FlareVM through Kali so NotTheNet can intercept them.
+By default, Linux drops any packet that isn't addressed to it. That's a problem here: FlareVM sends a packet to `8.8.8.8:53` (Google's DNS). That packet arrives at Kali's NIC, but Kali isn't `8.8.8.8`, so Linux would normally silently drop it. IP forwarding tells Linux: "accept packets that aren't for me and let iptables decide what to do with them." Once forwarding is on, NotTheNet's iptables rules can redirect that `8.8.8.8:53` packet to the fake DNS service running on port 53 locally.
 
-**NotTheNet enables this automatically** when gateway mode is active — you don't need to set anything manually. The original setting is restored when NotTheNet stops.
+**NotTheNet turns this on automatically** when it starts in gateway mode and turns it back off when it stops. You don't need to touch it.
 
-> If you check `/proc/sys/net/ipv4/ip_forward` while NotTheNet is running in gateway mode, you will see `1`.
+> To see it yourself: while NotTheNet is running, run `cat /proc/sys/net/ipv4/ip_forward` on Kali — you'll see `1`. Stop NotTheNet and run it again — it's back to `0`.
 
 ### 2.5 Install NotTheNet
 
@@ -418,7 +418,7 @@ sudo iptables -t nat -L PREROUTING -n -v | grep NOTTHENET
 
 ## Part 3 — FlareVM Setup
 
-FlareVM is Mandiant's Windows-based malware analysis distribution. It installs as a Chocolatey/PowerShell overlay on top of a plain Windows VM.
+FlareVM is a free collection of malware analysis tools that installs on top of a regular Windows VM. It was created by Mandiant (now part of Google). Rather than shipping as its own OS, it runs a PowerShell script that uses Chocolatey (a Windows package manager) to automatically install hundreds of tools — debuggers, disassemblers, hex editors, network monitors, and more. You start with a plain Windows install and FlareVM turns it into an analysis workstation.
 
 ### 3.1 Create the Windows VM in Proxmox
 
@@ -495,7 +495,7 @@ Unblock-File $installer
 & $installer
 ```
 
-The installer opens a GUI letting you choose which tool packages to install. Select what you need for your analysis workflow (the defaults are a good starting point). Installation takes 1–2 hours depending on what you select.
+The installer opens a GUI where you pick which tool packages to install. The defaults are a reasonable starting point for a first-time setup. The install takes 1–2 hours — it's downloading and installing hundreds of packages, so leave it running and come back.
 
 **After FlareVM install completes — switch back to the isolated bridge:**
 
@@ -540,7 +540,7 @@ Proxmox → **flarevm → Snapshots → Take Snapshot**
 
 ## Part 4 — Full Lab Verification
 
-Before detonating any samples, run through this checklist to confirm every layer of the lab is working. This takes about 5 minutes and saves a lot of confusion later.
+Run through this checklist before detonating anything. Debugging a sample that isn't behaving is much harder when you're not sure whether the problem is the malware or your lab configuration. Five minutes here saves hours of chasing false leads.
 
 ### 4.1 Ping (basic connectivity)
 
@@ -766,22 +766,22 @@ Proxmox → **flarevm → Snapshots → Take Snapshot** → name it `pre-detonat
 
 Before executing the sample, start your tooling:
 
-| Tool | Purpose |
-|------|---------|
-| **Wireshark** | Capture raw traffic on the FlareVM NIC (see also Part 5 for gateway capture on Kali) |
-| **Process Monitor (ProcMon)** | File system, registry, process activity |
-| **Process Hacker** | Live process tree and memory inspection |
-| **x64dbg / x32dbg** | Dynamic debugging if needed |
+| Tool | What it shows |
+|------|---------------|
+| **Wireshark** | Every raw network packet — DNS lookups, HTTP requests, anything the malware sends. Run this on the FlareVM NIC, or on Kali (Part 5) for everything |
+| **Process Monitor (ProcMon)** | Every file read/write, registry change, and process spawn — how you see what files get dropped, what registry keys get set for persistence, and what child processes get created |
+| **Process Hacker** | A live view of every running process with its network connections, open handles, and memory — useful for watching a process phone home in real time |
+| **x64dbg / x32dbg** | Step through the malware's code instruction by instruction — use this when you need to understand exactly what a specific function does |
 
-Start a Wireshark capture on the lab NIC (the `10.0.0.x` interface) before execution. For a full gateway-level capture of all traffic leaving FlareVM, see **Part 5**.
+Start these tools *before* you run the sample. Malware often does most of its interesting work in the first few seconds — if you start monitoring after execution you'll already have missed it.
 
 ### 6.4 Detonate
 
-Execute the sample on FlareVM. Watch:
+Run the sample. Watch all three at once:
 
-- **NotTheNet live log** (on Kali) — every DNS query, HTTP request, SMTP connection, or catch-all hit appears in real time, colour-coded by service
-- **Wireshark** — raw packets for protocol-level detail
-- **ProcMon** — filesystem and registry changes
+- **NotTheNet live log** (on Kali) — this tells you what the malware is *trying* to do on the network: every DNS query, every HTTP request, every port it connects to. The colour coding tells you which service caught it. C2 beaconing shows up as repeating HTTP or DNS entries every few seconds.
+- **Wireshark** — use this when something hits the catch-all and you're not sure what protocol it is. Wireshark will show you the raw bytes and often auto-detect the protocol.
+- **ProcMon** — shows what's happening on disk and in the registry while the network activity is happening. Malware rarely does one thing — it phones home *and* drops a file *and* sets a registry run key all at once. ProcMon catches the parts NotTheNet doesn't see.
 
 ### 6.5 Collect artifacts
 
@@ -892,7 +892,9 @@ Modern malware frequently checks for sandbox and VM indicators before executing 
 
 ### 8.1 Proxmox VM hardware config (FlareVM)
 
-These changes modify the FlareVM's virtual hardware so that malware cannot tell it is running inside a VM. You will edit the VM's config file directly on the Proxmox host — this cannot be done from the Proxmox web UI.
+When malware runs, it often checks whether it's inside a virtual machine. If it detects a VM, it either stops executing or switches to fake benign behavior to fool you. These checks look for things like: a CPUID flag that says "I'm a hypervisor", SMBIOS data where the manufacturer is "QEMU", a suspiciously perfect TSC (timestamp counter that doesn't drift the way real hardware does), or RAM under 4 GB.
+
+These changes strip out those tells by editing the VM's hardware config directly on the Proxmox host. Most of these options aren't exposed in the Proxmox web UI — you have to edit the config file.
 
 **Step-by-step:**
 
