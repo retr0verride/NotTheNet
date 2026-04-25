@@ -17,6 +17,8 @@
 
 NotTheNet simulates the internet for malware being detonated in an isolated lab. A single Python application with a live GUI — no race conditions, no socket leaks, no opaque config files.
 
+Built to help people **learn how malware behaves** — whether you're studying for a cert, working through a CTF, taking a malware analysis course, or just curious how real-world C2 beaconing, DNS exfiltration, and credential theft look on the wire. You don't need a paid sandbox or cloud account. Spin up two VMs, install NotTheNet on Kali, detonate a sample on FlareVM, and watch every packet in the GUI log.
+
 ---
 
 ## Quick Start
