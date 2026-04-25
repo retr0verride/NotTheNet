@@ -138,7 +138,10 @@ if $PURGE; then
         # "Permission denied" with plain rm -rf even under sudo.
         chmod -R u+w "$SCRIPT_DIR"
         PARENT="$(dirname "$SCRIPT_DIR")"
-        cd "$PARENT"
+        if [[ -z "$PARENT" || "$PARENT" == "/" || ! -d "$PARENT" ]]; then
+            error "Refusing to purge: parent directory invalid ($PARENT)"
+        fi
+        cd "$PARENT" || error "cd to parent failed: $PARENT"
         rm -rf "$SCRIPT_DIR"
         info "Project directory removed."
     else

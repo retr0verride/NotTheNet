@@ -7,6 +7,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ## [Unreleased]
 
+## [2026.04.24-11] — 2026-04-24
+
+### Fixed
+- **`services/smb_server.py`: SMBv1 negotiate silently closed the socket, breaking WannaCry / EternalBlue worm propagation** — when a victim probed Kali's `:445` (the first IP in a `/24` scan), NTN logged the `[ETERNALBLUE-PROBE]` event and then closed the connection without sending any reply. Worms blocked on `recv()` long enough to abort their LAN-scan thread, so encryption ran on Patient Zero but no lateral spread to other victims occurred. Implemented a minimal valid SMBv1 NEGOTIATE response (`_smb1_negotiate_response`) that picks the offered NT LM 0.12 dialect and replies with sane Windows-XP-era field values. Worms now mark Kali as "reached but not vulnerable" and continue scanning the subnet. The `[ETERNALBLUE-PROBE]` JSON event is still emitted for triage, plus a new `smb_eternalblue_simulated` event so post-analysis can distinguish faked responses from genuine compromise. SMBv2/3 path (returns `STATUS_NOT_SUPPORTED`) is unchanged.
+- **`update.sh`: `.deb` installs aborted with a manual-instructions message instead of upgrading** — detection of `dpkg -l notthenet` now triggers an automatic build-and-install path: rebuilds the `.deb` from the freshly pulled source, installs it with `dpkg -i`, then verifies the installed package version matches `gui/widgets.py:APP_VERSION` and aborts with a clear error if they diverge. Catches the class of bug where an older `.deb` is left installed because the build silently failed.
+
+## [2026.04.24-10] — 2026-04-24
+
+### Fixed
+- **`services/smb_server.py`: SMBv1 negotiate silently closed the socket, breaking WannaCry / EternalBlue worm propagation** — when a victim probed Kali's `:445` (the first IP in a `/24` scan), NTN logged the `[ETERNALBLUE-PROBE]` event and then closed the connection without sending any reply. Worms blocked on `recv()` long enough to abort their LAN-scan thread, so encryption ran on Patient Zero but no lateral spread to other victims occurred. Implemented a minimal valid SMBv1 NEGOTIATE response (`_smb1_negotiate_response`) that picks the offered NT LM 0.12 dialect and replies with sane Windows-XP-era field values. Worms now mark Kali as "reached but not vulnerable" and continue scanning the subnet. The `[ETERNALBLUE-PROBE]` JSON event is still emitted for triage, plus a new `smb_eternalblue_simulated` event so post-analysis can distinguish faked responses from genuine compromise. SMBv2/3 path (returns `STATUS_NOT_SUPPORTED`) is unchanged.
+
 ## [2026.04.24-9] — 2026-04-24
 
 ### Fixed

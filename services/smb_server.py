@@ -15,9 +15,14 @@ Why this matters:
         dialect set used by the NSA exploit: any list containing "NT LM 0.12"
 
     Protocol behaviour:
-      - SMBv1 negotiate: returns STATUS_NOT_SUPPORTED â€” no v1 session proceeds
-      - SMBv2 negotiate: returns STATUS_NOT_SUPPORTED packed in SMB2 header
-      - Both cases still log the full dialect list for triage
+      - SMBv1 negotiate: returns a minimal NEGOTIATE response advertising
+        NT LM 0.12 with no challenge — worms see "reached but not vulnerable"
+        and continue scanning the subnet (prevents recv() block from aborting
+        WannaCry's worm thread on the first IP). No real session is established.
+      - SMBv2 negotiate: returns STATUS_NOT_SUPPORTED packed in SMB2 header.
+      - Both cases still log the full dialect list for triage; SMBv1 EternalBlue
+        probes additionally emit `smb_eternalblue_simulated` so post-analysis
+        can distinguish faked responses from genuine compromise.
 
 Security notes (OpenSSF):
 - Message body is bounded to 65 535 bytes
@@ -107,27 +112,37 @@ class _SMBSession(threading.Thread):
             data += chunk
         return data if len(data) >= 4 else None
 
-    def _parse_negotiate(self, data: bytes) -> tuple:
-        """Parse SMB negotiate data. Returns (version, dialects, eternalblue, message_id)."""
-        magic = data[:4]
+    @staticmethod
+    def _parse_smb1_negotiate(data: bytes) -> tuple[list[str], bool, int]:
+        """Extract dialects, EternalBlue probe flag, and dialect index from SMBv1 negotiate."""
         dialects: list[str] = []
-        eternalblue = False
-        message_id = 0
+        if len(data) > 33:
+            for part in data[33:].split(b"\x02"):
+                name = part.rstrip(b"\x00").decode("ascii", errors="replace").strip()
+                if name:
+                    dialects.append(name)
+        eternalblue = any("NT LM 0.12" in d for d in dialects)
+        dialect_index = next(
+            (i for i, d in enumerate(dialects) if "NT LM 0.12" in d), 0
+        )
+        return dialects, eternalblue, dialect_index
+
+    @staticmethod
+    def _parse_smb2_negotiate(data: bytes) -> int:
+        """Extract message ID from SMBv2 negotiate header."""
+        if len(data) >= 36:
+            return struct.unpack("<Q", data[28:36])[0]
+        return 0
+
+    def _parse_negotiate(self, data: bytes) -> tuple:
+        """Parse SMB negotiate data. Returns (version, dialects, eternalblue, message_id, dialect_index)."""
+        magic = data[:4]
         if magic == _SMB1_MAGIC:
-            version = "SMBv1"
-            if len(data) > 33:
-                for part in data[33:].split(b"\x02"):
-                    name = part.rstrip(b"\x00").decode("ascii", errors="replace").strip()
-                    if name:
-                        dialects.append(name)
-            eternalblue = any("NT LM 0.12" in d for d in dialects)
-        elif magic == _SMB2_MAGIC:
-            version = "SMBv2"
-            if len(data) >= 36:
-                message_id = struct.unpack("<Q", data[28:36])[0]
-        else:
-            version = "unknown"
-        return version, dialects, eternalblue, message_id
+            dialects, eternalblue, dialect_index = self._parse_smb1_negotiate(data)
+            return "SMBv1", dialects, eternalblue, 0, dialect_index
+        if magic == _SMB2_MAGIC:
+            return "SMBv2", [], False, self._parse_smb2_negotiate(data), 0
+        return "unknown", [], False, 0, 0
 
     def run(self) -> None:
         safe_addr = sanitize_ip(self.addr[0])
@@ -137,7 +152,7 @@ class _SMBSession(threading.Thread):
             data = self._read_smb_message()
             if data is None:
                 return
-            version, dialects, eternalblue, message_id = self._parse_negotiate(data)
+            version, dialects, eternalblue, message_id, dialect_index = self._parse_negotiate(data)
 
             eb_flag = " [ETERNALBLUE-PROBE]" if eternalblue else ""
             logger.info(
@@ -154,6 +169,14 @@ class _SMBSession(threading.Thread):
                 )
             if data[:4] == _SMB2_MAGIC:
                 self.conn.sendall(_smb2_error_response(message_id))
+            elif data[:4] == _SMB1_MAGIC:
+                self.conn.sendall(_smb1_negotiate_response(dialect_index))
+                if jl and eternalblue:
+                    jl.log(
+                        "smb_eternalblue_simulated",
+                        src_ip=self.addr[0],
+                        note="Simulated SMBv1 NEGOTIATE response sent; no real exploit occurred."
+                    )
         except OSError:
             logger.debug("SMB session error", exc_info=True)
         finally:
@@ -163,6 +186,37 @@ class _SMBSession(threading.Thread):
                 pass
             if self._sem:
                 self._sem.release()
+
+
+def _smb1_negotiate_response(dialect_index: int) -> bytes:
+    """
+    Build a minimal SMBv1 NEGOTIATE response for EternalBlue probes.
+    Returns NetBIOS session header + SMBv1 NEGOTIATE response.
+    """
+    # SMBv1 NEGOTIATE response: 4-byte NetBIOS, 32-byte header, 34-byte body
+    # See MS-SMB 2.2.4.52.2 for structure
+    header = bytearray(32)
+    header[0:4] = _SMB1_MAGIC
+    header[4] = 0x72  # Command: NEGOTIATE_PROTOCOL_RESPONSE
+    # Rest: zeros (flags, PID, UID, etc.)
+    # Body: WordCount=17, DialectIndex, SecurityMode, MaxMpxCount, etc.
+    body = bytearray(34)
+    body[0] = 17  # WordCount
+    struct.pack_into("<H", body, 1, dialect_index)  # DialectIndex
+    body[3] = 0x03  # SecurityMode: user-level, encryption enabled
+    struct.pack_into("<H", body, 4, 50)  # MaxMpxCount
+    struct.pack_into("<H", body, 6, 1)   # MaxVCs
+    struct.pack_into("<I", body, 8, 0x10000)  # MaxBufferSize
+    struct.pack_into("<I", body, 12, 0x10000) # MaxRawSize
+    struct.pack_into("<I", body, 16, 0)  # SessionKey
+    struct.pack_into("<I", body, 20, 0)  # Capabilities
+    struct.pack_into("<I", body, 24, 0)  # SystemTimeLow
+    struct.pack_into("<I", body, 28, 0)  # SystemTimeHigh
+    struct.pack_into("<H", body, 32, 0)  # ServerTimeZone
+    body[33] = 0  # ChallengeLength
+    payload = bytes(header) + bytes(body)
+    netbios = b"\x00" + struct.pack(">I", len(payload))[1:]
+    return netbios + payload
 
 
 class SMBService:

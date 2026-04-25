@@ -145,6 +145,8 @@ class TestSanitizePath:
             result = sanitize_path(base, "subdir/file.txt")
             assert result is not None
             assert result.startswith(base)
+            # Verify the sub-path is preserved verbatim, not silently stripped.
+            assert result.endswith(os.path.join("subdir", "file.txt"))
 
     def test_traversal_rejected(self):
         with tempfile.TemporaryDirectory() as base:
@@ -152,14 +154,15 @@ class TestSanitizePath:
             assert result is None
 
     def test_exact_base_rejected(self):
-        # Requesting exactly the base dir (no separator) returns None per spec
+        # Requesting exactly the base dir resolves to base itself; either None
+        # or the base path are acceptable — what matters is that it never
+        # escapes (no traversal up to /etc/passwd, /, etc.).
         with tempfile.TemporaryDirectory() as base:
             parent = os.path.dirname(base)
             result = sanitize_path(parent, os.path.basename(base))
-            # Should succeed â€” it's a subpath, just pointing to base itself
-            # (the function returns None only when traversal crosses base)
-            # This test just verifies it doesn't raise.
-            assert result is not None or result is None  # either is fine; no crash
+            if result is not None:
+                assert result.startswith(parent)
+                assert ".." not in os.path.relpath(result, parent)
 
 
 # â”€â”€ validate_http_method â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

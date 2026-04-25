@@ -31,7 +31,7 @@ def _open_path_external(path: str) -> None:
 # ---------------------------------------------------------------------------
 
 APP_TITLE = "NotTheNet \u2014 Fake Internet Simulator"
-APP_VERSION = "2026.04.24-9"
+APP_VERSION = "2026.04.24-11"
 PAD = 8
 FIELD_WIDTH = 22
 LOG_MAX_LINES = 2000
@@ -171,7 +171,7 @@ class _Tooltip:
         if (8, False) in _F:
             try:
                 zoom = _F[(8, False)].cget("size") / 8
-            except Exception:
+            except (tk.TclError, AttributeError, ZeroDivisionError):
                 logger.debug("Tooltip font zoom query failed", exc_info=True)
         wrap = round(self._WRAP * zoom)
 
@@ -301,7 +301,7 @@ class _QueueHandler(logging.Handler):
                 except queue.Empty:
                     pass
                 self.log_queue.put_nowait(self.format(record))
-        except Exception:
+        except (TypeError, ValueError, KeyError, AttributeError):
             logger.debug("Log record enqueue failed", exc_info=True)
 
 

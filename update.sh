@@ -8,16 +8,51 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# ── Conflict check: abort if running on a .deb install ───────────────────────
-# update.sh manages the in-repo venv. On a .deb install the venv is at
-# /opt/notthenet/venv and update.sh will fail to find it. Catch this early.
+# ── .deb install path: rebuild + reinstall + verify version ──────────────────
+# update.sh is normally for dev/script installs (in-repo venv). When NotTheNet
+# is installed via .deb, run the build-deb / dpkg -i flow instead and verify
+# that the package version actually bumped (catches silent build failures).
 if dpkg -l notthenet 2>/dev/null | grep -q '^ii'; then
-    echo "[!] NotTheNet is installed via .deb — update.sh is for dev/script installs only."
-    echo "    To upgrade a .deb install:"
-    echo "      git pull origin main"
-    echo "      bash build-deb.sh"
-    echo "      sudo dpkg -i dist/notthenet_*.deb"
-    exit 1
+    if [ "$EUID" -ne 0 ]; then
+        echo "[!] .deb install detected — re-run with sudo:  sudo bash update.sh"
+        exit 1
+    fi
+    echo "[*] .deb install detected — pulling latest source..."
+    # Use `sudo -u` to git pull as the invoking user (avoids root-owning files in repo).
+    SUDO_INVOKER="${SUDO_USER:-$(whoami)}"
+    sudo -u "$SUDO_INVOKER" git pull origin main
+
+    EXPECTED_VERSION=$(grep -oP 'APP_VERSION\s*=\s*"\K[^"]+' "${SCRIPT_DIR}/gui/widgets.py" 2>/dev/null) || {
+        echo "[!] Could not extract APP_VERSION from gui/widgets.py — aborting."
+        exit 1
+    }
+    INSTALLED_VERSION=$(dpkg-query -W -f='${Version}' notthenet 2>/dev/null || true)
+    if [ "$EXPECTED_VERSION" = "$INSTALLED_VERSION" ]; then
+        echo "[*] Already at $EXPECTED_VERSION — nothing to do."
+        exit 0
+    fi
+    echo "[*] Building .deb (source=$EXPECTED_VERSION, installed=${INSTALLED_VERSION:-none})..."
+    sudo -u "$SUDO_INVOKER" bash "${SCRIPT_DIR}/build-deb.sh"
+
+    DEB_FILE="${SCRIPT_DIR}/dist/notthenet_${EXPECTED_VERSION}_all.deb"
+    if [ ! -f "$DEB_FILE" ]; then
+        echo "[!] Build did not produce expected deb at: $DEB_FILE"
+        echo "    dist/ contents:"
+        ls -la "${SCRIPT_DIR}/dist/" 2>/dev/null | sed 's/^/      /' || true
+        exit 1
+    fi
+    echo "[*] Installing $DEB_FILE..."
+    dpkg -i "$DEB_FILE"
+
+    NEW_INSTALLED=$(dpkg-query -W -f='${Version}' notthenet 2>/dev/null || true)
+    if [ "$NEW_INSTALLED" != "$EXPECTED_VERSION" ]; then
+        echo "[!] Version verification FAILED."
+        echo "      Expected (source):  $EXPECTED_VERSION"
+        echo "      Installed (dpkg):   ${NEW_INSTALLED:-none}"
+        exit 1
+    fi
+    echo "[*] Update complete — installed version $NEW_INSTALLED matches source."
+    exit 0
 fi
 
 SKIP_HARDEN=0
@@ -37,6 +72,14 @@ fi
 
 # ── 2. Preserve user config.json across the pull ─────────────────────────────
 CONFIG_BACKUP=""
+# Cleanup trap: remove temp backup on any exit path so a failed pull never
+# leaves credentials sitting in /tmp. Restore is handled explicitly below.
+cleanup_config_backup() {
+    if [ -n "${CONFIG_BACKUP:-}" ] && [ -f "$CONFIG_BACKUP" ]; then
+        rm -f "$CONFIG_BACKUP"
+    fi
+}
+trap cleanup_config_backup EXIT
 if ! git diff --quiet config.json 2>/dev/null; then
     CONFIG_BACKUP="$(mktemp)"
     cp config.json "$CONFIG_BACKUP"

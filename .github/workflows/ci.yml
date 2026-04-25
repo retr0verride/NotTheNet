@@ -218,6 +218,7 @@ jobs:
       - name: Compute SHA-256 hashes
         id: hash
         run: |
+          set -euo pipefail
           cd dist
           echo "hashes=$(sha256sum * | base64 -w0)" >> "$GITHUB_OUTPUT"
 
@@ -244,6 +245,7 @@ jobs:
 
       - name: Audit .deb for unresolved placeholders
         run: |
+          set -euo pipefail
           DEB=$(find dist/ -name '*.deb' | head -1)
           mkdir -p /tmp/deb-extract
           dpkg-deb -R "$DEB" /tmp/deb-extract

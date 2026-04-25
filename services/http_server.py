@@ -277,10 +277,14 @@ _MAX_BODY_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 # Stable "last content modification" timestamp for Last-Modified response headers.
 # Computed once at module load to approximate a deployed server whose content was
-# last updated ~60 days before startup â€” prevents absence-of-header fingerprinting.
+# last updated ~60 days before startup — prevents absence-of-header fingerprinting.
+# Time component is fixed at noon UTC (HTTP-date format, RFC 7231 §7.1.1.1) so the
+# header value stays stable for cache/conditional-GET fingerprint consistency.
+_LAST_MODIFIED_TIME_OF_DAY = "12:00:00 GMT"
+_LAST_MODIFIED_AGE_DAYS = 60
 _SERVER_LAST_MODIFIED = (
-    datetime.now(timezone.utc) - timedelta(days=60)
-).strftime("%a, %d %b %Y 12:00:00 GMT")
+    datetime.now(timezone.utc) - timedelta(days=_LAST_MODIFIED_AGE_DAYS)
+).strftime(f"%a, %d %b %Y {_LAST_MODIFIED_TIME_OF_DAY}")
 
 # RFC 1918 private address ranges â€” returning one of these as a "public" IP
 # would let sandbox-aware malware detect the private network.
