@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ## [Unreleased]
 
+## [2026.04.24-12] — 2026-04-24
+
+### Fixed
+- **`services/smb_server.py`: SMBv1 NEGOTIATE response was malformed (-11 didn't actually fix lateral spread)** — redetonating WannaCry on Victim A produced 15+ `smb_eternalblue_simulated` events from the same source IP in <500 ms, with no advance to Victim B. Two structural bugs in `_smb1_negotiate_response`: (1) the body was 34 bytes instead of the required 37 (missing the trailing `ByteCount` U16), and (2) `ChallengeLength` was written at offset 33, overwriting the high byte of `ServerTimeZone`. Windows clients silently rejected the malformed frame, the worm tore the connection down, and re-targeted Kali instead of advancing in its `/24` scan. Rewrote per MS-CIFS 2.2.4.5.2: 32-byte header + WordCount(1) + 34-byte word block + ByteCount(2) = 69-byte payload. Header now sets `Flags=0x88` (REPLY|CASE_INSENSITIVE) and `Flags2=0xC001`, and echoes `TID/PID/UID/MID` from the request so the response correlates.
+- **`services/smb_server.py`: connection torn down immediately after NEGOTIATE response** — even with a valid NEGOTIATE reply, closing the socket on the next line caused the worm to retry. Added `_drain_smb1_session` which reads up to 16 follow-up frames (session setup, tree connect, EternalBlue TRANS2 probes) for up to 3 seconds and replies to each with a generic `STATUS_NOT_SUPPORTED` SMB1 error frame (`_smb1_error_response`). The client cleanly aborts the session and the worm advances to the next IP. New regression tests `test_smb1_negotiate_response_is_well_formed` and `test_smb1_error_response_echoes_request_ids` lock down byte offsets and ID echoing.
+
 ## [2026.04.24-11] — 2026-04-24
 
 ### Fixed

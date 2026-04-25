@@ -44,6 +44,12 @@ logger = logging.getLogger(__name__)
 SESSION_TIMEOUT = 10
 _MAX_CONNECTIONS = 50
 
+# After replying to NEGOTIATE we keep the connection open briefly to absorb
+# follow-up frames (session setup, tree connect, EternalBlue TRANS2 probes).
+# Without this, worms re-target the same IP repeatedly instead of advancing.
+_DRAIN_TIMEOUT = 3.0
+_MAX_DRAIN_FRAMES = 16
+
 _SMB1_MAGIC = b"\xff\x53\x4d\x42"
 _SMB2_MAGIC = b"\xfe\x53\x4d\x42"
 _SMB2_CMD_NEGOTIATE = 0x0000
@@ -113,8 +119,11 @@ class _SMBSession(threading.Thread):
         return data if len(data) >= 4 else None
 
     @staticmethod
-    def _parse_smb1_negotiate(data: bytes) -> tuple[list[str], bool, int]:
-        """Extract dialects, EternalBlue probe flag, and dialect index from SMBv1 negotiate."""
+    def _parse_smb1_negotiate(
+        data: bytes,
+    ) -> tuple[list[str], bool, int, int, int, int, int]:
+        """Extract dialects, EternalBlue probe flag, dialect index, and TID/PID/UID/MID
+        from an SMBv1 negotiate request. Header layout per MS-CIFS 2.2.3.1."""
         dialects: list[str] = []
         if len(data) > 33:
             for part in data[33:].split(b"\x02"):
@@ -125,7 +134,10 @@ class _SMBSession(threading.Thread):
         dialect_index = next(
             (i for i, d in enumerate(dialects) if "NT LM 0.12" in d), 0
         )
-        return dialects, eternalblue, dialect_index
+        tid = pid = uid = mid = 0
+        if len(data) >= 32:
+            tid, pid, uid, mid = struct.unpack("<HHHH", data[24:32])
+        return dialects, eternalblue, dialect_index, tid, pid, uid, mid
 
     @staticmethod
     def _parse_smb2_negotiate(data: bytes) -> int:
@@ -135,14 +147,18 @@ class _SMBSession(threading.Thread):
         return 0
 
     def _parse_negotiate(self, data: bytes) -> tuple:
-        """Parse SMB negotiate data. Returns (version, dialects, eternalblue, message_id, dialect_index)."""
+        """Parse SMB negotiate data.
+
+        Returns (version, dialects, eternalblue, message_id, dialect_index, smb1_hdr)
+        where smb1_hdr is a 4-tuple (tid, pid, uid, mid) for SMBv1, else (0,0,0,0).
+        """
         magic = data[:4]
         if magic == _SMB1_MAGIC:
-            dialects, eternalblue, dialect_index = self._parse_smb1_negotiate(data)
-            return "SMBv1", dialects, eternalblue, 0, dialect_index
+            dialects, eb, dialect_index, tid, pid, uid, mid = self._parse_smb1_negotiate(data)
+            return "SMBv1", dialects, eb, 0, dialect_index, (tid, pid, uid, mid)
         if magic == _SMB2_MAGIC:
-            return "SMBv2", [], False, self._parse_smb2_negotiate(data), 0
-        return "unknown", [], False, 0, 0
+            return "SMBv2", [], False, self._parse_smb2_negotiate(data), 0, (0, 0, 0, 0)
+        return "unknown", [], False, 0, 0, (0, 0, 0, 0)
 
     def run(self) -> None:
         safe_addr = sanitize_ip(self.addr[0])
@@ -152,7 +168,9 @@ class _SMBSession(threading.Thread):
             data = self._read_smb_message()
             if data is None:
                 return
-            version, dialects, eternalblue, message_id, dialect_index = self._parse_negotiate(data)
+            version, dialects, eternalblue, message_id, dialect_index, smb1_hdr = (
+                self._parse_negotiate(data)
+            )
 
             eb_flag = " [ETERNALBLUE-PROBE]" if eternalblue else ""
             logger.info(
@@ -170,13 +188,23 @@ class _SMBSession(threading.Thread):
             if data[:4] == _SMB2_MAGIC:
                 self.conn.sendall(_smb2_error_response(message_id))
             elif data[:4] == _SMB1_MAGIC:
-                self.conn.sendall(_smb1_negotiate_response(dialect_index))
+                tid, pid, uid, mid = smb1_hdr
+                self.conn.sendall(
+                    _smb1_negotiate_response(
+                        dialect_index, tid=tid, pid=pid, uid=uid, mid=mid,
+                    )
+                )
                 if jl and eternalblue:
                     jl.log(
                         "smb_eternalblue_simulated",
                         src_ip=self.addr[0],
                         note="Simulated SMBv1 NEGOTIATE response sent; no real exploit occurred."
                     )
+                # After the negotiate, drain any follow-up SMB messages (session
+                # setup, tree connect, EternalBlue trans2 probes) until the
+                # client gives up. Without this the worm thread re-targets the
+                # same IP repeatedly instead of advancing in its /24 scan.
+                self._drain_smb1_session()
         except OSError:
             logger.debug("SMB session error", exc_info=True)
         finally:
@@ -187,34 +215,121 @@ class _SMBSession(threading.Thread):
             if self._sem:
                 self._sem.release()
 
+    def _drain_smb1_session(self) -> None:
+        """Read and discard follow-up SMB1 frames (session setup, tree connect,
+        TRANS2 EternalBlue probes) until the peer closes or recv times out.
+        Reply with STATUS_NOT_SUPPORTED for each so the client treats us as
+        'reached but unexploitable' and advances to the next host."""
+        try:
+            self.conn.settimeout(min(self.session_timeout, _DRAIN_TIMEOUT))
+        except OSError:
+            return
+        for _ in range(_MAX_DRAIN_FRAMES):
+            try:
+                follow = self._read_smb_message()
+            except OSError:
+                return
+            if not follow:
+                return
+            if follow[:4] != _SMB1_MAGIC:
+                return
+            try:
+                self.conn.sendall(_smb1_error_response(follow))
+            except OSError:
+                return
 
-def _smb1_negotiate_response(dialect_index: int) -> bytes:
+
+def _smb1_negotiate_response(
+    dialect_index: int,
+    *,
+    tid: int = 0,
+    pid: int = 0,
+    uid: int = 0,
+    mid: int = 0,
+) -> bytes:
     """
     Build a minimal SMBv1 NEGOTIATE response for EternalBlue probes.
-    Returns NetBIOS session header + SMBv1 NEGOTIATE response.
+
+    Layout per MS-CIFS 2.2.4.5.2 (NT LM 0.12 dialect, no extended security):
+      NetBIOS header               4 bytes
+      SMB1 header                 32 bytes
+      WordCount                    1 byte  = 17
+      Words (parameter block)     34 bytes
+        DialectIndex     U16
+        SecurityMode     U8   = 0x03 (user-level, encryption enabled)
+        MaxMpxCount      U16  = 50
+        MaxNumberVcs     U16  = 1
+        MaxBufferSize    U32  = 0x10000
+        MaxRawSize       U32  = 0x10000
+        SessionKey       U32  = 0
+        Capabilities     U32  = 0
+        SystemTime       U64  = 0
+        ServerTimeZone   I16  = 0
+        ChallengeLength  U8   = 0
+      ByteCount                    2 bytes = 0
+    Total SMB body = 37 bytes; total payload = 32 + 37 = 69 bytes.
+
+    The previous version was 34 bytes total (missing ByteCount and overwrote
+    ServerTimeZone's high byte with ChallengeLength) which Windows clients
+    rejected, causing WannaCry's worm thread to retry the same IP repeatedly
+    instead of advancing to the next host in its /24 scan.
+
+    TID/PID/UID/MID are echoed from the request so the response correlates.
     """
-    # SMBv1 NEGOTIATE response: 4-byte NetBIOS, 32-byte header, 34-byte body
-    # See MS-SMB 2.2.4.52.2 for structure
+    # SMB1 header (32 bytes)
     header = bytearray(32)
     header[0:4] = _SMB1_MAGIC
-    header[4] = 0x72  # Command: NEGOTIATE_PROTOCOL_RESPONSE
-    # Rest: zeros (flags, PID, UID, etc.)
-    # Body: WordCount=17, DialectIndex, SecurityMode, MaxMpxCount, etc.
-    body = bytearray(34)
-    body[0] = 17  # WordCount
-    struct.pack_into("<H", body, 1, dialect_index)  # DialectIndex
-    body[3] = 0x03  # SecurityMode: user-level, encryption enabled
-    struct.pack_into("<H", body, 4, 50)  # MaxMpxCount
-    struct.pack_into("<H", body, 6, 1)   # MaxVCs
-    struct.pack_into("<I", body, 8, 0x10000)  # MaxBufferSize
-    struct.pack_into("<I", body, 12, 0x10000) # MaxRawSize
-    struct.pack_into("<I", body, 16, 0)  # SessionKey
-    struct.pack_into("<I", body, 20, 0)  # Capabilities
-    struct.pack_into("<I", body, 24, 0)  # SystemTimeLow
-    struct.pack_into("<I", body, 28, 0)  # SystemTimeHigh
-    struct.pack_into("<H", body, 32, 0)  # ServerTimeZone
-    body[33] = 0  # ChallengeLength
+    header[4] = 0x72                                    # Command: NEGOTIATE_RESPONSE
+    # bytes 5-8: NTStatus = 0 (success)
+    header[9] = 0x88                                    # Flags: REPLY | CASE_INSENSITIVE
+    struct.pack_into("<H", header, 10, 0xC001)          # Flags2: UNICODE|NT_STATUS|LONG_NAMES
+    # bytes 12-23: PIDHigh + SecurityFeatures + Reserved (all zero is fine)
+    struct.pack_into("<H", header, 24, tid & 0xFFFF)    # TID
+    struct.pack_into("<H", header, 26, pid & 0xFFFF)    # PIDLow
+    struct.pack_into("<H", header, 28, uid & 0xFFFF)    # UID
+    struct.pack_into("<H", header, 30, mid & 0xFFFF)    # MID
+
+    # SMB body: WordCount(1) + 34 word-bytes + ByteCount(2) = 37 bytes
+    body = bytearray(37)
+    body[0] = 17                                        # WordCount = 17 words
+    struct.pack_into("<H", body, 1, dialect_index)      # DialectIndex
+    body[3] = 0x03                                      # SecurityMode
+    struct.pack_into("<H", body, 4, 50)                 # MaxMpxCount
+    struct.pack_into("<H", body, 6, 1)                  # MaxNumberVcs
+    struct.pack_into("<I", body, 8, 0x10000)            # MaxBufferSize
+    struct.pack_into("<I", body, 12, 0x10000)           # MaxRawSize
+    struct.pack_into("<I", body, 16, 0)                 # SessionKey
+    struct.pack_into("<I", body, 20, 0)                 # Capabilities
+    struct.pack_into("<Q", body, 24, 0)                 # SystemTime (FILETIME)
+    struct.pack_into("<h", body, 32, 0)                 # ServerTimeZone (signed)
+    body[34] = 0                                        # ChallengeLength
+    struct.pack_into("<H", body, 35, 0)                 # ByteCount = 0
+
     payload = bytes(header) + bytes(body)
+    netbios = b"\x00" + struct.pack(">I", len(payload))[1:]
+    return netbios + payload
+
+
+def _smb1_error_response(request: bytes) -> bytes:
+    """Build a generic SMB1 error response (STATUS_NOT_SUPPORTED) echoing the
+    request's command and TID/PID/UID/MID. Used to gracefully refuse follow-up
+    frames after the negotiate, so the client cleanly aborts and moves on."""
+    if len(request) < 32 or request[:4] != _SMB1_MAGIC:
+        return b""
+    command = request[4]
+    tid, pid, uid, mid = struct.unpack("<HHHH", request[24:32])
+    header = bytearray(32)
+    header[0:4] = _SMB1_MAGIC
+    header[4] = command
+    struct.pack_into("<I", header, 5, _STATUS_NOT_SUPPORTED)  # NTStatus
+    header[9] = 0x88                                          # Flags: REPLY
+    struct.pack_into("<H", header, 10, 0xC001)                # Flags2
+    struct.pack_into("<H", header, 24, tid)
+    struct.pack_into("<H", header, 26, pid)
+    struct.pack_into("<H", header, 28, uid)
+    struct.pack_into("<H", header, 30, mid)
+    body = b"\x00\x00\x00"  # WordCount=0, ByteCount=0
+    payload = bytes(header) + body
     netbios = b"\x00" + struct.pack(">I", len(payload))[1:]
     return netbios + payload
 
