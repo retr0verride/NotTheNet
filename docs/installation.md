@@ -49,6 +49,8 @@ Installs to `/opt/notthenet/`. Clean uninstall via `apt`. Preferred for all end-
 
 ```bash
 cd ~
+# If you have a previous clone, remove it first:
+rm -rf NotTheNet
 git clone https://github.com/retr0verride/NotTheNet.git
 cd NotTheNet
 bash build-deb.sh
@@ -155,6 +157,8 @@ For contributors and anyone editing the source. Installs **in the cloned directo
 
 ```bash
 cd ~
+# If you have a previous clone, remove it first:
+rm -rf NotTheNet
 git clone https://github.com/retr0verride/NotTheNet.git
 cd NotTheNet
 sudo bash notthenet-install.sh

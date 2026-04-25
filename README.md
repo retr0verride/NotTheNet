@@ -25,11 +25,22 @@ Run from a writable directory you own (e.g. your home dir). Do **not** clone int
 
 ```bash
 cd ~
+# If you have a previous clone, remove it first:
+rm -rf NotTheNet
 git clone https://github.com/retr0verride/NotTheNet
 cd NotTheNet
 bash build-deb.sh
 sudo dpkg -i dist/notthenet_*.deb
 sudo notthenet
+```
+
+**Upgrading an existing install:**
+```bash
+cd ~
+cd NotTheNet
+git pull
+bash build-deb.sh
+sudo dpkg -i dist/notthenet_*.deb
 ```
 
 **Air-gapped / offline install** (Kali has no internet — build the bundle on Windows, copy via USB):

@@ -37,6 +37,8 @@ Man page: [`man/notthenet.1`](../man/notthenet.1)
 
 ```bash
 cd ~
+# If you have a previous clone, remove it first:
+rm -rf NotTheNet
 git clone https://github.com/retr0verride/NotTheNet
 cd NotTheNet
 bash build-deb.sh
@@ -64,8 +66,8 @@ INetSim and FakeNet-NG are established tools that do a similar job. The table be
 | Privilege drop after bind | No | No | Runs as root; `pkexec` handles privilege for desktop launch |
 | Catch-all port redirect | Via config file | Via config file | Auto iptables NAT |
 | Log injection prevention | No | No | Yes (CWE-117 sanitised) |
-| DNS-over-HTTPS sinkhole | No | No | Yes (GET + POST wire-format) |
-| WebSocket sinkhole | No | No | Yes (RFC 6455 handshake + drain) |
+| DNS-over-HTTPS intercept | No | No | Yes (GET + POST wire-format) |
+| WebSocket intercept | No | No | Yes (RFC 6455 handshake + drain) |
 | Dynamic HTTP responses | No | No | Yes (70+ MIME types with valid file stubs) |
 | Dynamic TLS cert forging | No | No | Yes (per-domain via Root CA + SNI) |
 | TCP/IP OS fingerprint spoof | No | No | Yes (TTL, window size, DF, MSS) |

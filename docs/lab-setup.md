@@ -223,6 +223,38 @@ Click **Create**, then **Apply Configuration**.
 
 > **No second physical NIC required.** Leaving **Bridge ports** empty creates a purely internal virtual switch that exists only between VMs. No real network traffic passes through it. Your Proxmox host only needs one physical network card.
 
+### 1.2 Enable promiscuous mode on the lab bridge
+
+By default a Linux bridge (like `vmbr1`) is a smart switch — it only forwards unicast frames to the MAC address they're destined for. This means Kali won't see traffic flowing directly between two victim VMs (e.g. lateral movement from `.7 → .6`) even if NotTheNet has promiscuous mode enabled.
+
+**`vmbr1` is air-gapped with no gateway and no real internet — there is no security downside to leaving it permanently in promiscuous mode.** This is the recommended configuration.
+
+Add the `post-up` lines to `/etc/network/interfaces` on the Proxmox host under the `vmbr1` stanza (edit as root):
+
+```
+iface vmbr1 inet manual
+    bridge-ports none
+    bridge-stp off
+    bridge-fd 0
+    post-up brctl setageing vmbr1 0
+    post-up ip link set vmbr1 promisc on
+```
+
+Then apply immediately without a reboot:
+
+```bash
+brctl setageing vmbr1 0
+ip link set vmbr1 promisc on
+```
+
+> Do **not** apply this to `vmbr0` (your internet-facing bridge) — promiscuous mode there would expose all host network traffic to any VM on that bridge.
+
+**Wireshark alternative:** If you only want to capture traffic occasionally without changing the bridge config, run `tcpdump` directly on the Proxmox host:
+
+```bash
+tcpdump -i vmbr1 -n host 10.10.10.7
+```
+
 ---
 
 ## Part 2 — Kali VM Setup
@@ -371,8 +403,8 @@ Configure individual services as needed (all can be left at defaults for basic a
 |---------|---------|----------------|
 | **TCP fingerprint spoof** | `tcp_fingerprint: true`, `tcp_fingerprint_os: "windows"` | Windows malware that checks OS fingerprints |
 | **JSON event logging** | `json_logging: true` | Automated pipelines (CAPEv2, Splunk, ELK) |
-| **DoH sinkhole** | `doh_sinkhole: true` (already default) | Malware that bypasses DNS via DoH |
-| **WebSocket sinkhole** | `websocket_sinkhole: true` (already default) | WebSocket-based C2 channels |
+| **DoH intercept** | `doh_intercept: true` (already default) | Malware that bypasses DNS via DoH |
+| **WebSocket intercept** | `websocket_intercept: true` (already default) | WebSocket-based C2 channels |
 
 Click **💾 Save**, then **▶ Start**.
 
