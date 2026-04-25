@@ -118,7 +118,7 @@ Each panel shows the settings for one service (or the General settings). These m
 New fields in this release:
 
 - **General panel:** JSON Logging (toggle + file path), TCP Fingerprint (toggle + OS profile dropdown)
-- **HTTP panel:** Dynamic Responses (toggle), DoH Sinkhole (toggle + redirect IP), WebSocket Sinkhole (toggle), Dynamic Response Rules (JSON array editor)
+- **HTTP panel:** Dynamic Responses (toggle), DoH Intercept (toggle + redirect IP), WebSocket Intercept (toggle), Dynamic Response Rules (JSON array editor)
 - **HTTPS panel:** All of the above plus Dynamic Certificates (toggle)
 
 > **Tip:** Hover over any field label, entry box, checkbox, toolbar button, or sidebar item for a tooltip explaining what it does and what values are accepted.

@@ -49,7 +49,7 @@ def route_doh(handler, max_body_size: int) -> bool:
 
     if response_data:
         if handler._cfg.log_requests:
-            logger.info("DoH   request from %s -> sinkholed", safe_addr)
+            logger.info("DoH   request from %s -> intercepted", safe_addr)
         jl = get_json_logger()
         if jl:
             jl.log(
@@ -74,7 +74,7 @@ def route_doh(handler, max_body_size: int) -> bool:
 
 
 def route_websocket_upgrade(handler) -> bool:
-    """Complete a WebSocket handshake and close with a sinkhole frame."""
+    """Complete a WebSocket handshake and send a clean close frame."""
     safe_addr = sanitize_ip(handler.client_address[0])
     ws_key = handler.headers.get("Sec-WebSocket-Key", "")
     if not ws_key:
@@ -83,7 +83,7 @@ def route_websocket_upgrade(handler) -> bool:
     if handler._cfg.log_requests:
         safe_path = sanitize_log_string(handler.path or "/", 256)
         handler.log_message(
-            "WS upgrade from %s path=%s -> sinkholed", safe_addr, safe_path
+            "WS upgrade from %s path=%s -> intercepted", safe_addr, safe_path
         )
     jl = get_json_logger()
     if jl:
@@ -108,7 +108,7 @@ def route_websocket_upgrade(handler) -> bool:
             except Exception:
                 logger.debug("WebSocket frame recv failed", exc_info=True)
 
-        close_frame = build_websocket_close_frame(1000, "sinkholed")
+        close_frame = build_websocket_close_frame(1000, "intercepted")
         handler.wfile.write(close_frame)
         handler.wfile.flush()
     except OSError:

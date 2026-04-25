@@ -104,13 +104,13 @@ Fake DNS server — resolves every query to `resolve_to`.
 |-----|------|---------|-------------|
 | `enabled` | bool | `true` | Enable the DNS service. |
 | `port` | int | `53` | UDP + TCP port to listen on. |
-| `resolve_to` | string | `"127.0.0.1"` | IP address returned for all A/AAAA queries. **In `gateway` mode**, if this is `"127.0.0.1"` (the default), NotTheNet automatically overrides it with the effective `redirect_ip` at startup — so malware following DNS-discovered targets connects to the sinkhole rather than the victim's own loopback. Set an explicit non-loopback IP here to override that behaviour. |
+| `resolve_to` | string | `"127.0.0.1"` | IP address returned for all A/AAAA queries. **In `gateway` mode**, if this is `"127.0.0.1"` (the default), NotTheNet automatically overrides it with the effective `redirect_ip` at startup — so malware following DNS-discovered targets connects to the NTN host rather than the victim's own loopback. Set an explicit non-loopback IP here to override that behaviour. |
 | `ttl` | int | `300` | DNS TTL in seconds for synthesised records. |
 | `handle_ptr` | bool | `true` | When `true`, PTR (reverse DNS) queries return a synthetic ISP-style hostname derived from the queried IP (e.g. `static-192-168-1-100.res.example.net`). When `false`, PTR queries get no answer. |
 | `custom_records` | object | `{}` | Per-hostname overrides. Keys are lowercase hostnames; values are IP addresses. These take priority over all other resolver logic. See [Custom DNS Records](#custom-dns-records). |
 | `nxdomain_entropy_threshold` | float | `3.2` | Shannon entropy threshold for DGA detection. Queries whose second-level domain has entropy **above** this value return NXDOMAIN. Set to `0` to disable. Useful to defeat malware that uses random-looking domains. **Raise to `4.0`** when analysing malware whose legitimate C2 hostnames are high-entropy (e.g. `.onion` addresses). |
 | `nxdomain_label_min_length` | int | `8` | Minimum character length of the second-level domain label before DGA entropy evaluation is applied. Labels shorter than this are never DGA-filtered. |
-| `public_response_ips` | array | `[]` | Pool of public-looking IP addresses to rotate through for A responses, instead of always returning `resolve_to`. Uses a stable hash of the queried name so the same domain always gets the same IP. Defeats sandbox-evasion heuristics that detect sinkholes by checking for RFC-1918 response IPs. |
+| `public_response_ips` | array | `[]` | Pool of public-looking IP addresses to rotate through for A responses, instead of always returning `resolve_to`. Uses a stable hash of the queried name so the same domain always gets the same IP. Defeats sandbox-evasion heuristics that detect interceptors by checking for RFC-1918 response IPs. |
 | `kill_switch_domains` | array | `[]` | Domains that always return NXDOMAIN, regardless of entropy. Subdomains also match. Use this to prevent malware from triggering its own kill switch — e.g. WannaCry exits if its kill-switch domain resolves. Adding it here ensures DNS fails and execution continues. |
 
 ### Example
@@ -190,9 +190,9 @@ Fake HTTP server — returns a canned response to every request regardless of me
 | `response_delay_ms` | int | `0` | Artificial delay in milliseconds before each response. Values of 50–200 ms simulate realistic network latency and defeat timing-based sandbox detection. `0` = no delay. |
 | `dynamic_responses` | bool | `true` | Enable the dynamic response engine. When a request path contains a recognisable file extension (`.exe`, `.dll`, `.pdf`, `.zip`, `.png`, etc.), the server returns a response with the correct MIME type and a minimal valid file stub (correct magic bytes/headers). Covers 70+ extensions. |
 | `dynamic_response_rules` | array | `[]` | Custom regex-based response rules. Each rule is an object with `pattern` (regex matched against the request path), `mime` (MIME type), and `body` (Base64-encoded response body). Custom rules take priority over the built-in extension map. |
-| `doh_sinkhole` | bool | `true` | Intercept DNS-over-HTTPS (DoH) queries. Detects requests by `Content-Type: application/dns-message` or the `/dns-query` path. Handles both GET (base64url `?dns=` parameter) and POST (raw wire-format body). Resolves all queries to `doh_redirect_ip`. |
+| `doh_intercept` | bool | `true` | Intercept DNS-over-HTTPS (DoH) queries. Detects requests by `Content-Type: application/dns-message` or the `/dns-query` path. Handles both GET (base64url `?dns=` parameter) and POST (raw wire-format body). Resolves all queries to `doh_redirect_ip`. |
 | `doh_redirect_ip` | string | `"127.0.0.1"` | IP address to return for all intercepted DoH queries. |
-| `websocket_sinkhole` | bool | `true` | Accept and sinkhole WebSocket upgrade requests. Completes the RFC 6455 handshake (101 Switching Protocols), drains up to 4 KB of incoming frames, logs a hex preview, then sends a clean close frame. Satisfies malware using WebSocket-based C2. |
+| `websocket_intercept` | bool | `true` | Intercept WebSocket upgrade requests. Completes the RFC 6455 handshake (101 Switching Protocols), drains up to 4 KB of incoming frames, logs a hex preview, then sends a clean close frame. Satisfies malware using WebSocket-based C2. |
 
 ---
 
@@ -215,9 +215,9 @@ Fake HTTPS server with hardened TLS. Shares response configuration with HTTP.
 | `dynamic_responses` | bool | `true` | Enable the dynamic response engine (same behaviour as HTTP). |
 | `dynamic_response_rules` | array | `[]` | Custom regex-based response rules (same format as HTTP). |
 | `dynamic_certs` | bool | `true` | Enable per-domain TLS certificate forging. A Root CA is auto-generated at `certs/ca.crt` / `certs/ca.key`. On each TLS connection, the SNI hostname is read and a certificate with `CN=<hostname>` + wildcard SAN is forged on-the-fly, signed by the Root CA. Certificates are cached in a thread-safe LRU cache (max 500 entries). Install `certs/ca.crt` in the analysis VM's trust store for seamless HTTPS interception. |
-| `doh_sinkhole` | bool | `true` | Intercept DNS-over-HTTPS queries inside the TLS tunnel (same behaviour as HTTP). |
+| `doh_intercept` | bool | `true` | Intercept DNS-over-HTTPS queries inside the TLS tunnel (same behaviour as HTTP). |
 | `doh_redirect_ip` | string | `"127.0.0.1"` | IP address to return for DoH queries over HTTPS. |
-| `websocket_sinkhole` | bool | `true` | Accept and sinkhole WebSocket upgrades inside the TLS tunnel (same behaviour as HTTP). |
+| `websocket_intercept` | bool | `true` | Intercept WebSocket upgrades inside the TLS tunnel (same behaviour as HTTP). |
 
 > **TLS details:** TLS 1.2 minimum. Protocols SSLv2, SSLv3, TLS 1.0, TLS 1.1 are disabled. Only ECDHE + AEAD cipher suites are accepted.
 
@@ -576,8 +576,8 @@ c2.evil-domain.xyz = 10.0.0.100
   },
   "http": {
     "dynamic_responses": true,
-    "doh_sinkhole": true,
-    "websocket_sinkhole": true,
+    "doh_intercept": true,
+    "websocket_intercept": true,
     "dynamic_response_rules": [
       { "pattern": "/update\\.php$", "mime": "application/octet-stream", "body": "" }
     ]
@@ -585,15 +585,15 @@ c2.evil-domain.xyz = 10.0.0.100
   "https": {
     "dynamic_responses": true,
     "dynamic_certs": true,
-    "doh_sinkhole": true,
-    "websocket_sinkhole": true
+    "doh_intercept": true,
+    "websocket_intercept": true
   }
 }
 ```
 
 ### WannaCry / Ransomware with embedded Tor client
 
-This config bypasses WannaCry's kill switch, resolves its hardcoded `.onion` C2 addresses to the sinkhole, and serves fake Tor directory responses to maximise PCAP coverage.
+This config bypasses WannaCry's kill switch, resolves its hardcoded `.onion` C2 addresses to the NTN interceptor, and serves fake Tor directory responses to maximise PCAP coverage.
 
 ```json
 {

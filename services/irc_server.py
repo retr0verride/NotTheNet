@@ -14,7 +14,7 @@ Security notes (OpenSSF):
 - Lines are capped at 512 bytes (RFC 1459 Â§2.3); data beyond is discarded
 - Nick, channel, and message strings are sanitized before logging
 - Runs each connection in a daemon thread; cannot block process exit
-- No data is forwarded to any external host; all traffic is sinkholed
+- No data is forwarded to any external host; all traffic is intercepted
 """
 
 import logging

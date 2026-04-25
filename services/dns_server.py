@@ -78,7 +78,7 @@ class _FakeResolver:
         # malware from flagging the "all domains â†' 10.x.x.x" pattern.
         self._public_ips: list[str] = list(public_response_ips or [])
         # Kill-switch domains: return NXDOMAIN so malware that checks for
-        # a "sinkholed" domain (expecting resolution) sees the domain as
+        # an "intercepted" domain (expecting resolution) sees the domain as
         # dead and continues executing.  Matches exact names and any
         # subdomain (e.g. "example.com" also matches "www.example.com").
         self._kill_switch_domains: frozenset[str] = frozenset(

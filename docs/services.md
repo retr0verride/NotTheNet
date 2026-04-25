@@ -187,9 +187,9 @@ When a request path contains a recognisable file extension, the server returns a
 
 **Resolution order:** custom rules → extension map → fallback static response (the configured `response_body` / `response_body_file`).
 
-### DNS-over-HTTPS (DoH) Sinkhole
+### DNS-over-HTTPS (DoH) Intercept
 
-**Config:** `http.doh_sinkhole` (default: `true`)
+**Config:** `http.doh_intercept` (default: `true`)
 
 Detects DNS-over-HTTPS requests by:
 - `Content-Type: application/dns-message`
@@ -201,9 +201,9 @@ Handles both:
 
 Builds a DNS response using `dnslib` pointing to `http.doh_redirect_ip` (default: `127.0.0.1`). Prevents malware from bypassing the fake DNS server via DoH to services like `dns.google`, `cloudflare-dns.com`, or `dns.quad9.net`.
 
-### WebSocket Sinkhole
+### WebSocket Intercept
 
-**Config:** `http.websocket_sinkhole` (default: `true`)
+**Config:** `http.websocket_intercept` (default: `true`)
 
 Detects WebSocket upgrade requests (`Connection: Upgrade`, `Upgrade: websocket`), completes the RFC 6455 handshake (101 Switching Protocols + `Sec-WebSocket-Accept`), drains up to 4 KB of incoming frames, logs a hex preview, then sends a clean close frame.
 
@@ -234,11 +234,11 @@ curl -o test.exe http://127.0.0.1/update/payload.exe
 file test.exe
 # → PE32 executable ...
 
-# Verify DoH sinkhole
+# Verify DoH intercept
 curl -H "Content-Type: application/dns-message" -X POST http://127.0.0.1/dns-query --data-binary @dns-query.bin
 # → DNS response pointing to doh_redirect_ip
 
-# Verify WebSocket sinkhole (using websocat or similar)
+# Verify WebSocket intercept (using websocat or similar)
 websocat ws://127.0.0.1/ws
 # → Connection accepted, then cleanly closed
 ```
@@ -270,9 +270,9 @@ The certificate is auto-generated at `certs/server.crt` / `certs/server.key` on 
 
 The HTTPS service shares the same public-IP spoof and response delay logic as HTTP. Both are configured in `general.spoof_public_ip` and `https.response_delay_ms` respectively. See the [HTTP section](#http-service) above for full details.
 
-### Dynamic Responses, DoH Sinkhole, and WebSocket Sinkhole
+### Dynamic Responses, DoH Intercept, and WebSocket Intercept
 
-The HTTPS service supports the same dynamic response engine, DoH sinkhole, and WebSocket sinkhole as HTTP — all operating inside the TLS tunnel. See the [HTTP section](#http-service) for details; configuration keys are identical but under the `https` section.
+The HTTPS service supports the same dynamic response engine, DoH intercept, and WebSocket intercept as HTTP — all operating inside the TLS tunnel. See the [HTTP section](#http-service) for details; configuration keys are identical but under the `https` section.
 
 ### Dynamic TLS Certificate Forging
 
@@ -708,7 +708,7 @@ Fake SOCKS5 proxy that reveals the **true C2 destination** — even when DNS has
 ```bash
 # Verify SOCKS5 handshake + CONNECT
 curl --proxy socks5://127.0.0.1:1080 http://c2.evil.com/beacon
-# → 200 OK (sinkholed)
+# → 200 OK (intercepted)
 
 # Check logs for captured destination:
 grep "CONNECT" logs/notthenet.log

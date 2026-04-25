@@ -482,7 +482,7 @@ class DashboardMixin(_DashboardHost):
              "DNS is fake."),
             ("ircs",    "\u25c8  IRC/TLS",
              "TLS-wrapped fake IRC server (TCP/6697) \u2014 modern botnets use SSL\n"
-             "IRC to avoid plaintext interception. Same full sinkhole logic as\n"
+             "IRC to avoid plaintext interception. Same full intercept logic as\n"
              "the plain IRC service, with TLS handshake on top."),
             ("icmp",    "\u25c8  ICMP",
              "ICMP echo responder \u2014 answers all pings so malware connectivity\n"
@@ -657,11 +657,11 @@ class DashboardMixin(_DashboardHost):
               "If malware requests /payload.dll, it gets a valid PE stub.\n"
               "If it requests an image, it gets a valid PNG/JPEG header.\n"
               "Defeats sandbox detection that checks Content-Type vs extension."),
-             ("DoH Sinkhole", "doh_sinkhole", True,
+             ("DoH Intercept", "doh_intercept", True,
               "Intercept DNS-over-HTTPS (DoH) queries embedded in HTTPS traffic.\n"
               "Resolves DoH requests to the configured redirect_ip,\n"
               "preventing malware from bypassing the fake DNS server."),
-             ("WebSocket Sinkhole", "websocket_sinkhole", True,
+             ("WebSocket Intercept", "websocket_intercept", True,
               "Accept WebSocket upgrade requests, complete the handshake,\n"
               "and then send a close frame. Satisfies malware that uses\n"
               "WebSocket-based C2 channels.")],
@@ -704,11 +704,11 @@ class DashboardMixin(_DashboardHost):
               "CN=evil-c2.com and matching SANs is generated instantly,\n"
               "signed by NotTheNet\u2019s Root CA. Install the CA cert in the\n"
               "analysis VM\u2019s trust store for seamless interception."),
-             ("DoH Sinkhole", "doh_sinkhole", True,
+             ("DoH Intercept", "doh_intercept", True,
               "Intercept DNS-over-HTTPS queries inside the TLS tunnel.\n"
               "Responds with the configured redirect_ip."),
-             ("WebSocket Sinkhole", "websocket_sinkhole", True,
-              "Accept and sinkhole WebSocket upgrade requests\n"
+             ("WebSocket Intercept", "websocket_intercept", True,
+              "Accept and intercept WebSocket upgrade requests\n"
               "inside the TLS tunnel.")],
         )
 

@@ -116,7 +116,7 @@ echo "[2/5] Applying iptables isolation rules..."
 iptables-save 2>/dev/null | { grep -v 'NOTTHENET_HARDEN' || true; } | iptables-restore 2>/dev/null || true
 
 # ── IPv6: block all forwarding on the bridge. ─────────────────────────────
-# Malware that is IPv6-aware can bypass an IPv4-only sinkhole by routing
+# Malware that is IPv6-aware can bypass an IPv4-only interceptor by routing
 # traffic via the victim NIC's link-local or ULA IPv6 address.  Drop all
 # IPv6 forwarding on the lab bridge so there is no escape route.
 # NotTheNet does not currently provide IPv6 fake services, so this is a
@@ -202,10 +202,10 @@ fi
 if ! [[ "$VICTIM_SUBNET" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$ ]]; then
     echo "  ✗ Invalid VICTIM_SUBNET: $VICTIM_SUBNET — skipping lateral movement blocks"
 else
-    # 445 (SMB) and 3389 (RDP) are NOT blocked here — NotTheNet sinkholes both
+    # 445 (SMB) and 3389 (RDP) are NOT blocked here — NotTheNet intercepts both
     # via dedicated services.  Blocking them would drop DNAT-redirected victim
     # traffic before it reaches NTN's listener.  WinRM (5985/5986) and raw
-    # WMI/NetBIOS (135/139/137/138) have no NTN sinkhole and are genuine
+    # WMI/NetBIOS (135/139/137/138) have no NTN service and are genuine
     # Kali-exploitation channels, so those remain blocked.
     # SSH (22) is also blocked: passthrough_subnets exempts victim→Kali:22 from
     # DNAT, so without this INPUT DROP, malware doing SSH lateral movement could
@@ -225,7 +225,7 @@ else
     done
 
     echo "  ✓ Lateral movement ports (SSH/WMI/WinRM/NetBIOS) from $VICTIM_SUBNET: BLOCKED on $BRIDGE_IF"
-    echo "  -- SMB/RDP (445/3389) NOT blocked: handled by NotTheNet sinkholes"
+    echo "  -- SMB/RDP (445/3389) NOT blocked: handled by NotTheNet services"
 fi
 echo "  Done."
 

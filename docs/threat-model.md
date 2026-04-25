@@ -2,7 +2,7 @@
 
 ## System Overview
 
-NotTheNet is a **malware analysis sinkhole** that impersonates network
+NotTheNet is a **fake internet simulator** that impersonates network
 services on an isolated lab network.  All traffic from a victim VM is
 redirected (via iptables NAT) to NotTheNet's fake services, which log
 every connection for post-incident analysis.

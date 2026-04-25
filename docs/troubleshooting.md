@@ -19,7 +19,7 @@ Common problems and how to fix them. Each section starts with the **symptom** (w
 - [iptables rules left behind after crash](#iptables-rules-left-behind-after-crash)
 - [Python import errors](#python-import-errors)
 - [Getting a debug trace](#getting-a-debug-trace)
-- [DoH sinkhole not intercepting queries](#doh-sinkhole-not-intercepting-queries)
+- [DoH intercept not intercepting queries](#doh-intercept-not-intercepting-queries)
 - [WebSocket connections not captured](#websocket-connections-not-captured)
 - [Dynamic responses returning wrong type](#dynamic-responses-returning-wrong-type)
 - [Dynamic TLS certs not working](#dynamic-tls-certs-not-working)
@@ -467,11 +467,11 @@ Include the relevant portion of `debug.log` when opening a GitHub issue.
 
 ---
 
-## DoH sinkhole not intercepting queries
+## DoH intercept not intercepting queries
 
 **Symptom:** Malware bypasses the fake DNS server by using DNS-over-HTTPS and resolves real IPs.
 
-1. Confirm `doh_sinkhole` is `true` in both `http` and `https` config sections
+1. Confirm `doh_intercept` is `true` in both `http` and `https` config sections
 2. Check the log for `DoH` entries — if no entries appear, the malware may be using a non-standard DoH endpoint
 3. Verify the malware is sending `Content-Type: application/dns-message` or requesting `/dns-query`
 4. Check `doh_redirect_ip` is set correctly (should match your NotTheNet host IP)
@@ -482,8 +482,8 @@ Include the relevant portion of `debug.log` when opening a GitHub issue.
 
 **Symptom:** Malware opens WebSocket connections but they don't appear in the log.
 
-1. Confirm `websocket_sinkhole` is `true` in both `http` and `https` config sections
-2. The WebSocket sinkhole only triggers on proper upgrade requests (`Connection: Upgrade`, `Upgrade: websocket`). If malware uses a non-standard handshake, it falls through to the normal HTTP handler
+1. Confirm `websocket_intercept` is `true` in both `http` and `https` config sections
+2. The WebSocket intercept only triggers on proper upgrade requests (`Connection: Upgrade`, `Upgrade: websocket`). If malware uses a non-standard handshake, it falls through to the normal HTTP handler
 3. Check the log for `websocket_upgrade` events
 
 ---

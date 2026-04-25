@@ -468,7 +468,7 @@ class _HandlerConfig:
     custom_rules: list = field(default_factory=list)
     doh_enabled: bool = False
     doh_redirect_ip: str = "127.0.0.1"
-    websocket_sinkhole: bool = False
+    websocket_intercept: bool = False
     pool_ips: frozenset = field(default_factory=frozenset)
 
 
@@ -478,7 +478,7 @@ def _build_handler_config(
     delay_jitter_ms: int = 0,
     dynamic_responses: bool = False, custom_rules: list | None = None,
     doh_enabled: bool = False, doh_redirect_ip: str = "127.0.0.1",
-    websocket_sinkhole: bool = False,
+    websocket_intercept: bool = False,
     pool_ips: frozenset[str] = frozenset(),
 ) -> _HandlerConfig:
     """Build an immutable handler configuration bundle."""
@@ -494,7 +494,7 @@ def _build_handler_config(
         custom_rules=compile_custom_rules(custom_rules or []),
         doh_enabled=doh_enabled,
         doh_redirect_ip=doh_redirect_ip,
-        websocket_sinkhole=websocket_sinkhole,
+        websocket_intercept=websocket_intercept,
         pool_ips=pool_ips,
     )
 
@@ -995,7 +995,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
 # noqa comments suppress SLF001 (intra-module access to own class members).
 FakeHTTPHandler._ROUTES = [  # noqa: SLF001
     (lambda s, h: s._cfg.doh_enabled,                           FakeHTTPHandler._route_doh),           # noqa: SLF001
-    (lambda s, h: s._cfg.websocket_sinkhole,                    FakeHTTPHandler._route_websocket),      # noqa: SLF001
+    (lambda s, h: s._cfg.websocket_intercept,                   FakeHTTPHandler._route_websocket),      # noqa: SLF001
     (lambda s, h: h in _NCSI_HOSTS,                             FakeHTTPHandler._route_ncsi),           # noqa: SLF001
     (lambda s, h: h in _CAPTIVE_PORTAL_HOSTS,                   FakeHTTPHandler._route_captive),        # noqa: SLF001
     (lambda s, h: h in _PKI_HOSTS,                              FakeHTTPHandler._route_pki),            # noqa: SLF001
@@ -1057,9 +1057,9 @@ class HTTPService:
         self.delay_jitter_ms = int(config.get("response_delay_jitter_ms", 0) or 0)
         self.dynamic_responses = config.get("dynamic_responses", False)
         self.custom_rules = config.get("dynamic_response_rules", [])
-        self.doh_enabled = config.get("doh_sinkhole", False)
+        self.doh_enabled = config.get("doh_intercept", False)
         self.doh_redirect_ip = config.get("doh_redirect_ip", "127.0.0.1")
-        self.websocket_sinkhole = config.get("websocket_sinkhole", False)
+        self.websocket_intercept = config.get("websocket_intercept", False)
         self._server: _ThreadedServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -1075,7 +1075,7 @@ class HTTPService:
             custom_rules=self.custom_rules,
             doh_enabled=self.doh_enabled,
             doh_redirect_ip=self.doh_redirect_ip,
-            websocket_sinkhole=self.websocket_sinkhole,
+            websocket_intercept=self.websocket_intercept,
         )
         try:
             self._server = _ThreadedServer((self.bind_ip, self.port), FakeHTTPHandler)
@@ -1128,9 +1128,9 @@ class HTTPSService:
         self.dynamic_responses = config.get("dynamic_responses", False)
         self.custom_rules = config.get("dynamic_response_rules", [])
         self.dynamic_certs = config.get("dynamic_certs", False)
-        self.doh_enabled = config.get("doh_sinkhole", False)
+        self.doh_enabled = config.get("doh_intercept", False)
         self.doh_redirect_ip = config.get("doh_redirect_ip", "127.0.0.1")
-        self.websocket_sinkhole = config.get("websocket_sinkhole", False)
+        self.websocket_intercept = config.get("websocket_intercept", False)
         self._server: _ThreadedServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -1183,7 +1183,7 @@ class HTTPSService:
             custom_rules=self.custom_rules,
             doh_enabled=self.doh_enabled,
             doh_redirect_ip=self.doh_redirect_ip,
-            websocket_sinkhole=self.websocket_sinkhole,
+            websocket_intercept=self.websocket_intercept,
         )
         try:
             self._server = _ThreadedServer((self.bind_ip, self.port), FakeHTTPHandler)

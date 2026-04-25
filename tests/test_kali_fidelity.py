@@ -256,7 +256,7 @@ def test_https(host: str, port: int, r: FidelityResults) -> None:
     r.header(f"HTTPS :{port}")
     try:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        ctx.check_hostname = False  # nosec B501 — connecting to sinkhole's own self-signed cert
+        ctx.check_hostname = False  # nosec B501 — connecting to NTN's own self-signed cert
         ctx.verify_mode = ssl.CERT_NONE  # nosec B501 — intentional: test client for fake-internet server
         raw = _tcp_connect(host, port)
         s = ctx.wrap_socket(raw, server_hostname=host)

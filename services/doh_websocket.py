@@ -1,5 +1,5 @@
 """
-NotTheNet - DNS over HTTPS (DoH) & WebSocket Sinkhole
+NotTheNet - DNS over HTTPS (DoH) & WebSocket Interceptor
 
 Modern malware increasingly uses:
   1. DNS over HTTPS (DoH) — standard HTTPS traffic containing DNS binary
@@ -12,7 +12,7 @@ This module:
     DNS server does.
   - Detects WebSocket upgrade requests (Connection: Upgrade, Upgrade: websocket)
     and completes the handshake, then sends a close frame after a short
-    sink period so the malware believes the connection was established.
+    intercept period so the malware believes the connection was established.
 
 Security notes (OpenSSF):
 - DoH responses are built via dnslib (same as the UDP DNS server)
@@ -120,7 +120,7 @@ def _build_doh_response(raw_query: bytes, redirect_ip: str) -> bytes | None:
         return None
 
 
-# ─── WebSocket Sinkhole ──────────────────────────────────────────────────────
+# ─── WebSocket Interceptor ──────────────────────────────────────────────────────
 
 _WS_MAGIC = "258EAFA5-E914-47DA-95CA-5AB5CD11AD85"
 

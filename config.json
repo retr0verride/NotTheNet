@@ -85,9 +85,9 @@
         "body": "{\"status\": \"ok\", \"msg_id\": 1, \"data\": \"AAAA\"}"
       }
     ],
-    "doh_sinkhole": true,
+    "doh_intercept": true,
     "doh_redirect_ip": "10.0.0.1",
-    "websocket_sinkhole": true
+    "websocket_intercept": true
   },
   "https": {
     "enabled": true,
@@ -125,9 +125,9 @@
       }
     ],
     "dynamic_certs": true,
-    "doh_sinkhole": true,
+    "doh_intercept": true,
     "doh_redirect_ip": "10.0.0.1",
-    "websocket_sinkhole": true
+    "websocket_intercept": true
   },
   "smtp": {
     "enabled": true,

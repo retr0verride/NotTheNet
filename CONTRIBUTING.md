@@ -74,7 +74,7 @@ All steps must pass before submitting a PR.
 Write clear commit messages following [Conventional Commits](https://www.conventionalcommits.org/):
 
 ```text
-feat: add SOCKS5 proxy sinkhole
+feat: add SOCKS5 proxy interceptor
 fix: prevent race condition in DNS server shutdown
 docs: update configuration reference for new field
 ci: add Python 3.13 to test matrix

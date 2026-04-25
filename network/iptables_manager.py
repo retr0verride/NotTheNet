@@ -618,7 +618,7 @@ class IPTablesManager:
         We require BOTH `-s` and `-d` to match so that victim->Kali traffic
         (where dst is Kali, also inside the LAN CIDR) is still caught by
         NTN's DNAT rules.  Earlier versions used dst-only RETURN, which
-        accidentally exempted victim->Kali probes from the sinkhole.
+        accidentally exempted victim->Kali probes from NTN.
 
         In gateway mode, if `passthrough_subnets` is empty, auto-derive the
         LAN CIDR from the gateway interface so worm-style /24 scans spread
@@ -782,7 +782,7 @@ class IPTablesManager:
             else:
                 logger.warning(
                     "ip_forward was enabled; disabled on start to prevent "
-                    "traffic escaping the sinkhole (was 1, now 0)."
+                    "traffic escaping NTN (was 1, now 0)."
                 )
         else:
             if target == "1":

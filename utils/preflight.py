@@ -257,7 +257,7 @@ def _check_remote_tools() -> list[CheckResult]:
 
 
 def _check_ip_forward() -> list[CheckResult]:
-    """Check /proc/sys/net/ipv4/ip_forward; WARN if enabled (sinkhole needs it off)."""
+    """Check /proc/sys/net/ipv4/ip_forward; WARN if enabled (NTN needs it off)."""
     try:
         with open("/proc/sys/net/ipv4/ip_forward", encoding="ascii") as f:
             val = f.read().strip()

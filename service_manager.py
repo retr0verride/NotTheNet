@@ -369,7 +369,7 @@ class ServiceManager:
     ) -> tuple[dict, dict] | None:
         """Return (config, extra_kwargs) for services needing custom config, or None."""
         if spec.name in ("dns", "dot"):
-            # In gateway mode, DNS must resolve names to the sinkhole IP so that
+            # In gateway mode, DNS must resolve names to the NTN host IP so that
             # malware following DNS-discovered targets connects back to NTN rather
             # than to the victim's own loopback (127.0.0.1).  Override resolve_to
             # with the effective redirect_ip whenever the config carries the

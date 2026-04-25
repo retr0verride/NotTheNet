@@ -118,7 +118,7 @@ In gateway mode, NotTheNet inserts a `RETURN` rule at the top of `PREROUTING` th
 iptables -t nat -I PREROUTING 2 -s 10.10.10.0/24 -d 10.10.10.0/24 -j RETURN -m comment --comment NOTTHENET
 ```
 
-This is what allows WannaCry/NotPetya-style worms to spread between victims (`10.10.10.7 → 10.10.10.8:445`) instead of being trapped on the sinkhole host. Victim→Kali probes (`10.10.10.7 → 10.10.10.1:53`) still hit NTN's DNAT because Kali binds `0.0.0.0:*` and receives them directly without needing a redirect.
+This is what allows WannaCry/NotPetya-style worms to spread between victims (`10.10.10.7 → 10.10.10.8:445`) instead of being trapped on the NTN host. Victim→Kali probes (`10.10.10.7 → 10.10.10.1:53`) still hit NTN's DNAT because Kali binds `0.0.0.0:*` and receives them directly without needing a redirect.
 
 - **Auto-derived** from `general.interface` when `passthrough_subnets` is empty (e.g. interface IP `10.10.10.1/24` → passthrough `10.10.10.0/24`).
 - Override or add additional subnets via `general.passthrough_subnets` in `config.json`.

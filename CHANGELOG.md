@@ -20,7 +20,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 ## [2026.04.24-14] — 2026-04-24
 
 ### Fixed
-- **`network/iptables_manager.py`: victim-to-victim SMB spread blocked even with `passthrough_subnets` set.** Root cause was the passthrough rule using destination-only matching (`-d <cidr> -j RETURN`); when the user's deployed `config.json` lacked the field (older deploys, manual edits) intra-LAN traffic fell through to the service DNAT and got redirected to NTN's fake SMB on Kali, trapping the worm on the sinkhole host. Two fixes:
+- **`network/iptables_manager.py`: victim-to-victim SMB spread blocked even with `passthrough_subnets` set.** Root cause was the passthrough rule using destination-only matching (`-d <cidr> -j RETURN`); when the user's deployed `config.json` lacked the field (older deploys, manual edits) intra-LAN traffic fell through to the service DNAT and got redirected to NTN's fake SMB on Kali, trapping the worm on the NTN host. Two fixes:
   - Tightened the rule to **`-s <cidr> -d <cidr> -j RETURN`** so it exempts only intra-LAN traffic. Victim->Kali probes still get caught by NTN's DNAT (Kali is in the LAN, but the source isn't always in it).
   - In **gateway mode**, when `passthrough_subnets` is empty, **auto-derive the LAN CIDR from the gateway interface** (e.g. interface IP `10.10.10.1/24` -> passthrough `10.10.10.0/24`). Worm-style `/24` scans now spread between victims out of the box without operator config.
 - **`config.json`: `smb.enabled` re-enabled by default** (`true`). With the iptables fix above, the fake SMB server no longer blocks lateral movement, so operators get SMB capture *and* worm-spread observation simultaneously.
@@ -31,7 +31,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 ## [2026.04.24-13] — 2026-04-24
 
 ### Changed
-- **`config.json`: `smb.enabled` default flipped to `false`.** Empirical lab result: with NTN bound to `0.0.0.0:445` on the same broadcast domain as the victims, WannaCry's worm thread fixates on the sinkhole host (the lowest /24 IP it scans) and never advances to the next victim, even with a perfectly formed NEGOTIATE response. Closed port = `ECONNREFUSED` in milliseconds = scan advances. The fake SMB server captures standalone probes from internet-scale scanners but is counter-productive when the same host is the lab gateway. Operators who want SMB capture should run the sinkhole on a separate interface or enable explicitly.
+- **`config.json`: `smb.enabled` default flipped to `false`.** Empirical lab result: with NTN bound to `0.0.0.0:445` on the same broadcast domain as the victims, WannaCry's worm thread fixates on the NTN host (the lowest /24 IP it scans) and never advances to the next victim, even with a perfectly formed NEGOTIATE response. Closed port = `ECONNREFUSED` in milliseconds = scan advances. The fake SMB server captures standalone probes from internet-scale scanners but is counter-productive when the same host is the lab gateway. Operators who want SMB capture should run NTN on a separate interface or enable explicitly.
 
 ### Fixed
 - **`services/smb_server.py`: `_parse_smb1_negotiate` read dialects from offset 33 instead of 35**, which included the 2-byte `ByteCount` field as part of the first dialect entry and shifted `dialect_index` by `+1`. The response then advertised a dialect index the client never offered. Even with the byte-perfect NEGOTIATE response from -12, this off-by-two would have caused worm clients to reject the reply. Reading dialects from offset 35 (after WordCount(1)+ByteCount(2)) per MS-CIFS 2.2.4.5.1. Test fixture rebuilt to use the correct request layout.
@@ -352,7 +352,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 ## [2026.03.15-1] — 2026-03-15
 
 ### Added
-- **DNS: DGA / canary-domain NXDOMAIN** — new `dns.nxdomain_entropy_threshold` (default `3.8`) and `dns.nxdomain_label_min_length` (default `12`) config keys; when set, A queries whose second-level domain exceeds the Shannon entropy threshold and minimum length receive NXDOMAIN instead of a resolved address; defeats malware that issues a random-looking domain query (canary check) before detonating to confirm DNS is being sinkholed
+- **DNS: DGA / canary-domain NXDOMAIN** — new `dns.nxdomain_entropy_threshold` (default `3.8`) and `dns.nxdomain_label_min_length` (default `12`) config keys; when set, A queries whose second-level domain exceeds the Shannon entropy threshold and minimum length receive NXDOMAIN instead of a resolved address; defeats malware that issues a random-looking domain query (canary check) before detonating to confirm DNS is being intercepted
 - **DNS: Public IP pool for A responses** — new `dns.public_response_ips` list; when populated, A query responses rotate through plausible public IPs (e.g. `142.250.x.x`, `104.x.x.x`) instead of the private `redirect_ip`; iptables REDIRECT rules intercept all traffic by destination port regardless of IP, so routing is unaffected; defeats the trivial heuristic where every domain resolves to a single RFC 1918 address
 - **HTTP/HTTPS: Google / Android / Apple captive portal handlers** — `connectivitycheck.gstatic.com`, `connectivitycheck.android.com`, `clients1.google.com`, `clients3.google.com`, `ipv4.google.com` respond to `GET /generate_204` with HTTP 204 (empty body, `Server: GFE/2.0`); `captive.apple.com` and `www.apple.com` respond to `/hotspot-detect.html` and `/library/test/success.html` with HTTP 200 and the exact Apple success payload (`Server: AkamaiGHost`); OS-level connectivity indicators on Android, ChromeOS, macOS, and iOS now show "Connected" — malware waiting for full connectivity before detonating is unblocked
 - **HTTP/HTTPS: Response delay jitter** — new `response_delay_jitter_ms` config key (default `30`); the per-response delay is now `delay_ms ± random(0..jitter)` ms; randomised latency defeats timing-based sandbox fingerprinting where a laboratory simulator responds with suspiciously consistent sub-millisecond precision
@@ -396,7 +396,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 ### Added
 - **Telnet service (TCP/23)** — fake Telnet server targeting Mirai and IoT botnet families; sends RFC 854 IAC option negotiation, configurable device banner, accepts any credentials (logs username + password), simulates a BusyBox root shell; shell commands (id, uname, ls, wget, curl, etc.) return plausible-but-harmless output so bots keep executing
 - **SOCKS5 proxy service (TCP/1080)** — fake SOCKS5 server (RFC 1928) for malware families that tunnel C2 through SOCKS5 (SystemBC, QakBot, Cobalt Strike, DarkComet, Emotet); logs the real destination host and port from every CONNECT request — the highest-value intelligence captured; after handshake behaves like the catch-all (TLS wrap if TLS ClientHello, HTTP 200 for HTTP, generic banner otherwise)
-- **IRC/TLS service (TCP/6697)** — TLS-wrapped IRC sinkhole (`IRCSTLSService`); wraps accepted connections with existing certs before delegating to the full RFC 1459 handler; modern botnets using SSL IRC are now fully captured
+- **IRC/TLS service (TCP/6697)** — TLS-wrapped IRC interceptor (`IRCSTLSService`); wraps accepted connections with existing certs before delegating to the full RFC 1459 handler; modern botnets using SSL IRC are now fully captured
 - **GUI sidebar entries** — Telnet, SOCKS5, and IRC/TLS added to the NETWORK group with status dots and configurable pages
 - **`max_connections` config key** — all manual-accept services (Telnet, SOCKS5, IRC, IRC/TLS) now respect a `max_connections` limit; CatchAllTCP enforces its limit via `_ReuseServer.process_request` override
 
@@ -487,14 +487,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ### Added
 - **Dynamic TLS certificate forging** — auto-generated Root CA + per-domain certs via SNI callback (`https.dynamic_certs`)
-- **DNS-over-HTTPS sinkhole** — intercepts `application/dns-message` GET and POST requests (`http.doh_sinkhole`)
-- **WebSocket sinkhole** — completes RFC 6455 handshake, drains frames, logs hex preview, clean close (`http.websocket_sinkhole`)
+- **DNS-over-HTTPS interceptor** — intercepts `application/dns-message` GET and POST requests (`http.doh_intercept`)
+- **WebSocket interceptor** — completes RFC 6455 handshake, drains frames, logs hex preview, clean close (`http.websocket_intercept`)
 - **Dynamic response engine** — extension-based MIME types + minimal valid file stubs for 70+ extensions (`http.dynamic_responses`); custom regex rules supported
 - **TCP/IP OS fingerprint spoofing** — TTL, TCP window, DF bit, MSS per-socket to mimic Windows/Linux/macOS/Solaris (`general.tcp_fingerprint`)
 - **JSON structured event logging** — per-request JSONL output, pipeline-ready for CAPEv2/Splunk/ELK (`general.json_logging`)
 - JSON Events viewer in the GUI sidebar with search and filtering
 - Zoom controls (70%–200%) in the GUI toolbar
-- New config fields: `doh_sinkhole`, `websocket_sinkhole`, `dynamic_responses`, `dynamic_response_rules`, `dynamic_certs`, `tcp_fingerprint`, `tcp_fingerprint_os`, `json_logging`, `json_log_file`
+- New config fields: `doh_intercept`, `websocket_intercept`, `dynamic_responses`, `dynamic_response_rules`, `dynamic_certs`, `tcp_fingerprint`, `tcp_fingerprint_os`, `json_logging`, `json_log_file`
 
 ### Changed
 - Comprehensive documentation rewrite (all 11 doc files updated for new features)
