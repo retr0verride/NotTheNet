@@ -167,13 +167,13 @@ cd ~/NotTheNet
 sudo bash update.sh
 ```
 
-Backs up `config.json`, pulls the latest code, reinstalls the package, and restores your config. To see what new config keys were added:
+Backs up `config.json`, pulls the latest code, reinstalls the package, and restores your config. Any **new default keys** introduced by the release are deep-merged into your config (existing values are never overwritten); the script reports each key it added. To preview the diff yourself:
 
 ```bash
 diff config.json <(git show origin/main:config.json)
 ```
 
-> Do **not** run `update.sh` on a `.deb` or bundle install — it expects the venv in the repo directory and will exit with an error.
+> **`update.sh` works on `.deb` installs too.** When run on a system where the `notthenet` package is registered with `dpkg`, it pulls the latest source, rebuilds the `.deb`, backs up `/opt/notthenet/config.json`, runs `dpkg -i`, restores the user config, and merges any new default keys. The version is verified post-install (`dpkg-query -W` must equal `gui/widgets.py:APP_VERSION`) so silent build failures are caught.
 
 ### Uninstall
 
