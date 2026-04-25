@@ -7,6 +7,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ## [Unreleased]
 
+## [2026.04.24-13] — 2026-04-24
+
+### Changed
+- **`config.json`: `smb.enabled` default flipped to `false`.** Empirical lab result: with NTN bound to `0.0.0.0:445` on the same broadcast domain as the victims, WannaCry's worm thread fixates on the sinkhole host (the lowest /24 IP it scans) and never advances to the next victim, even with a perfectly formed NEGOTIATE response. Closed port = `ECONNREFUSED` in milliseconds = scan advances. The fake SMB server captures standalone probes from internet-scale scanners but is counter-productive when the same host is the lab gateway. Operators who want SMB capture should run the sinkhole on a separate interface or enable explicitly.
+
+### Fixed
+- **`services/smb_server.py`: `_parse_smb1_negotiate` read dialects from offset 33 instead of 35**, which included the 2-byte `ByteCount` field as part of the first dialect entry and shifted `dialect_index` by `+1`. The response then advertised a dialect index the client never offered. Even with the byte-perfect NEGOTIATE response from -12, this off-by-two would have caused worm clients to reject the reply. Reading dialects from offset 35 (after WordCount(1)+ByteCount(2)) per MS-CIFS 2.2.4.5.1. Test fixture rebuilt to use the correct request layout.
+
 ## [2026.04.24-12] — 2026-04-24
 
 ### Fixed

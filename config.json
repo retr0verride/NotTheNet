@@ -258,10 +258,11 @@
     "port": 3389
   },
   "smb": {
-    "enabled": true,
+    "enabled": false,
     "port": 445,
     "max_connections": 50,
-    "session_timeout_sec": 10
+    "session_timeout_sec": 10,
+    "_comment": "Disabled by default. Listening on 445 traps WannaCry-class worms on the sinkhole host (the first /24 IP they hit) instead of letting them scan past. Enable only when the host is NOT on the same broadcast domain as the victims, or when capturing standalone SMB probes is more important than observing lateral movement."
   },
   "vnc": {
     "enabled": true,

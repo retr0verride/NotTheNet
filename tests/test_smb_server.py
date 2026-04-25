@@ -41,13 +41,15 @@ def test_smb2_error_response_contains_status_and_message_id() -> None:
 
 
 def test_parse_negotiate_detects_smb1_eternalblue_probe() -> None:
-    # SMB1 negotiate payload: dialect strings start at offset 33 and each entry
-    # is prefixed by 0x02 and suffixed by NUL.
+    # SMB1 NEGOTIATE request body: WordCount(1)=0 @offset 32, ByteCount(2)
+    # @offset 33-34, dialect entries @offset 35+. Each entry is 0x02 + name + NUL.
+    dialect_bytes = b"\x02PC NETWORK PROGRAM 1.0\x00" + b"\x02NT LM 0.12\x00"
     data = (
         smb_server._SMB1_MAGIC
-        + (b"\x00" * 29)
-        + b"\x02PC NETWORK PROGRAM 1.0\x00"
-        + b"\x02NT LM 0.12\x00"
+        + (b"\x00" * 28)                              # rest of 32-byte header
+        + b"\x00"                                     # WordCount = 0
+        + struct.pack("<H", len(dialect_bytes))       # ByteCount
+        + dialect_bytes
     )
     session = smb_server._SMBSession(_FakeSocket([]), ("127.0.0.1", 445))
 
@@ -57,8 +59,9 @@ def test_parse_negotiate_detects_smb1_eternalblue_probe() -> None:
 
     assert version == "SMBv1"
     assert eternalblue is True
-    assert any("NT LM 0.12" in d for d in dialects)
+    assert dialects == ["PC NETWORK PROGRAM 1.0", "NT LM 0.12"]
     assert message_id == 0
+    assert dialect_index == 1
     assert dialects[dialect_index] == "NT LM 0.12"
     assert smb1_hdr == (0, 0, 0, 0)  # zero-padded request header in this fixture
 

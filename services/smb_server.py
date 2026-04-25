@@ -123,10 +123,20 @@ class _SMBSession(threading.Thread):
         data: bytes,
     ) -> tuple[list[str], bool, int, int, int, int, int]:
         """Extract dialects, EternalBlue probe flag, dialect index, and TID/PID/UID/MID
-        from an SMBv1 negotiate request. Header layout per MS-CIFS 2.2.3.1."""
+        from an SMBv1 negotiate request. Header layout per MS-CIFS 2.2.3.1.
+
+        SMB1 NEGOTIATE request body (after the 32-byte header) is:
+            WordCount  (1 byte, == 0)
+            ByteCount  (2 bytes, U16 LE)
+            Bytes[]    (dialect entries: 0x02 DialectName 0x00 ...)
+        So dialect entries start at offset 35, not 33. Reading from 33 includes
+        the ByteCount bytes which produces a bogus leading entry and shifts
+        dialect_index by +1, causing the response to advertise an index the
+        client never offered.
+        """
         dialects: list[str] = []
-        if len(data) > 33:
-            for part in data[33:].split(b"\x02"):
+        if len(data) > 35:
+            for part in data[35:].split(b"\x02"):
                 name = part.rstrip(b"\x00").decode("ascii", errors="replace").strip()
                 if name:
                     dialects.append(name)
