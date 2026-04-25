@@ -1,10 +1,26 @@
-# Lab Setup: VirtualBox / VMware + Kali + FlareVM
+# Lab Setup: VirtualBox / VMware + Kali + Victim VM
 
-> **Goal:** Build a fully isolated malware analysis lab on a Windows or Mac laptop using VirtualBox (free) or VMware Workstation (paid). All network traffic from a Windows sandbox (FlareVM) gets intercepted by NotTheNet running on Kali — so malware thinks it has internet access, but everything goes to your fake servers instead.
-
-If you've never done this before, that's fine. Each step explains what you're doing and why.
+> **Goal:** Build a fully isolated malware analysis lab on a Windows or Mac laptop using VirtualBox (free) or VMware Workstation (paid). All network traffic from a Windows victim VM is intercepted by NotTheNet running on Kali — so malware thinks it has internet access, but everything goes to your fake servers instead.
 
 > **On a dedicated server or home lab PC?** Use the [Proxmox guide](lab-setup-proxmox.md) instead — Proxmox gives you better isolation, snapshots, and anti-detection options.
+
+---
+
+## ⚠️ Lab Safety — Read This Before You Start
+
+This lab is built to run **real malware**. That's the whole point — and it means you need to take isolation seriously from the start.
+
+> **Think of it like a BSL-2 lab.** The malware is the pathogen. Your VM is the containment. If you skip steps or make mistakes with the network config, the containment breaks — and the malware can reach your real network, your host machine, or anything else connected to it.
+
+| ⚠️ Risk | How it happens | How to prevent it |
+|---------|---------------|-------------------|
+| **Malware reaches the real internet** | NAT NIC left attached to the victim VM | Remove the NAT adapter after setup; verify with Part 5 checklist |
+| **Malware persists between sessions** | Not reverting to `clean-baseline` snapshot | Roll back after **every** session — no exceptions |
+| **Sample spreads to your host** | Transferring files out of the VM carelessly | Only move files you explicitly need; scan anything leaving the lab |
+| **VM escape** (rare but real) | Hypervisor exploit in the sample | Keep VirtualBox/VMware updated; be cautious with kernel-mode samples |
+| **Destroying a real machine's security** | Running the Defender removal steps outside the lab | Those steps are only for the isolated victim VM — **never on a real machine** |
+
+> **If you are not certain the victim VM has no real internet, do not detonate anything.** The checklist in Part 5 takes two minutes and will catch any misconfiguration.
 
 ---
 
@@ -32,44 +48,39 @@ Your physical machine (Windows/Mac)
 │     └── eth0 / enp0s3 → Internal Network "labnet"
 │           IP: 10.0.0.1
 │           NotTheNet running here
-└── FlareVM (Windows)
+└── victim VM (Windows)
       └── NIC → Internal Network "labnet"
             IP: 10.0.0.50
             Gateway: 10.0.0.1
             DNS: 10.0.0.1
 ```
 
-Both VMs share an **Internal Network** (VirtualBox) or **Custom Host-Only / LAN Segment** (VMware) that has no connection to the real internet. Kali is the only gateway — all of FlareVM's traffic goes through it.
+Both VMs share an [Internal Network](https://www.virtualbox.org/manual/topics/networkingdetails.html#network_internal) (VirtualBox) or [LAN Segment](https://docs.vmware.com/en/VMware-Workstation-Pro/17/com.vmware.ws.using.doc/GUID-C7E183BE-6B2E-4DBF-B3D8-77D5BA9B8DD5.html) (VMware) — a completely isolated virtual network with no connection to the real internet. Kali is the only gateway, so all victim traffic passes through it to NotTheNet.
 
 ---
 
 ## Part 1 — Create the Isolated Network
 
-The whole point is that FlareVM cannot reach the real internet. To do that, you need a virtual network that exists only between VMs.
+We need a virtual network that exists only between VMs — no path to the real internet. Both hypervisors support this but call it different things.
 
 ### [VirtualBox] — Internal Network
 
-VirtualBox has a network type called **Internal Network**. It's completely isolated — VMs on the same Internal Network can talk to each other, but nothing can reach outside the host machine, and the host itself can't talk to VMs on it.
-
-You don't create it in any settings panel — it just exists when you attach a VM NIC to it by name. We'll call ours `labnet`.
+VirtualBox's **Internal Network** type is completely isolated: VMs on it can talk to each other, but nothing can reach outside the host and the host itself can't see in. It doesn't need to be created in advance — it exists the moment you name it on a NIC. We'll name ours `labnet`.
 
 No action needed here — you'll select `Internal Network` and type `labnet` when configuring each VM's NIC in Parts 2 and 3.
 
 ### [VMware Workstation] — LAN Segment
 
-VMware uses **LAN Segments** for the same purpose. Unlike Host-Only (which lets the host see the VMs), a LAN Segment is pure VM-to-VM.
+VMware's **LAN Segments** are the equivalent — pure VM-to-VM, no host access. Create it before setting up the VMs:
 
-Create it before setting up the VMs:
-
-1. **Edit → Virtual Network Editor** → **Add Network** → pick an unused slot (e.g. `VMnet2`)
-   - Or: any VM's **Settings → Network Adapter → LAN Segments → Add** → name it `labnet`
-2. The name `labnet` is just a label — use whatever you want, just use the same name on both VMs.
-
-> LAN Segments live in the VM settings, not the global Virtual Network Editor. If you create it from a VM's settings, it's available to all VMs on that workstation.
+1. **Edit → Virtual Network Editor** → **Add Network** → pick an unused slot (e.g. `VMnet2`), or from any VM: **Settings → Network Adapter → LAN Segments → Add** → name it `labnet`
+2. The name `labnet` is just a label — use whatever you want, but use the same name on both VMs.
 
 ---
 
 ## Part 2 — Kali VM Setup
+
+Kali is the interception point — it runs NotTheNet and acts as the fake gateway that all victim traffic flows through. By the end of this part, NotTheNet will be running and listening.
 
 ### 2.1 Download Kali
 
@@ -108,13 +119,13 @@ Kali needs two NICs:
 
 ### 2.4 Configure the lab NIC with a static IP
 
-Boot the Kali VM. You'll now have two network interfaces — one for internet (NAT), one for the lab (currently unconfigured). Find their names first:
+Boot the Kali VM. Find your network interface names:
 
 ```bash
 ip link show
 ```
 
-You'll see something like `eth0` (or `enp0s3`) for the NAT NIC and `eth1` (or `enp0s8`) for the new one. The lab NIC is the one with no IP address yet.
+You'll have two: the NAT NIC (already has an IP) and the new lab NIC (no IP yet — typically `eth1` or `enp0s8`).
 
 Assign a static IP to the lab NIC (replace `eth1` with your actual name):
 
@@ -165,7 +176,7 @@ Click **⚙ General** and set:
 | Bind IP | `0.0.0.0` | Listen on all interfaces |
 | Redirect IP | `10.0.0.1` | Kali's IP on the lab network — DNS resolves everything here |
 | Interface | `eth1` | Your lab NIC name (the one on `labnet`) |
-| iptables mode | `gateway` | Intercepts traffic arriving from FlareVM |
+| iptables mode | `gateway` | Intercepts all traffic from the victim VM |
 | Auto iptables | ✔ | Applies rules automatically on Start |
 
 Click **💾 Save**.
@@ -174,7 +185,9 @@ Click **💾 Save**.
 
 ## Part 3 — Windows Victim VM Setup
 
-You can use any Windows VM as the victim — a plain Windows 10 or 11 install is enough to run samples and observe what they do. **FlareVM is optional.** It adds dedicated analysis tools (debuggers, disassemblers, packet capture utilities) for deeper examination, but you don't need it to get started.
+This is the sandbox where malware actually runs. A plain Windows 10 or 11 VM is all you need to observe what a sample does. **FlareVM is optional** — it adds dedicated analysis tools (debuggers, disassemblers, packet capture utilities), but you don't need it to get started. You can always add it later.
+
+> **Class note:** We're intentionally making this VM as undefended as possible. That's not careless — it's the whole point. Malware behaves differently when it detects security tools. We want to see its real behavior, not the version it performs for an antivirus.
 
 ### 3.1 Create a Windows VM
 
@@ -270,7 +283,7 @@ Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
 
 ### 3.6 (Optional) Install FlareVM
 
-FlareVM is a free collection of malware analysis tools built by Mandiant (now part of Google). It installs on top of Windows using a PowerShell + Chocolatey script and adds hundreds of tools — debuggers, disassemblers, hex editors, network monitors. **Skip this if you just want to run samples and watch the NotTheNet log.** Come back later if you want to dig into a sample in depth.
+[FlareVM](https://github.com/mandiant/flare-vm) is a free collection of malware analysis tools built by Mandiant (now part of Google). It installs on top of Windows using a PowerShell + [Chocolatey](https://chocolatey.org/) script and adds hundreds of tools — debuggers, disassemblers, hex editors, network monitors. **Skip this if you just want to run samples and watch the NotTheNet log.** Come back later if you want to dig into a sample in depth.
 
 FlareVM needs internet to download its tools (~10–15 GB). Temporarily add a second NIC with internet access to download everything, then remove it when done.
 
@@ -325,11 +338,11 @@ ethernet1.noPromisc = "FALSE"
 
 ## Part 5 — Full Lab Verification
 
-Run these checks before detonating anything.
+Run every check below before detonating anything. This confirms the isolation is actually working. A few minutes here prevents hours of debugging later when a sample doesn't behave as expected — and more importantly, it confirms malware cannot reach the real internet.
 
 ### 5.1 Ping
 
-From FlareVM:
+From the victim VM:
 ```cmd
 ping 10.0.0.1
 ```
@@ -341,7 +354,7 @@ Expected: replies. If you get "Request timed out", Kali's lab NIC is misconfigur
 nslookup anything.com
 nslookup evil-c2.xyz
 ```
-Every query should return `10.0.0.1`. If you see `8.8.8.8` or anything else, FlareVM's DNS setting is wrong.
+Every query should return `10.0.0.1`. If you see `8.8.8.8` or anything else, the victim VM's DNS setting is wrong.
 
 ### 5.3 HTTP
 
@@ -362,13 +375,13 @@ Expected: `HTTP/1.1 200 OK` with a TLS cert from NotTheNet.
 ```cmd
 curl.exe -s -m 5 http://1.1.1.1
 ```
-Expected: no response, timeout after 5 seconds. If you get a response, FlareVM still has a path to the internet — check that the NAT NIC is fully removed.
+Expected: no response, timeout after 5 seconds. If you get a response, the victim VM still has a path to the internet — check that the NAT NIC is fully removed.
 
 ---
 
 ## Part 6 — Anti-Detection Hardening
 
-Both VirtualBox and VMware leave fingerprints that malware checks for — vendor strings in CPUID, SMBIOS manufacturer showing "VirtualBox" or "VMware Inc.", known MAC address prefixes, and unusually small RAM. These checks cause sophisticated malware to sleep, exit, or behave differently.
+Both VirtualBox and VMware leave fingerprints that malware checks for — vendor strings in [CPUID](https://en.wikipedia.org/wiki/CPUID), [SMBIOS](https://en.wikipedia.org/wiki/SMBIOS) manufacturer showing "VirtualBox" or "VMware Inc.", known MAC address prefixes, and unusually small RAM. These checks cause sophisticated malware to sleep, exit, or behave differently.
 
 ### [VirtualBox] Hardening
 
@@ -446,14 +459,16 @@ ethernet0.address = "B8:CA:3A:DE:AD:01"
 
 ## Part 7 — Detonation Workflow
 
-Same as the Proxmox guide. Start these tools on FlareVM **before** running the sample:
+> ⚠️ **Before every detonation:** re-run the Part 5 isolation checklist and take a fresh `pre-detonation` snapshot. Never detonate on a VM you didn't just verify.
+
+Start these tools on the victim VM **before** running the sample:
 
 | Tool | What it shows |
 |------|---------------|
-| **Wireshark** | Every raw packet the malware sends and receives |
-| **Process Monitor (ProcMon)** | File writes, registry changes, child processes — what the malware does to the OS |
-| **Process Hacker** | Live process tree, network connections, memory — good for watching C2 beaconing in real time |
-| **x64dbg / x32dbg** | Step through the malware's code when you need to understand a specific function |
+| **[Wireshark](https://www.wireshark.org/)** | Every raw packet the malware sends and receives |
+| **[Process Monitor (ProcMon)](https://learn.microsoft.com/en-us/sysinternals/downloads/procmon)** | File writes, registry changes, child processes — what the malware does to the OS |
+| **[Process Hacker](https://processhacker.sourceforge.io/)** | Live process tree, network connections, memory — good for watching C2 beaconing in real time |
+| **[x64dbg](https://x64dbg.com/) / x32dbg** | Step through the malware's code when you need to understand a specific function |
 
 Transfer the sample from your host to FlareVM. The easiest way is a shared folder:
 

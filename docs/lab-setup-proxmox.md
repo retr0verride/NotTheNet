@@ -1,14 +1,30 @@
-# Lab Setup: Proxmox + Kali + FlareVM
+# Lab Setup: Proxmox + Kali + Victim VM
 
-> **Goal:** Build a fully isolated malware analysis lab where all network traffic from a Windows sandbox (FlareVM) is intercepted by NotTheNet running on Kali — so the malware thinks it has internet access, but everything goes to your fake servers instead.
+> **Goal:** Build a fully isolated malware analysis lab where all network traffic from a Windows victim VM is intercepted by NotTheNet running on Kali — so malware thinks it has internet access, but everything goes to your fake servers instead.
 
-If you've never built a lab like this before, that's fine. Each step explains what you're doing and why. Don't skip the "why" notes — they'll save you hours of troubleshooting when something isn't working.
+---
+
+## ⚠️ Lab Safety — Read This Before You Start
+
+This lab is built to run **real malware**. That's the whole point — and it means you need to take isolation seriously from the start.
+
+> **Think of it like a BSL-2 lab.** The malware is the pathogen. Your VM is the containment. If you skip steps or make mistakes with the network config, the containment breaks — and the malware can reach your real network, your host machine, or anything else connected to it.
+
+| ⚠️ Risk | How it happens | How to prevent it |
+|---------|---------------|-------------------|
+| **Malware reaches the real internet** | Victim VM accidentally connected to `vmbr0` | Always run the Part 4 checklist before detonating anything |
+| **Malware persists between sessions** | Not reverting the snapshot | Roll back to `clean-baseline` after **every** session — no exceptions |
+| **Sample spreads to your host** | Transferring files out of the VM carelessly | Only move files you explicitly need; scan anything leaving the lab |
+| **VM escape** (rare but real) | Hypervisor exploit in the sample | Keep Proxmox updated; be cautious with kernel-mode or privilege-escalation samples |
+| **Destroying a real machine's security** | Running the Defender removal steps outside the lab | Those steps are only for the isolated victim VM — **never on a real machine** |
+
+> **If you are not certain the victim VM has no real internet, do not detonate anything.** The checklist in Part 4 takes two minutes and will catch any misconfiguration.
 
 ---
 
 ## Architecture Overview
 
-Here is a diagram of how the lab is laid out. The two VMs (Kali and FlareVM) share an isolated virtual network that has no connection to the real internet.
+Here is a diagram of how the lab is laid out. Kali and the victim VM share an isolated virtual network that has no connection to the real internet.
 
 ```mermaid
 graph TD
@@ -25,7 +41,7 @@ graph TD
     end
 ```
 
-A NIC (Network Interface Card) is what a computer uses to connect to a network — physical machines have physical NICs, VMs have virtual ones. Each VM here has one NIC. During setup you connect that NIC to `vmbr0` (which has real internet) to download software. Once everything is installed, you move both NICs to `vmbr1`. From that point, FlareVM has no path to the real internet — it can only reach Kali at `10.0.0.1`, which is where NotTheNet is running.
+Each VM has a virtual [NIC (Network Interface Card)](https://en.wikipedia.org/wiki/Network_interface_controller). During setup you connect NICs to `vmbr0` (internet access) to download software. Once everything is installed, both NICs move to `vmbr1`. From that point, the victim VM can only reach Kali at `10.0.0.1` — there is no route to the real internet.
 
 ---
 
@@ -203,9 +219,11 @@ The `--update` flag skips the interactive prompt and always copies new files int
 
 ## Part 1 — Proxmox Network Setup
 
+In this part we create two virtual networks: `vmbr0` (already exists, connects to the internet) and `vmbr1` (we create this — isolated, no internet, where malware runs). Think of `vmbr1` as a room with no doors to the outside.
+
 ### 1.1 Create the isolated lab bridge
 
-A bridge in Proxmox is a virtual network switch — think of it as a dumb hub that exists only inside the computer. VMs connected to it can talk to each other, but if you don't give the bridge a physical uplink (i.e. a real network port on the server), nothing can talk to the outside world. That's exactly what we want: an isolated network the malware cannot escape from.
+A [network bridge](https://en.wikipedia.org/wiki/Network_bridge) in Proxmox is a virtual switch. VMs attached to the same bridge can talk to each other. Without a physical network port attached to it, nothing on that bridge can reach the outside world — making it the perfect cage for malware.
 
 In Proxmox web UI: **Node → System → Network → Create → Linux Bridge**
 
@@ -223,11 +241,11 @@ Click **Create**, then **Apply Configuration**.
 
 > **No second physical NIC required.** Leaving **Bridge ports** empty creates a purely internal virtual switch that exists only between VMs. No real network traffic passes through it. Your Proxmox host only needs one physical network card.
 
-### 1.2 Enable promiscuous mode on the lab bridge
+### 1.2 Enable [promiscuous mode](https://en.wikipedia.org/wiki/Promiscuous_mode) on the lab bridge
 
-By default a Linux bridge (like `vmbr1`) is a smart switch — it only forwards unicast frames to the MAC address they're destined for. This means Kali won't see traffic flowing directly between two victim VMs (e.g. lateral movement from `.7 → .6`) even if NotTheNet has promiscuous mode enabled.
+By default, `vmbr1` delivers packets only to the addressed destination — so Kali won't see direct traffic between two victim VMs (for example, lateral movement from `.50 → .51`). Promiscuous mode makes the bridge flood every frame to every port, so Kali sees everything. Since `vmbr1` has no gateway and no real internet, there is no security downside to leaving this on permanently.
 
-**`vmbr1` is air-gapped with no gateway and no real internet — there is no security downside to leaving it permanently in promiscuous mode.** This is the recommended configuration.
+> **Note:** This is only safe because `vmbr1` is completely isolated. **Never** enable promiscuous mode on `vmbr0` or any bridge with real internet access — it would expose all traffic on that bridge to every VM attached to it.
 
 Add the `post-up` lines to `/etc/network/interfaces` on the Proxmox host under the `vmbr1` stanza (edit as root):
 
@@ -258,6 +276,8 @@ tcpdump -i vmbr1 -n host 10.10.10.7
 ---
 
 ## Part 2 — Kali VM Setup
+
+Kali is the interception point. It runs NotTheNet and acts as the fake gateway that all victim traffic flows through. By the end of this part, NotTheNet will be running and ready to catch everything the victim VM sends.
 
 ### 2.1 Create the VM
 
@@ -337,11 +357,11 @@ ip addr show
 
 ### 2.4 IP forwarding
 
-By default, Linux drops any packet that isn't addressed to it. That's a problem here: FlareVM sends a packet to `8.8.8.8:53` (Google's DNS). That packet arrives at Kali's NIC, but Kali isn't `8.8.8.8`, so Linux would normally silently drop it. IP forwarding tells Linux: "accept packets that aren't for me and let iptables decide what to do with them." Once forwarding is on, NotTheNet's iptables rules can redirect that `8.8.8.8:53` packet to the fake DNS service running on port 53 locally.
+[IP forwarding](https://en.wikipedia.org/wiki/IP_forwarding) lets Linux accept packets not addressed to itself and hand them to [iptables](https://en.wikipedia.org/wiki/Iptables) for redirection. Without it, when the victim VM sends a packet to `8.8.8.8:53`, Kali would silently drop it because it isn't `8.8.8.8`. With it on, iptables can redirect that packet to NotTheNet's DNS listener instead.
 
-**NotTheNet turns this on automatically** when it starts in gateway mode and turns it back off when it stops. You don't need to touch it.
+NotTheNet enables this automatically on start and disables it on stop. You don't need to configure it manually.
 
-> To see it yourself: while NotTheNet is running, run `cat /proc/sys/net/ipv4/ip_forward` on Kali — you'll see `1`. Stop NotTheNet and run it again — it's back to `0`.
+> Curious? While NotTheNet is running: `cat /proc/sys/net/ipv4/ip_forward` → should return `1`.
 
 ### 2.5 Install NotTheNet
 
@@ -403,8 +423,8 @@ Configure individual services as needed (all can be left at defaults for basic a
 |---------|---------|----------------|
 | **TCP fingerprint spoof** | `tcp_fingerprint: true`, `tcp_fingerprint_os: "windows"` | Windows malware that checks OS fingerprints |
 | **JSON event logging** | `json_logging: true` | Automated pipelines (CAPEv2, Splunk, ELK) |
-| **DoH intercept** | `doh_intercept: true` (already default) | Malware that bypasses DNS via DoH |
-| **WebSocket intercept** | `websocket_intercept: true` (already default) | WebSocket-based C2 channels |
+| **[DoH](https://en.wikipedia.org/wiki/DNS_over_HTTPS) intercept** | `doh_intercept: true` (already default) | Malware that bypasses DNS by sending queries over HTTPS instead of port 53 |
+| **[WebSocket](https://en.wikipedia.org/wiki/WebSocket) intercept** | `websocket_intercept: true` (already default) | Malware C2 channels that use persistent WebSocket connections |
 
 Click **💾 Save**, then **▶ Start**.
 
@@ -418,7 +438,9 @@ sudo iptables -t nat -L PREROUTING -n -v | grep NOTTHENET
 
 ## Part 3 — Windows Victim VM Setup
 
-You can use any Windows VM as the victim — a plain Windows 10 or 11 install is enough to run samples and observe what they do. **FlareVM is optional.** It adds dedicated analysis tools (debuggers, disassemblers, packet capture utilities) for deeper examination, but you don't need it to get started.
+This is the sandbox where malware actually runs. A plain Windows 10 or 11 VM is all you need to observe what a sample does. **FlareVM is optional** — it adds dedicated analysis tools (debuggers, disassemblers, etc.) but you don't need it to get started. You can always add it later.
+
+> **Class note:** We're intentionally making this VM as undefended as possible. That's not careless — it's the whole point. Malware behaves differently when it detects security tools. We want to see its real behavior, not the version it performs for an antivirus.
 
 ### 3.1 Create the Windows VM in Proxmox
 
@@ -444,7 +466,7 @@ After install, remove the ISO: **Hardware → CD/DVD → Do not use any media**.
 
 ### 3.3 Install VirtIO drivers (if needed)
 
-If the VM shows poor disk/network performance, download the VirtIO ISO from the Proxmox mirrors, attach it, and run the VirtIO installer from it. For analysis VMs this is optional.
+[VirtIO drivers](https://pve.proxmox.com/wiki/Windows_VirtIO_Drivers) give Windows VMs near-native disk and network performance in Proxmox by replacing slow emulated hardware with paravirtualized drivers. If the VM feels sluggish, download the VirtIO ISO from the Proxmox mirrors, attach it as a second CD drive, and run the VirtIO installer inside Windows. Optional for analysis VMs.
 
 ### 3.4 Set a static IP on the victim VM
 
@@ -473,7 +495,9 @@ ping 10.0.0.1
 
 **This step is not optional.** Windows Defender will detect and quarantine most real malware samples before they run — or silently kill network connections without any indication. If you detonate a sample without disabling Defender first, the malware appears to do nothing, when it has actually been killed at startup.
 
-SmartScreen, UAC, and Virtualization-Based Security (VBS) have the same problem. In an isolated lab with no internet they provide no real protection, but they do interfere with analysis.
+[SmartScreen](https://learn.microsoft.com/en-us/windows/security/operating-system-security/virus-and-threat-protection/microsoft-defender-smartscreen/), [UAC](https://learn.microsoft.com/en-us/windows/security/application-security/application-control/user-account-control/), and [Virtualization-Based Security (VBS)](https://learn.microsoft.com/en-us/windows-hardware/design/device-experiences/oem-vbs) have the same problem. In an isolated lab with no internet they provide no real protection, but they interfere with analysis.
+
+> ⚠️ **These settings make Windows completely unprotected.** Only ever apply them inside this isolated VM. Never run these commands on a machine that has real internet access or contains real data.
 
 > **Credit:** The steps below use [**windows-defender-remover**](https://github.com/ionuttbara/windows-defender-remover) by [Ionuț Bară](https://github.com/ionuttbara). It removes Defender's AV engine, Security Center, SmartScreen, VBS, and related services in a single pass.
 
@@ -517,7 +541,7 @@ netsh advfirewall firewall set rule group="Windows Management Instrumentation (W
 
 ### 3.6 (Optional) Install FlareVM
 
-FlareVM is a free collection of malware analysis tools built by Mandiant (now part of Google). It installs on top of a plain Windows VM using a PowerShell + Chocolatey script and adds hundreds of tools — debuggers, disassemblers, hex editors, network monitors. **Skip this if you just want to run samples and watch the NotTheNet log.** Come back and install it later if you need deeper analysis capability.
+[FlareVM](https://github.com/mandiant/flare-vm) is a free collection of malware analysis tools built by Mandiant (now part of Google). It installs on top of a plain Windows VM using a PowerShell + [Chocolatey](https://chocolatey.org/) script and adds hundreds of tools — debuggers, disassemblers, hex editors, network monitors. **Skip this if you just want to run samples and watch the NotTheNet log.** Come back and install it later if you need deeper analysis capability.
 
 > **FlareVM needs real internet to install** — around 10–15 GB of downloads. Temporarily switch the NIC to `vmbr0` for the duration, then switch back.
 
@@ -635,9 +659,9 @@ Expected: no output / command returns after 5 seconds with no response.
 
 ### 4.9 Dynamic TLS certs (install Root CA)
 
-When `https.dynamic_certs` is enabled (the default), NotTheNet creates a unique certificate for every website malware connects to. For this to work without certificate errors, you need to install NotTheNet's Root CA certificate in Windows.
+When `https.dynamic_certs` is enabled (the default), NotTheNet generates a unique [TLS](https://en.wikipedia.org/wiki/Transport_Layer_Security) certificate on the fly for every hostname malware connects to. Windows will show certificate errors for these unless you install NotTheNet's Root CA as a trusted authority — essentially telling Windows "trust whatever this CA signed," so the fake certs pass silently.
 
-**Think of it this way:** Windows asks "who signed this certificate?" When malware connects to `https://evil-c2.com`, NotTheNet creates a certificate on the spot. Windows will only trust it if you've told Windows to trust NotTheNet's Root CA as an authority.
+This matters because some malware will abort a connection (or behave differently) if it gets a certificate error. Installing the Root CA ensures NotTheNet sees the full HTTPS traffic, not just a failed handshake.
 
 Steps:
 
@@ -673,13 +697,13 @@ In the GUI: click **JSON Events** in the **ANALYSIS** sidebar group to view even
 
 ## Part 5 — Wireshark Setup (Kali)
 
-Kali is the gateway for all FlareVM traffic — every packet passes through the lab NIC (`ens19` in the example, your actual name from section 2.3) before NotTheNet processes it. Capturing on that interface gives a complete packet-level record of everything the sample sends, independent of what NotTheNet logs.
+Every packet the victim VM sends passes through Kali's lab NIC before NotTheNet processes it. Capturing on that interface gives you a raw packet record of everything — useful for protocols the NotTheNet log doesn't break down, and essential for understanding exactly what a sample sends byte-by-byte.
 
-> Substitute `ens19` below with your real lab interface name identified in section 2.3.
+> Substitute `ens19` with your real lab interface name from section 2.3.
 
 ### 5.1 Install Wireshark / tshark
 
-Wireshark and tshark are included in Kali by default. If missing:
+[Wireshark](https://www.wireshark.org/) (GUI) and [tshark](https://www.wireshark.org/docs/man-pages/tshark.html) (terminal, better for long captures) are included in Kali by default. If missing:
 
 ```bash
 sudo apt-get install -y wireshark tshark
@@ -764,7 +788,11 @@ Browse to `http://10.0.0.1:8080/` from a Windows host, download the `.pcapng`, a
 
 ## Part 6 — Detonation Workflow
 
-### 6.1 Transfer the sample to FlareVM
+This is the actual analysis run. The workflow is always the same: transfer the sample → snapshot → start monitoring tools → detonate → collect artifacts → revert.
+
+> ⚠️ **Before every detonation:** re-run the Part 4 isolation checklist and take a fresh `pre-detonation` snapshot. Never detonate on a VM you didn't just verify.
+
+### 6.1 Transfer the sample to the victim VM
 
 On **Kali**, serve the sample over HTTP:
 ```bash
@@ -793,10 +821,10 @@ Before executing the sample, start your tooling:
 
 | Tool | What it shows |
 |------|---------------|
-| **Wireshark** | Every raw network packet — DNS lookups, HTTP requests, anything the malware sends. Run this on the FlareVM NIC, or on Kali (Part 5) for everything |
-| **Process Monitor (ProcMon)** | Every file read/write, registry change, and process spawn — how you see what files get dropped, what registry keys get set for persistence, and what child processes get created |
-| **Process Hacker** | A live view of every running process with its network connections, open handles, and memory — useful for watching a process phone home in real time |
-| **x64dbg / x32dbg** | Step through the malware's code instruction by instruction — use this when you need to understand exactly what a specific function does |
+| **[Wireshark](https://www.wireshark.org/)** | Every raw network packet — DNS lookups, HTTP requests, anything the malware sends. Run on the victim NIC, or on Kali (Part 5) to capture everything |
+| **[Process Monitor (ProcMon)](https://learn.microsoft.com/en-us/sysinternals/downloads/procmon)** | Every file read/write, registry change, and process spawn — how you see what files get dropped, what persistence keys get set, and what child processes are spawned |
+| **[Process Hacker](https://processhacker.sourceforge.io/)** | Live process tree with network connections, open handles, and memory — good for watching C2 beaconing in real time |
+| **[x64dbg](https://x64dbg.com/) / x32dbg** | Step through the malware's code instruction-by-instruction — use when you need to understand exactly what a specific function does |
 
 Start these tools *before* you run the sample. Malware often does most of its interesting work in the first few seconds — if you start monitoring after execution you'll already have missed it.
 
