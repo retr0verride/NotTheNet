@@ -41,6 +41,26 @@ if dpkg -l notthenet 2>/dev/null | grep -q '^ii'; then
         ls -la "${SCRIPT_DIR}/dist/" 2>/dev/null | sed 's/^/      /' || true
         exit 1
     fi
+
+    # Back up user's live config before dpkg -i overwrites it. The deb ships
+    # config.json inside /opt/notthenet/ without conffile protection, so a
+    # plain reinstall would wipe operator customizations (bind_ip, ports,
+    # passthrough_subnets, etc.). We restore + merge new default keys after.
+    LIVE_CFG="/opt/notthenet/config.json"
+    DEB_CFG_BACKUP=""
+    if [ -f "$LIVE_CFG" ]; then
+        DEB_CFG_BACKUP="$(mktemp)"
+        cp "$LIVE_CFG" "$DEB_CFG_BACKUP"
+        chmod 600 "$DEB_CFG_BACKUP"
+        echo "[*] Backed up live config.json to $DEB_CFG_BACKUP (will restore + merge new defaults after install)"
+    fi
+    cleanup_deb_cfg_backup() {
+        if [ -n "${DEB_CFG_BACKUP:-}" ] && [ -f "$DEB_CFG_BACKUP" ]; then
+            rm -f "$DEB_CFG_BACKUP"
+        fi
+    }
+    trap cleanup_deb_cfg_backup EXIT
+
     echo "[*] Installing $DEB_FILE..."
     dpkg -i "$DEB_FILE"
 
@@ -51,6 +71,51 @@ if dpkg -l notthenet 2>/dev/null | grep -q '^ii'; then
         echo "      Installed (dpkg):   ${NEW_INSTALLED:-none}"
         exit 1
     fi
+
+    # Restore user config and merge any new default keys from the shipped
+    # config.json. New keys get default values; existing user values are
+    # never overwritten. Mirror of the dev-install merge (section 3b below).
+    if [ -n "$DEB_CFG_BACKUP" ] && [ -f "$DEB_CFG_BACKUP" ]; then
+        SHIPPED_CFG="$(cat "$LIVE_CFG" 2>/dev/null || true)"
+        cp "$DEB_CFG_BACKUP" "$LIVE_CFG"
+        chmod 644 "$LIVE_CFG"
+        rm -f "$DEB_CFG_BACKUP"
+        DEB_CFG_BACKUP=""
+        if [ -n "$SHIPPED_CFG" ]; then
+            python3 - "$SHIPPED_CFG" "$LIVE_CFG" << 'PYEOF'
+import json, sys
+
+defaults = json.loads(sys.argv[1])
+cfg_path = sys.argv[2]
+with open(cfg_path) as f:
+    user = json.load(f)
+
+added: list[str] = []
+for section, keys in defaults.items():
+    if section not in user:
+        # New top-level section in the release: add it whole.
+        user[section] = keys
+        added.append(section)
+        continue
+    if not isinstance(keys, dict) or not isinstance(user[section], dict):
+        continue
+    for key, val in keys.items():
+        if key not in user[section]:
+            user[section][key] = val
+            added.append(f"{section}.{key}")
+
+if added:
+    with open(cfg_path, "w") as f:
+        json.dump(user, f, indent=2)
+        f.write("\n")
+    print(f"[*] Config migrated — added {len(added)} new key(s): {', '.join(added)}")
+else:
+    print("[*] Config restored — no new default keys to add")
+PYEOF
+        fi
+        echo "[*] User config restored to $LIVE_CFG"
+    fi
+
     echo "[*] Update complete — installed version $NEW_INSTALLED matches source."
     exit 0
 fi
@@ -121,22 +186,25 @@ defaults = json.loads(sys.argv[1])
 with open("config.json") as f:
     user = json.load(f)
 
-changed = False
+added: list[str] = []
 for section, keys in defaults.items():
     if section not in user:
-        continue  # don't inject sections the user never had
+        # New top-level section: add it whole.
+        user[section] = keys
+        added.append(section)
+        continue
     if not isinstance(keys, dict) or not isinstance(user[section], dict):
         continue
     for key, val in keys.items():
         if key not in user[section]:
             user[section][key] = val
-            changed = True
+            added.append(f"{section}.{key}")
 
-if changed:
+if added:
     with open("config.json", "w") as f:
         json.dump(user, f, indent=2)
         f.write("\n")
-    print("[*] Config migrated — new default keys added to config.json")
+    print(f"[*] Config migrated — added {len(added)} new key(s): {', '.join(added)}")
 else:
     print("[*] Config up to date — no new keys to add")
 PYEOF

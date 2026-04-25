@@ -7,6 +7,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ## [Unreleased]
 
+## [2026.04.24-15] — 2026-04-24
+
+### Fixed
+- **`update.sh`: `.deb` reinstall wiped the user's `/opt/notthenet/config.json`.** The `.deb` ships `config.json` inside the package without dpkg conffile protection, so every `dpkg -i` overwrote operator customizations (bind_ip, ports, `passthrough_subnets`, custom service settings, ...) with the shipped defaults. Added a back-up + restore + deep-merge step around the `dpkg -i` call: live config is preserved verbatim, and any new top-level sections or keys introduced by the release are added with their default values. Existing user values are never overwritten.
+- **`update.sh`: dev-install (`section 3b`) merge skipped brand-new top-level sections.** Previously, if a release added a whole new service section (e.g. `"smb": {...}`) and the user's `config.json` predated it, the section was silently skipped. Now new sections are added wholesale; new keys inside existing sections still merge field-by-field.
+
+### Notes
+- Both update paths (`.deb` and dev) now report exactly which keys were added: `[*] Config migrated — added 3 new key(s): smb.session_timeout_sec, general.passthrough_subnets, ...`
+- This means operators upgrading from any older version automatically pick up `passthrough_subnets` (added in -14) without manual intervention. The auto-derive fallback in gateway mode covers anyone who skips the merge entirely.
+
 ## [2026.04.24-14] — 2026-04-24
 
 ### Fixed
