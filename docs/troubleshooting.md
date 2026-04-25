@@ -11,6 +11,12 @@ Common problems and how to fix them. Each section starts with the **symptom** (w
 - [Malware still reaching real internet](#malware-still-reaching-real-internet)
 - [Hypervisor firewall blocking traffic (Proxmox / ESXi)](#hypervisor-firewall-blocking-traffic-proxmox--esxi)
 - [Windows shows "No Internet" (NCSI failure)](#windows-shows-no-internet-ncsi-failure)
+- [Gateway mode: all victim traffic silently dropped](#gateway-mode-all-victim-traffic-silently-dropped)
+- [Gateway mode: DNS resolves everything to 127.0.0.1](#gateway-mode-dns-resolves-everything-to-127001)
+- [Intra-LAN traffic intercepted despite passthrough_subnets](#intra-lan-traffic-intercepted-despite-passthrough_subnets)
+- [WannaCry / worm not spreading to other victims](#wannacry--worm-not-spreading-to-other-victims)
+- [VM-to-VM lateral movement traffic not captured](#vm-to-vm-lateral-movement-traffic-not-captured)
+- [config.json wiped after update](#configjson-wiped-after-update)
 - [GUI won't start / Tkinter errors](#gui-wont-start--tkinter-errors)
 - [TLS / certificate errors](#tls--certificate-errors)
 - [High CPU or memory usage](#high-cpu-or-memory-usage)
@@ -215,7 +221,7 @@ Hypervisor-level firewalls (Proxmox firewall, VMware NSX) check packets **before
 
 **Proxmox:**
 1. Select Kali VM → **Firewall** → **Options** → **Firewall: No**
-2. Select FlareVM → **Firewall** → **Options** → **Firewall: No**
+2. Select the victim VM → **Firewall** → **Options** → **Firewall: No**
 
 Disabling per-VM does not affect other VMs or your datacenter-level firewall.
 
@@ -266,6 +272,150 @@ ipconfig /flushdns
 # Disable and re-enable the network adapter
 Get-NetAdapter | Restart-NetAdapter
 ```
+
+---
+
+## Gateway mode: all victim traffic silently dropped
+
+**Symptom:** Victim VM has the correct static IP and gateway (`10.0.0.1`), but nothing works — pings to `10.0.0.1` succeed but HTTP/DNS requests get no response, and NotTheNet logs show no traffic arriving.
+
+**Cause:** In gateway mode, NotTheNet's iptables DNAT rules rewrite the destination IP to `redirect_ip`. If `redirect_ip` is left at the default `127.0.0.1`, the kernel routes the redirected packets to loopback — which is inaccessible from another VM — and silently drops them.
+
+**Fix (automatic since 2026.04.23-7):** NotTheNet now auto-derives `redirect_ip` in gateway mode from `general.bind_ip`. If you have set `bind_ip` to your Kali lab NIC IP (e.g. `10.0.0.1`), no further action is needed.
+
+If traffic is still dropped, confirm:
+```bash
+# On Kali — verify bind_ip resolves to the lab NIC, not 0.0.0.0
+grep -A3 '"general"' config.json
+# bind_ip should be 10.0.0.1 (or whatever your lab NIC IP is), not 0.0.0.0
+
+# Confirm redirect_ip is correct in the applied iptables rules
+sudo iptables -t nat -L PREROUTING -n | grep NOTTHENET
+# The --to-destination IP should be your Kali lab NIC IP, not 127.0.0.1
+```
+
+---
+
+## Gateway mode: DNS resolves everything to 127.0.0.1
+
+**Symptom:** In gateway mode, victim DNS queries return `127.0.0.1` instead of `10.0.0.1` (or whatever Kali's lab NIC IP is). Malware that follows a DNS lookup to connect out gets `127.0.0.1` and connects to its own loopback instead of NotTheNet.
+
+**Cause:** `dns.resolve_to` defaults to `127.0.0.1`. In sinkhole mode (victim is Kali itself) that's correct. In gateway mode it sends victims to their own loopback.
+
+**Fix (automatic since 2026.04.24-9):** When `dns.resolve_to` is the loopback sentinel and iptables mode is `gateway`, NotTheNet now auto-derives the correct resolve IP from `redirect_ip`. No manual change needed.
+
+If you are on an older version or see this symptom, set explicitly:
+```json
+"dns": {
+  "resolve_to": "10.0.0.1"
+}
+```
+Replace `10.0.0.1` with Kali's actual IP on the lab NIC.
+
+---
+
+## Intra-LAN traffic intercepted despite passthrough_subnets
+
+**Symptom:** You set `general.passthrough_subnets` to allow victim-to-victim traffic (e.g. so a worm can spread laterally), but all traffic is still being redirected to NotTheNet instead of passing through.
+
+**Cause (fixed in 2026.04.24-14):** Older versions used destination-only matching (`-d <cidr> -j RETURN`). A packet from Victim A (`10.0.0.50`) to Victim B (`10.0.0.51`) has a LAN destination, so the RETURN rule should have fired. But it didn't because source was not checked — the rule was structured to also exempt packets from outside the LAN that happened to target a LAN IP.
+
+**Fix (automatic since 2026.04.24-14):** The passthrough rule now uses source+destination matching (`-s <cidr> -d <cidr> -j RETURN`). Only packets originating and destined within the LAN are exempted.
+
+In **gateway mode**, if `passthrough_subnets` is empty, NotTheNet auto-derives the LAN CIDR from the gateway interface IP (e.g. `10.0.0.1/24` → passthrough `10.0.0.0/24`). Worm-style `/24` scans spread between victims without any config change.
+
+If you are on an older version, add the subnet explicitly:
+```json
+"general": {
+  "passthrough_subnets": ["10.0.0.0/24"]
+}
+```
+
+---
+
+## WannaCry / worm not spreading to other victims
+
+**Symptom:** Ransomware like WannaCry encrypts Patient Zero but its worm thread never reaches other VMs on the lab network — even after multiple detonations.
+
+### Most common cause: SMB disabled in config
+
+Prior to 2026.04.24-14, `smb.enabled` defaulted to `false` to prevent the fake SMB server from acting as a "worm magnet" that absorbed all scans before they could reach other victims. Since -14 the default is `true` again (the iptables passthrough fix resolved the underlying conflict).
+
+Check and re-enable:
+```json
+"smb": { "enabled": true }
+```
+
+### Worm stalls because it can't advance past Kali
+
+Some worms (EternalBlue / WannaCry) scan the `/24` sequentially. When Kali is the lowest IP and responds in a way that keeps the worm busy, it never advances to the next victim IP.
+
+NotTheNet's SMB server sends a well-formed SMBv1 NEGOTIATE response, then drains follow-up frames and closes the session cleanly — this is the intended behavior since 2026.04.24-11. If you still see rapid-fire reconnects from the worm to Kali's `:445`, verify you are on a build from 2026.04.24-12 or later (earlier builds had a malformed NEGOTIATE response that caused the worm to retry).
+
+### Verify passthrough_subnets
+
+Victim-to-victim packets must not be DNAT'd to NotTheNet. See [Intra-LAN traffic intercepted despite passthrough_subnets](#intra-lan-traffic-intercepted-despite-passthrough_subnets).
+
+### Confirm promiscuous mode is on
+
+If NotTheNet is running on a separate Kali VM (not inline), it may not see broadcast domain traffic between victims. Enable promiscuous mode:
+```json
+"general": { "promisc_mode": true }
+```
+Or enable it inline while debugging:
+```bash
+sudo ip link set eth1 promisc on
+```
+
+---
+
+## VM-to-VM lateral movement traffic not captured
+
+**Symptom:** EternalBlue probes, ARP broadcasts, or worm traffic between two victim VMs on the same bridge never appear in the NotTheNet log or in a Wireshark capture on Kali.
+
+**Cause:** Traffic between two VMs on the same virtual bridge is switched at layer 2 and never passes through Kali's routing stack. Kali's NIC only sees its own unicast traffic by default.
+
+**Fix:** Enable promiscuous mode on Kali's lab NIC so it receives all frames on the segment:
+
+```json
+"general": { "promisc_mode": true }
+```
+
+Or apply manually (does not persist across reboots):
+```bash
+sudo ip link set eth1 promisc on   # replace eth1 with your lab NIC
+```
+
+Verify:
+```bash
+ip link show eth1 | grep PROMISC   # should show PROMISC in flags
+```
+
+> **Proxmox:** Also enable promiscuous mode on the vmbr NIC in the Proxmox datacenter firewall settings, or traffic may still be filtered at the hypervisor layer before it reaches the guest.
+
+---
+
+## config.json wiped after update
+
+**Symptom:** After running `./update.sh`, your custom settings (bind_ip, ports, passthrough_subnets, service config) have been replaced with defaults.
+
+**Cause (fixed in 2026.04.24-15):** Older versions of `update.sh` called `dpkg -i` without protecting the shipped `config.json`, so every reinstall overwrote operator customizations. The fix adds a backup → install → deep-merge step that preserves all existing values and only adds new keys introduced by the release.
+
+**If you are on a version prior to 2026.04.24-15:** Back up config manually before every update:
+```bash
+cp /opt/notthenet/config.json /opt/notthenet/config.json.bak
+./update.sh
+# After update, merge manually or restore:
+cp /opt/notthenet/config.json.bak /opt/notthenet/config.json
+```
+
+Then re-add any new keys from the release's `config.json` that you need.
+
+**On 2026.04.24-15 and later:** The update script reports which keys were added:
+```
+[*] Config migrated — added 3 new key(s): smb.session_timeout_sec, general.passthrough_subnets, ...
+```
+Your existing values are never touched. If the migration output is missing, something went wrong — check `update.sh` output for errors and restore from your backup.
 
 ---
 
