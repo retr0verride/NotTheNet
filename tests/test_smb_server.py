@@ -68,7 +68,9 @@ def test_parse_negotiate_extracts_smb2_message_id() -> None:
     struct.pack_into("<Q", data, 28, message_id)
     session = smb_server._SMBSession(_FakeSocket([]), ("127.0.0.1", 445))
 
-    version, dialects, eternalblue, parsed_message_id, dialect_index = session._parse_negotiate(bytes(data))
+    version, dialects, eternalblue, parsed_message_id, dialect_index = (
+        session._parse_negotiate(bytes(data))
+    )
 
     assert version == "SMBv2"
     assert dialects == []
