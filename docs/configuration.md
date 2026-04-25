@@ -444,6 +444,7 @@ Fake SMB server for logging dialect negotiation and detecting EternalBlue probes
 |-----|------|---------|-------------|
 | `enabled` | bool | `true` | Enable the SMB service. |
 | `port` | int | `445` | TCP port. |
+| `mode` | string | `"sniff_and_drop"` | Use `"sniff_and_drop"` to send `RST` right after logging the `NEGOTIATE` packet (frees malware threads, enabling LAN lateral spread). Use `"tarpit"` to drain subsequent connections instead, maximizing telemetry per host at the cost of thread exhaustion on the malware side. |
 
 ---
 

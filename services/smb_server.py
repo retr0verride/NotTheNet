@@ -93,12 +93,14 @@ class _SMBSession(threading.Thread):
         addr: tuple,
         sem: threading.BoundedSemaphore | None = None,
         session_timeout: float = SESSION_TIMEOUT,
+        mode: str = "sniff_and_drop",
     ):
         super().__init__(daemon=True)
         self.conn = conn
         self.addr = addr
         self._sem = sem
         self.session_timeout = session_timeout
+        self.mode = mode
 
     def _read_smb_message(self) -> "bytes | None":
         """Read a complete NetBIOS/SMB message. Returns data or None."""
@@ -210,6 +212,13 @@ class _SMBSession(threading.Thread):
                         src_ip=self.addr[0],
                         note="Simulated SMBv1 NEGOTIATE response sent; no real exploit occurred."
                     )
+                
+                if self.mode == "sniff_and_drop":
+                    # Fast fail - force RST so WannaCry moves on to LAN scan
+                    self.conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
+                    self.conn.close()
+                    return
+
                 # After the negotiate, drain any follow-up SMB messages (session
                 # setup, tree connect, EternalBlue trans2 probes) until the
                 # client gives up. Without this the worm thread re-targets the
@@ -350,6 +359,7 @@ class SMBService:
     def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 445))
+        self.mode = config.get("mode", "sniff_and_drop")
         self.bind_ip = bind_ip
         self.max_connections = int(config.get("max_connections", _MAX_CONNECTIONS))
         self.session_timeout = float(config.get("session_timeout_sec", SESSION_TIMEOUT))
@@ -396,6 +406,7 @@ class SMBService:
                 addr,
                 sem=self._sem,
                 session_timeout=self.session_timeout,
+                mode=self.mode,
             ).start()
 
     def stop(self) -> None:

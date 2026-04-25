@@ -260,6 +260,7 @@
   "smb": {
     "enabled": true,
     "port": 445,
+    "mode": "sniff_and_drop",
     "max_connections": 50,
     "session_timeout_sec": 10
   },
