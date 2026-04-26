@@ -135,7 +135,7 @@ _PATH_FIELDS: dict[str, list[str]] = {
 }
 
 
-def validate_config(config_data: dict) -> list:
+def validate_config(config_data: dict) -> list:  # noqa: C901 — one function validates the full config schema
     """
     Validate a full configuration dict.
     Returns a list of error strings (empty list = valid).

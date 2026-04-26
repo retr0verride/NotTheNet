@@ -227,8 +227,8 @@ class _IRCClientThread(threading.Thread):
 
     def _cmd_nick(self, rest: str, _sa: str):
         new_nick = rest.strip().split()[0] if rest.strip() else "bot"
-        _NICK_SPECIAL = "-_[]{}\\|`^"
-        _stripped = new_nick.translate(str.maketrans("", "", _NICK_SPECIAL))
+        _nick_special = "-_[]{}\\|`^"
+        _stripped = new_nick.translate(str.maketrans("", "", _nick_special))
         if len(new_nick) > 30 or not _stripped.isalnum():
             self._send(f"432 * {sanitize_log_string(new_nick[:30])} :Erroneous Nickname")
             return

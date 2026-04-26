@@ -61,6 +61,8 @@ select = [
     "S",    # flake8-bandit (security)
     "B",    # flake8-bugbear
     "UP",   # pyupgrade
+    "C90",  # mccabe complexity
+    "N",    # pep8-naming
 ]
 ignore = [
     "S101",  # assert statements (OK in tests)
@@ -70,12 +72,15 @@ ignore = [
     "S110",  # try/except/pass — intentional in I/O handlers and log queue
 ]
 
+[tool.ruff.lint.mccabe]
+max-complexity = 12
+
 [tool.ruff.lint.per-file-ignores]
 "notthenet.py" = ["E501"]  # decorative section separators and ASCII-art banner strings
 "notthenet-install.sh" = []  # shell, not Python
 # Service files: long lines are protocol-data byte strings that cannot be split
 "services/catch_all.py" = ["E501"]
-"services/http_server.py" = ["E501"]
+"services/http_server.py" = ["E501", "N815"]  # do_GET/do_POST/etc. are stdlib BaseHTTPRequestHandler protocol names
 "services/irc_server.py" = ["E501"]
 "services/ldap_server.py" = ["E501"]
 "services/mssql_server.py" = ["E501"]

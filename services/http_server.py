@@ -973,11 +973,11 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
                 return
             # Explicit allowlist prevents do___init__ style attribute probing
             # and gives a clean 501 for genuinely unknown HTTP methods.
-            _KNOWN_METHODS = frozenset({
+            _known_methods = frozenset({
                 "GET", "POST", "PUT", "DELETE", "HEAD",
                 "OPTIONS", "PATCH", "TRACE", "CONNECT",
             })
-            if self.command not in _KNOWN_METHODS:
+            if self.command not in _known_methods:
                 self.send_error(501, f"Unsupported method ({self.command!r})")
                 return
             mname = "do_" + self.command

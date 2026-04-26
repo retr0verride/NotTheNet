@@ -647,8 +647,8 @@ class ServiceManager:
             except Exception as e:
                 logger.warning("Error stopping %s: %s", name, e)
 
-        from concurrent.futures import ThreadPoolExecutor as _TPE
-        with _TPE(max_workers=min(len(items), 16) or 1) as ex:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(len(items), 16) or 1) as ex:
             list(ex.map(_stop_one, items))
 
         if iptables:

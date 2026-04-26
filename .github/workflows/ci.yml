@@ -3,7 +3,7 @@
 #
 # Jobs:
 #   secrets     gitleaks secret scan (blocks all other jobs)
-#   lint        ruff + mypy + bandit SAST + pip-audit + openapi-spec-validator
+#   lint        ruff (E/W/F/I/S/B/UP/C90/N) + mypy + bandit SAST + vulture + pip-audit + openapi-spec-validator
 #   test        pytest + coverage gate (≥35%) across Python 3.10–3.12
 #   docker      Multi-stage image build; push to GHCR on main
 #   build-dist  Build sdist + wheel; emit SHA-256 hashes (tags only)

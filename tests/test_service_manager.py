@@ -155,7 +155,7 @@ class TestEvictConflicting:
 
     @patch("service_manager.shutil.which", return_value=None)
     @patch("service_manager.subprocess.run")
-    def test_no_systemctl_is_noop(self, mock_subprocess, mock_which, tmp_path):
+    def test_no_systemctl_is_noop(self, mock_subprocess, _mock_which, tmp_path):
         cfg = _cfg(tmp_path)
         sm = ServiceManager(cfg)
         sm._evict_conflicting_services()

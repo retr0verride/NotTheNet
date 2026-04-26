@@ -1,4 +1,4 @@
-"""Dashboard layout: globe canvas, toolbar, sidebar, panes, log panel."""
+﻿"""Dashboard layout: globe canvas, toolbar, sidebar, panes, log panel."""
 
 from __future__ import annotations
 
@@ -622,13 +622,13 @@ class DashboardMixin(_DashboardHost):
         )
         self._pages["dns"] = _DNSPage(self._page_container, self._cfg)
 
-        _PORT_ROOT = "Requires root (or iptables redirect from standard port)."
-        _ENABLED   = "Enable or disable this service entirely."
-        _LOG_REQ   = "Log every incoming request (method, path, headers) to the log panel."
+        _port_root = "Requires root (or iptables redirect from standard port)."
+        _enabled   = "Enable or disable this service entirely."
+        _log_req   = "Log every incoming request (method, path, headers) to the log panel."
 
         http_fields = [
             ("Port",            "port",           "80",
-             f"TCP port for the HTTP server. Default: 80. {_PORT_ROOT}"),
+             f"TCP port for the HTTP server. Default: 80. {_port_root}"),
             ("Response Code",   "response_code",  "200",
              "HTTP status code returned for every request.",
              ["200", "301", "302", "400", "403", "404", "500", "503"]),
@@ -650,8 +650,8 @@ class DashboardMixin(_DashboardHost):
         ]
         self._pages["http"] = _ServicePage(
             self._page_container, self._cfg, "http", http_fields,
-            [("Enabled", "enabled", True, _ENABLED),
-             ("Log Requests", "log_requests", True, _LOG_REQ),
+            [("Enabled", "enabled", True, _enabled),
+             ("Log Requests", "log_requests", True, _log_req),
              ("Dynamic Responses", "dynamic_responses", True,
               "Serve context-aware responses based on requested file extension.\n"
               "If malware requests /payload.dll, it gets a valid PE stub.\n"
@@ -669,7 +669,7 @@ class DashboardMixin(_DashboardHost):
 
         https_fields = [
             ("Port",            "port",           "443",
-             f"TCP port for the HTTPS server. Default: 443. {_PORT_ROOT}"),
+             f"TCP port for the HTTPS server. Default: 443. {_port_root}"),
             ("Cert File",       "cert_file",      "certs/server.crt",
              "Path to the TLS certificate. Generated automatically by notthenet-install.sh\n"
              "(RSA-4096, self-signed). Malware rarely validates the cert."),
@@ -693,8 +693,8 @@ class DashboardMixin(_DashboardHost):
         ]
         self._pages["https"] = _ServicePage(
             self._page_container, self._cfg, "https", https_fields,
-            [("Enabled", "enabled", True, _ENABLED),
-             ("Log Requests", "log_requests", True, _LOG_REQ),
+            [("Enabled", "enabled", True, _enabled),
+             ("Log Requests", "log_requests", True, _log_req),
              ("Dynamic Responses", "dynamic_responses", True,
               "Serve context-aware responses based on requested file extension.\n"
               "Same as the HTTP option \u2014 applied inside the TLS tunnel."),
@@ -715,65 +715,65 @@ class DashboardMixin(_DashboardHost):
         for section, fields, checks in [
             ("smtp", [
                 ("Port",     "port",     "25",
-                 f"TCP port for the SMTP server. Default: 25. {_PORT_ROOT}"),
+                 f"TCP port for the SMTP server. Default: 25. {_port_root}"),
                 ("Hostname", "hostname", _MAIL_HOST_DEFAULT,
                  "SMTP server hostname announced in the 220 banner and EHLO response."),
                 ("Banner",   "banner",   f"220 {_MAIL_HOST_DEFAULT} ESMTP",
                  "Full 220 greeting sent on connection.\n"
                  "Malware may parse this to fingerprint the mail server."),
             ], [
-                ("Enabled",     "enabled",     True,  _ENABLED),
+                ("Enabled",     "enabled",     True,  _enabled),
                 ("Save Emails", "save_emails", True,
                  "Save each received email as a .eml file in logs/emails/\n"
                  "with a UUID filename for later analysis."),
             ]),
             ("smtps", [
                 ("Port",     "port",     "465",
-                 f"TCP port for SMTPS (implicit TLS). Default: 465. {_PORT_ROOT}"),
+                 f"TCP port for SMTPS (implicit TLS). Default: 465. {_port_root}"),
                 ("Hostname", "hostname", _MAIL_HOST_DEFAULT,
                  "Hostname announced in the SMTPS banner and EHLO response."),
                 ("Banner",   "banner",   f"220 {_MAIL_HOST_DEFAULT} ESMTP",
                  "220 greeting sent after TLS handshake completes."),
             ], [
-                ("Enabled",     "enabled",     True,  _ENABLED),
+                ("Enabled",     "enabled",     True,  _enabled),
                 ("Save Emails", "save_emails", True,
                  "Save received emails to logs/emails/ (same directory as SMTP)."),
             ]),
             ("pop3", [
                 ("Port",     "port",     "110",
-                 f"TCP port for the POP3 server. Default: 110. {_PORT_ROOT}"),
+                 f"TCP port for the POP3 server. Default: 110. {_port_root}"),
                 ("Hostname", "hostname", _MAIL_HOST_DEFAULT,
                  "Hostname announced in the POP3 +OK greeting banner."),
             ], [
-                ("Enabled", "enabled", True, _ENABLED),
+                ("Enabled", "enabled", True, _enabled),
             ]),
             ("pop3s", [
                 ("Port",     "port",     "995",
-                 f"TCP port for POP3S (implicit TLS). Default: 995. {_PORT_ROOT}"),
+                 f"TCP port for POP3S (implicit TLS). Default: 995. {_port_root}"),
                 ("Hostname", "hostname", _MAIL_HOST_DEFAULT,
                  "Hostname announced in the POP3S +OK greeting banner."),
             ], [
-                ("Enabled", "enabled", True, _ENABLED),
+                ("Enabled", "enabled", True, _enabled),
             ]),
             ("imap", [
                 ("Port",     "port",     "143",
-                 f"TCP port for the IMAP server. Default: 143. {_PORT_ROOT}"),
+                 f"TCP port for the IMAP server. Default: 143. {_port_root}"),
                 ("Hostname", "hostname", _MAIL_HOST_DEFAULT,
                  "Hostname used in the IMAP greeting and capability responses."),
             ], [
-                ("Enabled", "enabled", True, _ENABLED),
+                ("Enabled", "enabled", True, _enabled),
             ]),
             ("imaps", [
                 ("Port",     "port",     "993",
-                 f"TCP port for IMAPS (implicit TLS). Default: 993. {_PORT_ROOT}"),
+                 f"TCP port for IMAPS (implicit TLS). Default: 993. {_port_root}"),
                 ("Hostname", "hostname", _MAIL_HOST_DEFAULT,
                  "Hostname used in the IMAPS greeting and capability responses."),
             ], [
-                ("Enabled", "enabled", True, _ENABLED),
+                ("Enabled", "enabled", True, _enabled),
             ]),
             ("ftp", [
                 ("Port",       "port",       "21",
-                 f"TCP port for the FTP server. Default: 21. {_PORT_ROOT}"),
+                 f"TCP port for the FTP server. Default: 21. {_port_root}"),
                 ("Banner",     "banner",     "220 Microsoft FTP Service",
                  "220 greeting sent on connection.\n"
                  "Malware may check this to confirm an FTP server is listening."),
@@ -781,7 +781,7 @@ class DashboardMixin(_DashboardHost):
                  "Directory where uploaded files are saved.\n"
                  "Each file is renamed to a UUID to prevent collisions."),
             ], [
-                ("Enabled",       "enabled",       True, _ENABLED),
+                ("Enabled",       "enabled",       True, _enabled),
                 ("Allow Uploads", "allow_uploads", True,
                  "Accept STOR commands (file uploads).\n"
                  "Disable to silently reject all upload attempts."),
@@ -798,15 +798,15 @@ class DashboardMixin(_DashboardHost):
         self._pages["ntp"] = _ServicePage(
             self._page_container, self._cfg, "ntp",
             [("Port", "port", "123",
-              f"UDP port for the NTP server. Default: 123. {_PORT_ROOT}")],
-            [("Enabled", "enabled", True, _ENABLED)],
+              f"UDP port for the NTP server. Default: 123. {_port_root}")],
+            [("Enabled", "enabled", True, _enabled)],
         )
 
         self._pages["irc"] = _ServicePage(
             self._page_container, self._cfg, "irc",
             [
                 ("Port",     "port",     "6667",
-                 f"TCP port for the fake IRC server. Default: 6667. {_PORT_ROOT}"),
+                 f"TCP port for the fake IRC server. Default: 6667. {_port_root}"),
                 ("Hostname", "hostname", "irc.example.com",
                  "IRC server hostname advertised in the 001\u2013004 welcome burst.\n"
                  "Malware often uses this to verify it connected to the right server."),
@@ -819,21 +819,21 @@ class DashboardMixin(_DashboardHost):
                 ("MOTD",     "motd",     "Welcome to IRC.",
                  "Message of the Day text sent after successful registration."),
             ],
-            [("Enabled", "enabled", True, _ENABLED)],
+            [("Enabled", "enabled", True, _enabled)],
         )
 
         self._pages["tftp"] = _ServicePage(
             self._page_container, self._cfg, "tftp",
             [
                 ("Port",       "port",       "69",
-                 f"UDP port for the TFTP server. Default: 69. {_PORT_ROOT}"),
+                 f"UDP port for the TFTP server. Default: 69. {_port_root}"),
                 ("Upload Dir", "upload_dir", "logs/tftp_uploads",
                  "Directory where WRQ (write) uploads are saved.\n"
                  "Created automatically. Each file is prefixed with a UUID\n"
                  "to prevent collisions."),
             ],
             [
-                ("Enabled",       "enabled",       True, _ENABLED),
+                ("Enabled",       "enabled",       True, _enabled),
                 ("Allow Uploads", "allow_uploads", True,
                  "Accept WRQ (write) transfers from clients.\n"
                  "Disable to silently reject all upload attempts with\n"
@@ -845,7 +845,7 @@ class DashboardMixin(_DashboardHost):
             self._page_container, self._cfg, "telnet",
             [
                 ("Port",   "port",   "23",
-                 f"TCP port for the Telnet server. Default: 23. {_PORT_ROOT}"),
+                 f"TCP port for the Telnet server. Default: 23. {_port_root}"),
                 ("Banner", "banner", "router login",
                  "Text displayed before the login prompt.\n"
                  "Common Mirai targets: 'router login', 'BusyBox on OpenWrt',\n"
@@ -855,26 +855,26 @@ class DashboardMixin(_DashboardHost):
                  "'# ' implies a root shell; '$ ' implies a normal user.\n"
                  "Mirai simply issues commands without checking the prompt."),
             ],
-            [("Enabled", "enabled", True, _ENABLED)],
+            [("Enabled", "enabled", True, _enabled)],
         )
 
         self._pages["socks5"] = _ServicePage(
             self._page_container, self._cfg, "socks5",
             [
                 ("Port", "port", "1080",
-                 f"TCP port for the SOCKS5 proxy. Default: 1080. {_PORT_ROOT}\n"
+                 f"TCP port for the SOCKS5 proxy. Default: 1080. {_port_root}\n"
                  "Every CONNECT request logs the real destination host and port\n"
                  "the malware was trying to reach \u2014 the highest-value intel\n"
                  "this service captures."),
             ],
-            [("Enabled", "enabled", True, _ENABLED)],
+            [("Enabled", "enabled", True, _enabled)],
         )
 
         self._pages["ircs"] = _ServicePage(
             self._page_container, self._cfg, "ircs",
             [
                 ("Port",     "port",     "6697",
-                 f"TCP port for the TLS-wrapped IRC server. Default: 6697. {_PORT_ROOT}"),
+                 f"TCP port for the TLS-wrapped IRC server. Default: 6697. {_port_root}"),
                 ("Hostname", "hostname", "irc.example.com",
                  "IRC server hostname in the 001\u2013004 welcome burst."),
                 ("Network",  "network",  "IRCnet",
@@ -884,7 +884,7 @@ class DashboardMixin(_DashboardHost):
                 ("MOTD",     "motd",     "Welcome to IRC.",
                  "Message of the Day text sent after successful registration."),
             ],
-            [("Enabled", "enabled", True, _ENABLED)],
+            [("Enabled", "enabled", True, _enabled)],
         )
 
         catch_fields = [
@@ -919,8 +919,8 @@ class DashboardMixin(_DashboardHost):
             self._pages[key] = _ServicePage(
                 self._page_container, self._cfg, key,
                 [("Port", "port", port,
-                  f"TCP port for the {tip.lower()}. Default: {port}. {_PORT_ROOT}")],
-                [("Enabled", "enabled", True, _ENABLED)],
+                  f"TCP port for the {tip.lower()}. Default: {port}. {_port_root}")],
+                [("Enabled", "enabled", True, _enabled)],
             )
 
         self._pages["icmp"] = _ServicePage(
@@ -1059,10 +1059,10 @@ class DashboardMixin(_DashboardHost):
 
 def _print_logo() -> None:
     """Print the NotTheNet ASCII banner to stdout (CLI mode only)."""
-    CYAN = "\033[36m"
-    RESET = "\033[0m"
+    cyan = "\033[36m"
+    reset = "\033[0m"
     banner = (
-        f"{CYAN}"
+        f"{cyan}"
         "\n"
         "  \u2588\u2588\u2588\u2557   \u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557    \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2557  \u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557    \u2588\u2588\u2588\u2557   \u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\n"
         "  \u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2557\u255a\u2550\u2550\u2588\u2588\u2554\u2550\u2550\u255d       \u2588\u2588\u2551   \u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255d    \u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255d\u255a\u2550\u2550\u2588\u2588\u2554\u2550\u2550\u255d\n"
@@ -1071,6 +1071,6 @@ def _print_logo() -> None:
         "  \u2588\u2588\u2551 \u255a\u2588\u2588\u2588\u2588\u2551\u255a\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d   \u2588\u2588\u2551          \u2588\u2588\u2551   \u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557    \u2588\u2588\u2551 \u255a\u2588\u2588\u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557   \u2588\u2588\u2551   \n"
         "  \u255a\u2550\u255d  \u255a\u2550\u2550\u2550\u255d \u255a\u2550\u2550\u2550\u2550\u2550\u255d    \u255a\u2550\u255d          \u255a\u2550\u255d   \u255a\u2550\u255d  \u255a\u2550\u255d\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u255d    \u255a\u2550\u255d  \u255a\u2550\u2550\u2550\u255d\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u255d   \u255a\u2550\u255d  \n"
         "                          Fake Internet Simulator  \u00b7  Malware Analysis\n"
-        f"{RESET}"
+        f"{reset}"
     )
     print(banner)  # noqa: T201

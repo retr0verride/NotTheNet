@@ -30,12 +30,43 @@ logger = logging.getLogger(__name__)
 
 
 def _shannon_entropy(label: str) -> float:
-    """Shannon entropy (bits/char) of a string â€” used for DGA detection."""
+    """Shannon entropy (bits/char) of a string — used for DGA detection."""
     if not label:
         return 0.0
     counts = Counter(label.lower())
     total = len(label)
     return -sum((c / total) * math.log2(c / total) for c in counts.values())
+
+
+def _log_dns_query(request, handler, reply) -> None:
+    """Emit a structured dns_query event reflecting the *actual* response sent.
+
+    Must be called after resolution so that NXDOMAIN (kill-switch, DGA),
+    custom record overrides, and public-IP-pool responses are all captured
+    correctly rather than always showing the configured redirect_ip.
+    """
+    jl = get_json_logger()
+    if not jl:
+        return
+    try:
+        qname = str(request.q.qname).lower().rstrip(".")
+        try:
+            qtype = str(QTYPE[request.q.qtype])
+        except Exception:
+            qtype = str(request.q.qtype)
+        src = handler.client_address[0] if hasattr(handler, "client_address") else ""
+        rcode = reply.header.rcode
+        if rcode == 3:
+            resolve_to = "NXDOMAIN"
+        elif rcode != 0:
+            resolve_to = f"rcode={rcode}"
+        elif reply.rr:
+            resolve_to = str(reply.rr[0].rdata)
+        else:
+            resolve_to = "(empty)"
+        jl.log("dns_query", qtype=qtype, qname=qname, src_ip=src, resolve_to=resolve_to)
+    except Exception as exc:
+        logger.debug("dns_query log error: %s", exc, exc_info=True)
 
 
 try:
@@ -86,25 +117,26 @@ class _FakeResolver:
         )
 
     def resolve(self, request: DNSRecord, handler) -> DNSRecord:
+        """Resolve a DNS request and emit a structured log event reflecting the
+        actual response sent (NXDOMAIN, resolved IP, etc.) rather than the
+        configured redirect_ip."""
+        reply = self._do_resolve(request, handler)
+        _log_dns_query(request, handler, reply)
+        return reply
+
+    def _do_resolve(self, request: DNSRecord, handler) -> DNSRecord:
         reply = request.reply()
         try:
             qname = str(request.q.qname).lower().rstrip(".")
             qtype = QTYPE[request.q.qtype]
 
-            # RFC 1035 Â§2.3.4: max 253 characters for a full domain name
+            # RFC 1035 §2.3.4: max 253 characters for a full domain name
             if len(qname) > 253:
                 reply.header.rcode = 1  # FORMERR
                 return reply
 
             safe_name = sanitize_hostname(qname)
             logger.info("DNS query  type=%s name=%s", qtype, safe_name)
-
-            # Structured JSON logging
-            jl = get_json_logger()
-            if jl:
-                src = handler.client_address[0] if hasattr(handler, 'client_address') else ''
-                jl.log("dns_query", qtype=str(qtype), qname=qname, src_ip=src,
-                       resolve_to=self.redirect_ip)
 
             # --- Custom record override ---
             if qname in self.custom_records:

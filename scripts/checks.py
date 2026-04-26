@@ -28,6 +28,7 @@ from pathlib import Path
 
 # ── Pinned tool versions — must match .github/workflows/ci.yml ───────────────
 PINNED_TOOLS = [
+    "vulture==2.14",
     "ruff==0.15.2",
     "bandit[toml]==1.9.4",
     "bandit-sarif-formatter==1.1.1",
@@ -150,6 +151,21 @@ def step_3_bandit() -> None:
         "--severity-level", "high",
     ])
     passed("bandit")
+
+
+def step_3b_vulture() -> None:
+    step("3b/13", "Dead code detection (vulture)")
+    rc = subprocess.call(
+        [
+            PY, "-m", "vulture", ".",
+            "--min-confidence", "80",
+            "--exclude", ".venv,tools",
+        ],
+        cwd=str(REPO_ROOT),
+    )
+    if rc != 0:
+        fail("vulture found dead code")
+    passed("vulture")
 
 
 def step_4_pip_audit() -> None:
@@ -302,15 +318,16 @@ STEPS: dict[int, tuple[str, Callable[[], None]]] = {
     2:  ("mypy-legacy",   step_2a_mypy_legacy),  # 2a
     3:  ("mypy-strict",   step_2b_mypy_strict),  # 2b
     4:  ("bandit",        step_3_bandit),
-    5:  ("pip-audit",     step_4_pip_audit),
-    6:  ("openapi",       step_5_openapi),
-    7:  ("shellcheck",    step_6_shellcheck),
-    8:  ("placeholders",  step_7_placeholders),
-    9:  ("pytest",        step_8_pytest),
-    10: ("version",       step_9_version),
-    11: ("changelog",     step_10_changelog),
-    12: ("python-floor",  step_11_python_floor),
-    13: ("stale-certs",   step_12_stale_certs),
+    5:  ("vulture",       step_3b_vulture),
+    6:  ("pip-audit",     step_4_pip_audit),
+    7:  ("openapi",       step_5_openapi),
+    8:  ("shellcheck",    step_6_shellcheck),
+    9:  ("placeholders",  step_7_placeholders),
+    10: ("pytest",        step_8_pytest),
+    11: ("version",       step_9_version),
+    12: ("changelog",     step_10_changelog),
+    13: ("python-floor",  step_11_python_floor),
+    14: ("stale-certs",   step_12_stale_certs),
 }
 
 
@@ -329,7 +346,7 @@ def main() -> int:
     )
     p.add_argument(
         "--only",
-        help="comma-separated step indices to run (see registry, 0-13)",
+        help="comma-separated step indices to run (see registry, 0-14)",
     )
     args = p.parse_args()
 

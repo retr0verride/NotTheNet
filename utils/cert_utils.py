@@ -62,8 +62,8 @@ def _make_fake_sct_extension():
     # Pass sct_list bytes directly — the cryptography library wraps the value
     # in a DER OCTET STRING when encoding the extension into the certificate.
     # Adding a manual OCTET STRING here would double-wrap and break parsers.
-    SCT_OID = ObjectIdentifier("1.3.6.1.4.1.11129.2.4.2")
-    return UnrecognizedExtension(SCT_OID, sct_list)
+    sct_oid = ObjectIdentifier("1.3.6.1.4.1.11129.2.4.2")
+    return UnrecognizedExtension(sct_oid, sct_list)
 
 
 def generate_self_signed_cert(
@@ -527,7 +527,7 @@ class DynamicCertCache:
         self,
         ssl_socket: ssl.SSLSocket,
         server_name: str | None,
-        ssl_context: ssl.SSLContext,
+        _ssl_context: ssl.SSLContext,
     ) -> int | None:
         """
         ssl.SSLContext SNI callback.

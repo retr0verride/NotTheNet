@@ -118,7 +118,7 @@ class TestRuleBuilding:
         assert not mgr._add_rule(["-t", "nat", 42])
 
     @patch("network.iptables_manager._run", return_value=(0, "", ""))
-    def test_del_rule_converts_A_to_D(self, mock_run):
+    def test_del_rule_converts_a_to_d(self, mock_run):
         mgr = self._mgr()
         rule = ["-t", "nat", "-A", "PREROUTING", "-p", "tcp"]
         mgr._del_rule(rule)

@@ -48,32 +48,32 @@ class TestDynamicCertCacheEviction:
         """Inserting beyond MAX_CACHE_SIZE must evict oldest entries in FIFO order."""
         ca_cert, ca_key, srv_cert, srv_key = pki
         cache = DynamicCertCache(srv_cert, srv_key, ca_cert, ca_key)
-        MAX = DynamicCertCache.MAX_CACHE_SIZE
+        max_size = DynamicCertCache.MAX_CACHE_SIZE
 
-        for i in range(MAX + 100):
+        for i in range(max_size + 100):
             hostname = f"host{i}.example.com"
             with cache._lock:
-                if len(cache._cache) >= MAX:
+                if len(cache._cache) >= max_size:
                     oldest = next(iter(cache._cache))
                     del cache._cache[oldest]
                 cache._cache[hostname] = object()  # sentinel value
 
         with cache._lock:
-            assert len(cache._cache) == MAX
+            assert len(cache._cache) == max_size
 
     def test_oldest_entries_evicted_first(self, pki):
         """FIFO eviction: first-inserted keys are removed before later ones."""
         ca_cert, ca_key, srv_cert, srv_key = pki
         cache = DynamicCertCache(srv_cert, srv_key, ca_cert, ca_key)
-        MAX = DynamicCertCache.MAX_CACHE_SIZE
+        max_size = DynamicCertCache.MAX_CACHE_SIZE
 
-        for i in range(MAX):
+        for i in range(max_size):
             with cache._lock:
                 cache._cache[f"original-{i}.com"] = object()
 
         # Add one more — must evict "original-0.com"
         with cache._lock:
-            if len(cache._cache) >= MAX:
+            if len(cache._cache) >= max_size:
                 oldest = next(iter(cache._cache))
                 del cache._cache[oldest]
             cache._cache["newcomer.com"] = object()
@@ -113,15 +113,15 @@ class TestDynamicCertCacheEviction:
         """Object growth from MAX+100 cache inserts must be < 5 MB."""
         ca_cert, ca_key, srv_cert, srv_key = pki
         cache = DynamicCertCache(srv_cert, srv_key, ca_cert, ca_key)
-        MAX = DynamicCertCache.MAX_CACHE_SIZE
+        max_size = DynamicCertCache.MAX_CACHE_SIZE
 
         gc.collect()
         tracemalloc.start()
         snap1 = tracemalloc.take_snapshot()
 
-        for i in range(MAX + 100):
+        for i in range(max_size + 100):
             with cache._lock:
-                if len(cache._cache) >= MAX:
+                if len(cache._cache) >= max_size:
                     oldest = next(iter(cache._cache))
                     del cache._cache[oldest]
                 cache._cache[f"mem-{i}.example.com"] = object()
@@ -134,7 +134,7 @@ class TestDynamicCertCacheEviction:
             s.size_diff for s in snap2.compare_to(snap1, "lineno") if s.size_diff > 0
         )
         assert growth < 5 * 1024 * 1024, (
-            f"Cache grew by {growth / 1024:.0f} KB after {MAX + 100} inserts — possible leak"
+            f"Cache grew by {growth / 1024:.0f} KB after {max_size + 100} inserts — possible leak"
         )
 
 

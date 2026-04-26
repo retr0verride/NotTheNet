@@ -346,7 +346,18 @@ You need two machines connected by an isolated network — no real internet acce
 2. Set the victim VM's **DNS server** to your Kali IP (e.g. `10.0.0.1`).
 3. Set the victim VM's **default gateway** to your Kali IP (so all traffic routes through Kali).
 4. In NotTheNet config: set `interface` to your lab network adapter (e.g. `eth0`), `iptables_mode` to `"gateway"`, and `redirect_ip` to your Kali IP.
-5. **Check for kill-switch domains.** Some malware exits early if a specific domain resolves (famously, WannaCry checks `iuqerfsodp9ifjaposdfjhgosurijfaewrwergwea.com`). Add known kill-switch domains to `dns.kill_switch_domains` so they return NXDOMAIN ("not found").
+5. **Check for kill-switch domains.** Some malware checks at startup whether a specific hardcoded domain is reachable over HTTP. If it gets any response, it assumes it's inside a sandbox and exits — this is the kill switch. If the connection fails, it assumes it's on the real internet and continues executing. You want it to continue, so you need that connection to fail.
+
+   Add known kill-switch domains to `dns.kill_switch_domains`. NotTheNet will return NXDOMAIN for them, which causes DNS to fail immediately — the malware never even attempts the HTTP connection, so the kill switch cannot fire.
+
+   WannaCry's kill-switch domain is pre-populated in the default config: `iuqerfsodp9ifjaposdfjhgosurijfaewrwergwea.com`.
+
+   **For samples you haven't analysed before**, the kill-switch domain is not obvious from the outside. Your options:
+   - **Threat intel first:** search VirusTotal, MalwareBazaar, or abuse.ch for the sample hash — known kill-switch domains are usually documented in sandbox reports.
+   - **Static analysis:** open the sample in a disassembler (Ghidra, IDA) and look for `InternetOpenUrl` or `InternetCheckConnection` calls with hardcoded string arguments. The argument is the kill-switch URL.
+   - **Blind detonation + re-run:** detonate without configuring anything, watch the live log for a DNS query that happens right before all activity from the victim goes silent, add that domain to `kill_switch_domains`, revert the VM snapshot, and detonate again.
+
+   NotTheNet cannot auto-detect kill-switch domains from network traffic alone — any domain a sample queries could be a kill switch, a C2 beacon, or a telemetry ping. Identification is always a pre-detonation step.
 6. **Check for high-entropy C2 domains.** If the malware uses random-looking domain names (like `.onion` addresses), raise `dns.nxdomain_entropy_threshold` to `4.0` or add them to `dns.custom_records`.
 7. **Start** NotTheNet.
 8. **Run** the malware sample in the victim VM.

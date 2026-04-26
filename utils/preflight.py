@@ -405,7 +405,7 @@ def run_preflight(cfg: Config) -> PreflightReport:
 
 def format_report(report: PreflightReport) -> str:
     """Format a preflight report as colored terminal output."""
-    _ICONS = {OK: "\u2714", WARN: "\u26a0", FAIL: "\u2718", INFO: "\u2139"}
+    _icons = {OK: "\u2714", WARN: "\u26a0", FAIL: "\u2718", INFO: "\u2139"}
     lines = [
         "",
         "NotTheNet Preflight Check",
@@ -426,7 +426,7 @@ def format_report(report: PreflightReport) -> str:
             continue
         lines.append(title)
         for c in checks:
-            icon = _ICONS.get(c.status, "?")
+            icon = _icons.get(c.status, "?")
             lines.append(f"  {icon} {c.message}")
         lines.append("")
 
