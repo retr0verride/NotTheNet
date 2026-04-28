@@ -169,6 +169,40 @@ else
     echo "  -- Single-NIC setup (bridge=$BRIDGE_IF == mgmt=$MGMT_IF): skipping pivot/mgmt isolation rules"
 fi
 
+# ── Block FORWARD between the lab bridge and any other active interface. ──
+# Catches additional bridges (e.g. vmbr2, vmbr3) that were not explicitly
+# named via --mgmt.  Any routable interface that is up and has an IP is a
+# potential pivot path when ip_forward=1.  This loop drops all FORWARD
+# traffic between $BRIDGE_IF and every such interface at harden time.
+# Interfaces that come up AFTER this script runs are handled by NotTheNet's
+# runtime netlink watcher (_NetlinkInterfaceWatcher in iptables_manager.py).
+_extra_pivots=()
+while read -r _iface; do
+    # Skip: loopback, the lab bridge itself, and already-handled mgmt iface
+    [[ "$_iface" == "lo" ]]         && continue
+    [[ "$_iface" == "$BRIDGE_IF" ]] && continue
+    [[ "$_iface" == "$MGMT_IF" ]]   && continue
+    # Only act on interfaces that are UP and have an IPv4 address assigned
+    ip -4 addr show dev "$_iface" scope global 2>/dev/null | grep -q "inet " || continue
+    iptables -I FORWARD -i "$BRIDGE_IF" -o "$_iface" -j DROP \
+        -m comment --comment "NOTTHENET_HARDEN: block pivot bridge→$_iface"
+    iptables -I FORWARD -i "$_iface" -o "$BRIDGE_IF" -j DROP \
+        -m comment --comment "NOTTHENET_HARDEN: block pivot $_iface→bridge"
+    if command -v ip6tables &>/dev/null; then
+        ip6tables -I FORWARD -i "$BRIDGE_IF" -o "$_iface" -j DROP \
+            -m comment --comment "NOTTHENET_HARDEN: block IPv6 pivot bridge→$_iface"
+        ip6tables -I FORWARD -i "$_iface" -o "$BRIDGE_IF" -j DROP \
+            -m comment --comment "NOTTHENET_HARDEN: block IPv6 pivot $_iface→bridge"
+    fi
+    _extra_pivots+=("$_iface")
+done < <(ip -o link show up | awk -F': ' '{print $2}' | cut -d'@' -f1)
+
+if [[ ${#_extra_pivots[@]} -gt 0 ]]; then
+    echo "  ✓ Extra pivot surfaces blocked (FORWARD DROP, IPv4+IPv6): ${_extra_pivots[*]}"
+else
+    echo "  -- No extra routable interfaces found; no additional pivot rules needed"
+fi
+
 # ── Block lateral movement ports: victim subnet → Kali (vmbr1 INPUT) ─────
 # Victims can still reach NotTheNet fake-internet ports (53,80,443,25,…) but
 # cannot attack Kali via Windows exploitation channels.

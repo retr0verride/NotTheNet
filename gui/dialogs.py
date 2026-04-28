@@ -125,6 +125,19 @@ class _GeneralPage(tk.Frame):
             ("Enable auto-iptables rules", "auto_iptables", True,
              "Add NAT REDIRECT rules via iptables when services start,\n"
              "and remove them cleanly on stop. Requires root."),
+            ("Lab hardening",              "auto_hardening", True,
+             "Run harden-lab.sh on every Start to harden the lab host:\n"
+             "  \u2022 Stops conflicting services (apache2, bind9, etc.)\n"
+             "  \u2022 Blocks FORWARD: lab bridge \u2194 management NIC\n"
+             "  \u2022 Blocks FORWARD: lab bridge \u2194 any other routable interface\n"
+             "    active at start time (e.g. vmbr2) \u2014 prevents lateral spread\n"
+             "    from the victim network reaching your real network\n"
+             "  \u2022 Blocks lateral movement ports (SSH/WMI/WinRM) inbound\n"
+             "  \u2022 Sets ip_forward=0 baseline (gateway mode re-enables on start)\n\n"
+             "At runtime, a background watcher (gateway mode only) detects\n"
+             "interfaces that come up after Start and applies the same\n"
+             "pivot DROP rules immediately.\n\n"
+             "Recommended: always on. Requires root."),
             ("Log to file",               "log_to_file",   True,
              "Write log output to a rotating file in the log directory\n"
              "in addition to the GUI log panel."),

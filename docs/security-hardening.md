@@ -45,6 +45,32 @@ curl --max-time 5 http://evil.example.com/
 
 If the first command succeeds, your network is not properly isolated — check your interface config and firewall rules.
 
+### Multi-NIC pivot protection
+
+If the Kali host has more than one network interface (e.g. `vmbr1` for the lab and `vmbr2` for a management or other network), malware can potentially route packets from `vmbr1` to `vmbr2` when `ip_forward=1` — bypassing all of NotTheNet's fake services and reaching real hosts on the other network.
+
+NotTheNet addresses this at two layers:
+
+**1. At harden time (`harden-lab.sh` / `auto_hardening`):**
+
+`harden-lab.sh` enumerates every interface that is up and has an IPv4 address at the time it runs. For each one that isn't the lab bridge or the named management NIC, it adds bidirectional `iptables FORWARD DROP` rules (IPv4 + IPv6):
+
+```bash
+# Manually verify pivot rules are in place:
+iptables -L FORWARD -n | grep "NOTTHENET_HARDEN: block pivot"
+# Expected: one line per extra interface, in each direction
+```
+
+**2. At runtime (gateway mode only):**
+
+When NotTheNet starts in gateway mode, a background thread (`ntn-iface-watcher`) subscribes to Linux kernel netlink address events. If a new interface comes up and gets an IP address **after** NTN has started (e.g. Proxmox bringing `vmbr2` up mid-session), the watcher immediately applies the same pivot DROP rules — closing the window that `harden-lab.sh` cannot cover.
+
+**Remaining gaps:**
+
+- There is a ~1 second race between a new interface appearing and the watcher applying rules. For complete protection, bring unused bridges down before detonating: `ip link set vmbr2 down`.
+- iptables FORWARD rules operate at L3. Malware using raw L2 frames on a bridge without `bridge-nf-call-iptables=1` can bypass them. Set `sysctl net.bridge.bridge-nf-call-iptables=1` if this is a concern.
+- For defense-in-depth at the hypervisor level (cannot be bypassed from inside the guest), enable the Proxmox VM firewall on Kali's secondary NIC with an inbound DROP rule for the lab subnet.
+
 ---
 
 ## Interface Binding
@@ -309,3 +335,5 @@ Run through this checklist before each analysis session:
 - [ ] If using `dynamic_certs`, the Root CA (`certs/ca.crt`) is installed in the victim VM's trust store
 - [ ] If using `tcp_fingerprint`, the profile matches the victim OS (e.g. `"windows"` for FlareVM)
 - [ ] Artifacts from **previous sessions** are archived or cleared
+- [ ] Any unused secondary interfaces on Kali (e.g. `vmbr2`) are **down** before detonation: `ip link set vmbr2 down`
+- [ ] If a secondary interface must stay up, confirm pivot DROP rules are active: `iptables -L FORWARD -n | grep "block pivot"`

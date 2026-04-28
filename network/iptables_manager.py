@@ -21,8 +21,12 @@ from __future__ import annotations
 import atexit
 import logging
 import os
+import select
 import shutil
+import socket
+import struct
 import subprocess
+import threading
 
 from utils.logging_utils import sanitize_log_string
 from utils.validators import validate_port
@@ -30,6 +34,7 @@ from utils.validators import validate_port
 logger = logging.getLogger(__name__)
 
 _RULE_COMMENT = "NOTTHENET"
+_PROC_NET_DEV = "/proc/net/dev"
 
 # Store snapshots in the project's logs/ directory instead of /tmp/ to prevent
 # symlink races on shared systems (CWE-59).  The logs/ directory is app-owned
@@ -290,6 +295,122 @@ def _set_promisc(iface: str, enabled: bool) -> bool:
     return False
 
 
+class _NetlinkInterfaceWatcher:
+    """Watches for new IPv4 addresses via RTNETLINK and applies pivot DROP rules.
+
+    Opens an AF_NETLINK/NETLINK_ROUTE socket subscribed to the
+    RTMGRP_IPV4_IFADDR multicast group.  On each RTM_NEWADDR event it
+    resolves the interface index to a name and calls back to
+    ``_block_pivot_iface`` on ``IPTablesManager`` so that a bridge coming up
+    *after* NTN starts (e.g. vmbr2 in Proxmox) is locked out immediately.
+
+    Pure stdlib — no external dependencies.  Linux only; start() is a no-op
+    on non-Linux hosts.
+    """
+
+    _RTMGRP_IPV4_IFADDR: int = 0x10
+    _RTM_NEWADDR: int = 20
+    # Linux socket constants — defined here so Pylance (Windows) does not flag
+    # them as missing.  Values are stable across all Linux kernel versions.
+    _AF_NETLINK: int = 16    # socket.AF_NETLINK on Linux
+    _NETLINK_ROUTE: int = 0  # socket.NETLINK_ROUTE on Linux
+    # nlmsghdr: __u32 nlmsg_len, __u16 nlmsg_type, __u16 nlmsg_flags,
+    #           __u32 nlmsg_seq, __u32 nlmsg_pid  (total 16 bytes, LE)
+    _NL_HDR: struct.Struct = struct.Struct("<IHHII")
+    # ifaddrmsg: __u8 ifa_family, __u8 ifa_prefixlen, __u8 ifa_flags,
+    #            __u8 ifa_scope, __u32 ifa_index  (total 8 bytes)
+    _IFADDR_MSG: struct.Struct = struct.Struct("<BBBBI")
+
+    def __init__(
+        self,
+        bridge: str,
+        block_fn: "Callable[[str], bool]",
+    ) -> None:
+        self._bridge = bridge
+        self._block_fn = block_fn
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._sock: socket.socket | None = None
+
+    def start(self) -> None:
+        """Start the watcher thread.  No-op on non-Linux hosts."""
+        if not os.path.exists(_PROC_NET_DEV):
+            logger.debug("NetlinkInterfaceWatcher: not Linux; watcher disabled.")
+            return
+        self._thread = threading.Thread(
+            target=self._run, daemon=True, name="ntn-iface-watcher"
+        )
+        self._thread.start()
+        logger.debug("NetlinkInterfaceWatcher: started.")
+
+    def stop(self) -> None:
+        """Signal the watcher thread to exit and wait for it."""
+        self._stop.set()
+        if self._sock is not None:
+            try:
+                self._sock.close()
+            except OSError:
+                pass
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)
+            self._thread = None
+        logger.debug("NetlinkInterfaceWatcher: stopped.")
+
+    def _run(self) -> None:
+        try:
+            self._sock = socket.socket(
+                self._AF_NETLINK,
+                socket.SOCK_RAW,
+                self._NETLINK_ROUTE,
+            )
+            self._sock.bind((0, self._RTMGRP_IPV4_IFADDR))
+        except OSError as exc:
+            logger.warning("NetlinkInterfaceWatcher: socket error: %s", exc)
+            return
+
+        while not self._stop.is_set():
+            try:
+                ready, _, _ = select.select([self._sock], [], [], 1.0)
+                if not ready:
+                    continue
+                data = self._sock.recv(8192)
+                self._handle(data)
+            except OSError:
+                break
+
+    def _handle(self, data: bytes) -> None:
+        """Parse one or more netlink messages from *data*."""
+        offset = 0
+        hdr_size = self._NL_HDR.size
+        msg_size = self._IFADDR_MSG.size
+        while offset + hdr_size <= len(data):
+            nl_len, nl_type, _, _, _ = self._NL_HDR.unpack_from(data, offset)
+            payload_off = offset + hdr_size
+            if nl_type == self._RTM_NEWADDR and payload_off + msg_size <= len(data):
+                _, _, _, _, ifindex = self._IFADDR_MSG.unpack_from(data, payload_off)
+                self._on_new_addr(ifindex)
+            if nl_len < hdr_size:
+                break
+            offset += nl_len
+
+    def _on_new_addr(self, ifindex: int) -> None:
+        """Called when a new IPv4 address is assigned to any interface."""
+        try:
+            iface = socket.if_indextoname(ifindex)
+        except OSError:
+            return
+        if iface in ("lo", self._bridge):
+            return
+        if iface.startswith(self._bridge + "."):
+            return
+        logger.warning(
+            "NetlinkInterfaceWatcher: new address on %s after NTN start — "
+            "applying pivot FORWARD DROP.",
+            sanitize_log_string(iface),
+        )
+        self._block_fn(iface)
+
+
 class IPTablesManager:
     """
     Manages iptables rules to redirect traffic to fake services.
@@ -314,7 +435,7 @@ class IPTablesManager:
         # Only attempt autodetect on Linux (where /proc/net/dev exists and
         # `ip` is available).  Off-Linux (tests on Windows/macOS) trust the
         # configured value as-is — runtime validation will catch real errors.
-        if not os.path.exists("/proc/net/dev"):
+        if not os.path.exists(_PROC_NET_DEV):
             self.interface = configured_iface or "eth0"
         elif configured_iface and self._validate_interface(configured_iface):
             self.interface = configured_iface
@@ -396,6 +517,7 @@ class IPTablesManager:
         self._filter_icmp_drop_applied = False
         self._prev_ip_forward: str | None = None  # restored on stop
         self._prev_promisc: bool | None = None    # restored on stop
+        self._iface_watcher: _NetlinkInterfaceWatcher | None = None
 
     def _derive_gateway_ip(self, bind_ip: str) -> str | None:
         """Pick a routable IP for DNAT targets in gateway mode.
@@ -487,14 +609,14 @@ class IPTablesManager:
             return False
         # Check it actually exists
         try:
-            with open("/proc/net/dev", encoding="utf-8") as f:
+            with open(_PROC_NET_DEV, encoding="utf-8") as f:
                 ifaces_raw = f.read()
             return iface in ifaces_raw
         except OSError:
             # Fail-closed: if we can't verify the interface exists, reject it.
             # A security tool should not apply iptables rules to a potentially
             # non-existent interface.
-            logger.warning("Cannot read /proc/net/dev to verify interface '%s'", iface)
+            logger.warning("Cannot read %s to verify interface '%s'", _PROC_NET_DEV, iface)
             return False
 
     def _add_rule(self, rule: list[str]) -> bool:
@@ -589,7 +711,9 @@ class IPTablesManager:
         ok_count += self._apply_icmp_redirect(chain, table_flag, icmp_enabled)
         ok_count += self._apply_icmp_drop()
         self._apply_ip_forward()
+        self._apply_extra_pivot_blocks()
         self._apply_promisc()
+        self._start_iface_watcher()
 
         logger.info(
             "Applied %d iptables NAT rules (chain=%s, mode=%s)",
@@ -753,6 +877,90 @@ class IPTablesManager:
         )
         return 0
 
+    def _apply_extra_pivot_blocks(self) -> None:
+        """In gateway mode, DROP FORWARD between the lab bridge and every
+        other routable interface present at start time.
+
+        harden-lab.sh only covers interfaces that are up *before* it runs.
+        Interfaces that come up afterwards (e.g. vmbr2 on Proxmox) are not
+        covered.  This method runs after ip_forward is enabled so it catches
+        whatever is actually present at the moment traffic could start flowing.
+
+        Rules are added to the filter FORWARD chain and are automatically
+        reverted by _restore_filter_snapshot() on stop.
+        """
+        if self.mode != "gateway":
+            return
+
+        try:
+            code, out, _ = _run(["ip", "-4", "-o", "addr", "show", "scope", "global"])
+        except OSError:
+            return
+        if code != 0:
+            return
+
+        blocked = [
+            iface
+            for iface in self._iter_routable_ifaces(out)
+            if self._block_pivot_iface(iface)
+        ]
+
+        if blocked:
+            logger.info(
+                "Extra pivot surfaces blocked (FORWARD DROP on filter): %s",
+                ", ".join(sanitize_log_string(i) for i in blocked),
+            )
+        else:
+            logger.debug("No extra routable interfaces found; no additional pivot rules needed.")
+
+    def _iter_routable_ifaces(self, ip_addr_output: str) -> list[str]:
+        """Parse `ip -4 -o addr show scope global` output and return interface
+        names that are not the lab bridge or its VLAN sub-interfaces."""
+        result = []
+        for line in ip_addr_output.splitlines():
+            parts = line.split()
+            # Format: "2: eth0    inet 10.0.0.1/24 ..."
+            if len(parts) < 4 or "inet" not in parts:
+                continue
+            iface = parts[1].rstrip(":")
+            if iface in ("lo", self.interface):
+                continue
+            if iface.startswith(self.interface + "."):
+                continue
+            result.append(iface)
+        return result
+
+    def _block_pivot_iface(self, iface: str) -> bool:
+        """Add bidirectional FORWARD DROP rules between the lab bridge and *iface*.
+        Returns True if rules were applied without error."""
+        ok = True
+        for direction in (
+            ["-I", "FORWARD", "1", "-i", self.interface, "-o", iface],
+            ["-I", "FORWARD", "1", "-i", iface, "-o", self.interface],
+        ):
+            rule = ["-t", "filter"] + direction + [
+                "-j", "DROP",
+                "-m", "comment", "--comment", _RULE_COMMENT,
+            ]
+            rc, _, err = _run(["iptables"] + rule)
+            if rc != 0:
+                logger.warning(
+                    "Could not add pivot DROP for %s: %s",
+                    sanitize_log_string(iface), err.strip(),
+                )
+                ok = False
+        return ok
+
+    def _start_iface_watcher(self) -> None:
+        """Start the netlink interface watcher in gateway mode only."""
+        if self.mode != "gateway":
+            return
+        self._iface_watcher = _NetlinkInterfaceWatcher(
+            bridge=self.interface,
+            block_fn=self._block_pivot_iface,
+        )
+        self._iface_watcher.start()
+
     def _apply_ip_forward(self) -> None:
         """Enforce ip_forward state based on operating mode.
 
@@ -881,6 +1089,10 @@ class IPTablesManager:
 
     def remove_rules(self):
         """Stop: restore the nat table to its pre-start state."""
+        if self._iface_watcher is not None:
+            self._iface_watcher.stop()
+            self._iface_watcher = None
+
         escalated = False
         if os.geteuid() != 0:  # type: ignore[attr-defined]
             from utils.privilege import restore_privileges
