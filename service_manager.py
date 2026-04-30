@@ -528,7 +528,7 @@ class ServiceManager:
     def _chown_log_dirs(log_dir: str, uid: int, gid: int) -> None:
         """Create log subdirectories and chown them to the drop target."""
         dirs_to_own = [log_dir]
-        for sub in ("emails", "ftp_uploads", "tftp_uploads"):
+        for sub in ("emails", "exfil", "ftp_uploads", "tftp_uploads"):
             dirs_to_own.append(os.path.join(log_dir, sub))
 
         for d in dirs_to_own:

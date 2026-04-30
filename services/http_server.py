@@ -30,6 +30,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse
 
+from services.cloud_exfil_routes import (
+    route_aws_s3,
+    route_azure_blob,
+    route_dropbox,
+    route_gdrive_upload,
+    route_graph_onedrive,
+)
 from services.doh_websocket import is_doh_request, is_websocket_upgrade
 from services.dynamic_response import compile_custom_rules, resolve_dynamic_response
 from services.http_routes import (
@@ -183,6 +190,25 @@ _FILE_HOSTING_HOSTS = frozenset({
 _GOOGLE_CONTENT_HOSTS = frozenset({
     "docs.google.com", "sheets.google.com", "drive.google.com",
     "drive.usercontent.google.com", "www.googleapis.com",
+})
+
+# ── Cloud exfiltration hosts ──────────────────────────────────────────────────
+# AWS S3: matches virtual-hosted ({bucket}.s3.amazonaws.com,
+# {bucket}.s3.{region}.amazonaws.com) and path-style (s3.amazonaws.com,
+# s3.{region}.amazonaws.com).  checkip.amazonaws.com is excluded — it is
+# handled earlier by the IP-check route.
+_AWS_S3_RE = re.compile(r"(?:^|\.)s3(?:\.[a-z0-9-]+)?\.amazonaws\.com$")
+
+# Azure Blob Storage: {account}.blob.core.windows.net
+_AZURE_BLOB_RE = re.compile(r"\.blob\.core\.windows\.net$")
+
+# Microsoft Graph / OneDrive API
+_GRAPH_HOST = "graph.microsoft.com"
+
+# Dropbox upload + API hosts
+_DROPBOX_HOSTS = frozenset({
+    "content.dropboxapi.com",
+    "api.dropboxapi.com",
 })
 
 # Windows PKI infrastructure hosts -- CRL, OCSP, and Certificate Trust List
@@ -470,6 +496,7 @@ class _HandlerConfig:
     doh_redirect_ip: str = "127.0.0.1"
     websocket_intercept: bool = False
     pool_ips: frozenset = field(default_factory=frozenset)
+    exfil_log_dir: str = "logs/exfil"
 
 
 def _build_handler_config(
@@ -480,6 +507,7 @@ def _build_handler_config(
     doh_enabled: bool = False, doh_redirect_ip: str = "127.0.0.1",
     websocket_intercept: bool = False,
     pool_ips: frozenset[str] = frozenset(),
+    exfil_log_dir: str = "logs/exfil",
 ) -> _HandlerConfig:
     """Build an immutable handler configuration bundle."""
     return _HandlerConfig(
@@ -496,6 +524,7 @@ def _build_handler_config(
         doh_redirect_ip=doh_redirect_ip,
         websocket_intercept=websocket_intercept,
         pool_ips=pool_ips,
+        exfil_log_dir=exfil_log_dir,
     )
 
 
@@ -791,6 +820,22 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
     def _route_google_content(self, host: str):
         return route_google_content(self, host)
 
+    # ── Cloud exfiltration routes ─────────────────────────────────────────
+    def _route_aws_s3(self, host: str):
+        return route_aws_s3(self, host)
+
+    def _route_azure_blob(self, host: str):
+        return route_azure_blob(self, host)
+
+    def _route_graph_onedrive(self, _host: str):
+        return route_graph_onedrive(self)
+
+    def _route_dropbox(self, _host: str):
+        return route_dropbox(self)
+
+    def _route_gdrive_upload(self, host: str):
+        return route_gdrive_upload(self)
+
     def _send_fake_response(self):
         host = self.headers.get("Host", "").split(":")[0].strip().lower()
 
@@ -1009,6 +1054,13 @@ FakeHTTPHandler._ROUTES = [  # noqa: SLF001
     (lambda s, h: h in _GITHUB_RAW_HOSTS,                       FakeHTTPHandler._route_github_raw),     # noqa: SLF001
     (lambda s, h: h in _FILE_HOSTING_HOSTS,                     FakeHTTPHandler._route_file_hosting),   # noqa: SLF001
     (lambda s, h: h in _GOOGLE_CONTENT_HOSTS,                   FakeHTTPHandler._route_google_content), # noqa: SLF001
+    # Cloud exfil: placed after google content so non-upload googleapis paths
+    # are handled by the dead-drop route; gdrive_upload returns False for those.
+    (lambda s, h: bool(_AWS_S3_RE.search(h)),                    FakeHTTPHandler._route_aws_s3),          # noqa: SLF001
+    (lambda s, h: bool(_AZURE_BLOB_RE.search(h)),                FakeHTTPHandler._route_azure_blob),      # noqa: SLF001
+    (lambda s, h: h == _GRAPH_HOST,                              FakeHTTPHandler._route_graph_onedrive),  # noqa: SLF001
+    (lambda s, h: h in _DROPBOX_HOSTS,                           FakeHTTPHandler._route_dropbox),         # noqa: SLF001
+    (lambda s, h: h == "www.googleapis.com",                     FakeHTTPHandler._route_gdrive_upload),   # noqa: SLF001
 ]
 
 
@@ -1060,6 +1112,7 @@ class HTTPService:
         self.doh_enabled = config.get("doh_intercept", False)
         self.doh_redirect_ip = config.get("doh_redirect_ip", "127.0.0.1")
         self.websocket_intercept = config.get("websocket_intercept", False)
+        self.exfil_log_dir = config.get("exfil_log_dir", "logs/exfil")
         self._server: _ThreadedServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -1076,6 +1129,7 @@ class HTTPService:
             doh_enabled=self.doh_enabled,
             doh_redirect_ip=self.doh_redirect_ip,
             websocket_intercept=self.websocket_intercept,
+            exfil_log_dir=self.exfil_log_dir,
         )
         try:
             self._server = _ThreadedServer((self.bind_ip, self.port), FakeHTTPHandler)
@@ -1131,6 +1185,7 @@ class HTTPSService:
         self.doh_enabled = config.get("doh_intercept", False)
         self.doh_redirect_ip = config.get("doh_redirect_ip", "127.0.0.1")
         self.websocket_intercept = config.get("websocket_intercept", False)
+        self.exfil_log_dir = config.get("exfil_log_dir", "logs/exfil")
         self._server: _ThreadedServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -1184,6 +1239,7 @@ class HTTPSService:
             doh_enabled=self.doh_enabled,
             doh_redirect_ip=self.doh_redirect_ip,
             websocket_intercept=self.websocket_intercept,
+            exfil_log_dir=self.exfil_log_dir,
         )
         try:
             self._server = _ThreadedServer((self.bind_ip, self.port), FakeHTTPHandler)
