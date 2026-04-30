@@ -27,6 +27,7 @@ import socket
 import struct
 import subprocess
 import threading
+from collections.abc import Callable
 
 from utils.logging_utils import sanitize_log_string
 from utils.validators import validate_port
@@ -324,7 +325,7 @@ class _NetlinkInterfaceWatcher:
     def __init__(
         self,
         bridge: str,
-        block_fn: "Callable[[str], bool]",
+        block_fn: Callable[[str], bool],
     ) -> None:
         self._bridge = bridge
         self._block_fn = block_fn
