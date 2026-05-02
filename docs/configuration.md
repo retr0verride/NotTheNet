@@ -66,6 +66,7 @@ Global settings that apply to all services.
 | `auto_evict_services` | bool | `true` | When `true`, NotTheNet automatically stops conflicting system services (apache2, nginx, lighttpd, bind9, dnsmasq, systemd-resolved, exim4, postfix, smbd, nmbd, mariadb, mysql) before binding ports. Requires `systemctl` and root. Set to `false` to manage those services manually. |
 | `auto_hardening` | bool | `true` | When `true`, runs `harden-lab.sh` on every Start to harden the lab host: stops conflicting services (apache2, bind9, etc.); blocks FORWARD between the lab bridge and the management NIC; blocks FORWARD between the lab bridge and **any other routable interface active at start time** (e.g. vmbr2/vmbr3) to prevent malware pivoting out of the lab; blocks lateral movement ports (SSH/WMI/WinRM/NetBIOS) inbound on the bridge; and sets `ip_forward=0` as a safe baseline (gateway mode re-enables it). In gateway mode, a background netlink watcher also detects interfaces that come up **after** Start and applies the same pivot DROP rules immediately. Settings are restored when NotTheNet stops. |
 | `passthrough_subnets` | list[string] | `["10.10.10.0/24"]` | CIDR ranges whose **intra-LAN** traffic bypasses NotTheNet's DNAT redirects. Implemented as `iptables -t nat -I PREROUTING -s <cidr> -d <cidr> -j RETURN`. The match requires **both** source and destination inside the CIDR, so victim→Kali probes are still caught by NTN, but victim→victim traffic (e.g. WannaCry SMB lateral spread) passes straight through. In **gateway mode**, if this list is empty, NotTheNet auto-derives the LAN CIDR from the gateway interface IP at startup — so worm-style `/24` scans spread between victims out of the box without operator config. Set explicitly only if you need to allow additional subnets or override auto-derivation. **Sinkhole mode** (`iptables_mode: "loopback"`) does not auto-derive: the sinkhole is supposed to capture all traffic on the host. |
+| `promisc_mode` | bool | `false` | When `true`, enables promiscuous mode on `interface` at startup and restores the original state on stop. Required to capture VM-to-VM traffic (e.g. EternalBlue lateral movement between two victim VMs on the same bridge segment) that never traverses Kali's routing stack. State is read from `/sys/class/net/<iface>/flags`, preserved in the `atexit` handler, and restored in `IPTablesManager.remove_rules()`. Leave `false` for single-victim labs — promiscuous mode is not needed when all traffic passes through the gateway. |
 
 ### Example
 
@@ -90,7 +91,9 @@ Global settings that apply to all services.
   "drop_privileges_user": "nobody",
   "drop_privileges_group": "nogroup",
   "process_masquerade": true,
-  "process_name": "[kworker/u2:1-events]"
+  "process_name": "[kworker/u2:1-events]",
+  "passthrough_subnets": ["10.10.10.0/24"],
+  "promisc_mode": false
 }
 ```
 

@@ -110,7 +110,7 @@ Man page: [man/notthenet.1](man/notthenet.1) — installed automatically by nott
 ## Development
 
 ```bash
-pytest tests/ -v              # 253 tests — pure Python, no root, no network
+pytest tests/ -v              # 391 tests — pure Python, no root, no network
 ruff check .                  # lint
 bandit -r . --exclude .venv   # SAST
 ```

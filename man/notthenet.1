@@ -1,7 +1,7 @@
 .\" Man page for NotTheNet
-.\" Generated for NotTheNet v1.0.0
+.\" Generated for NotTheNet 2026.04.24-18
 .\"
-.TH NOTTHENET 1 "February 2026" "NotTheNet 1.0.0" "Malware Analysis Tools"
+.TH NOTTHENET 1 "May 2026" "NotTheNet 2026.04.24-18" "Malware Analysis Tools"
 
 .SH NAME
 notthenet \- fake internet simulator for malware analysis
@@ -17,10 +17,11 @@ notthenet \- fake internet simulator for malware analysis
 .SH DESCRIPTION
 .B notthenet
 is a fake internet simulator designed for use in isolated malware analysis
-environments. It starts a suite of fake network services (DNS, HTTP, HTTPS,
-SMTP, POP3, IMAP, FTP, and a TCP/UDP catch-all) that respond convincingly
-to connections from malware under analysis, making the malware believe it
-has internet access.
+environments. It starts 27 fake network services (DNS, DoT, HTTP/S, SMTP/S, POP3/S,
+IMAP/S, FTP, NTP, TFTP, IRC, IRCS, Telnet, SOCKS5, VNC, RDP, SMB,
+MySQL, MSSQL, Redis, LDAP, ICMP, and TCP/UDP catch-all) that respond
+convincingly to connections from malware under analysis, making the
+malware believe it has internet access.
 
 .PP
 NotTheNet automatically manages
@@ -97,12 +98,30 @@ Accepts ESMTP connections and optionally archives received emails to
 using UUID-based filenames (maximum 5 MB per message, 100 MB total).
 
 .TP
+.B DoT — DNS-over-TLS (port 853, TCP+TLS)
+Identical resolver logic to the plain DNS service, wrapped in TLS.
+Intercepts malware that encrypts DNS queries to evade inspection.
+
+.TP
+.B SMTPS (port 465, TCP+TLS)
+As SMTP, wrapped in TLS. Accepts any credentials; optionally archives
+received emails.
+
+.TP
 .B POP3 (port 110, TCP)
 Presents an empty mailbox; accepts any credentials.
 
 .TP
+.B POP3S (port 995, TCP+TLS)
+As POP3, wrapped in TLS.
+
+.TP
 .B IMAP (port 143, TCP)
 Presents an empty INBOX (IMAP4rev1 subset); accepts any credentials.
+
+.TP
+.B IMAPS (port 993, TCP+TLS)
+As IMAP, wrapped in TLS.
 
 .TP
 .B FTP (port 21, TCP)
@@ -111,13 +130,77 @@ Accepts connections and file uploads. Saves uploads to
 using UUID-based filenames. PASV only; PORT (active mode) is disabled.
 
 .TP
-.B TCP Catch-All (port 9999, TCP)
-Receives all TCP connections redirected by iptables from ports not
-handled by named services. Responds with
-.IR "200 OK" .
+.B NTP (port 123, UDP)
+Returns a plausible NTP response with the current system time.
 
 .TP
-.B UDP Catch-All (port 9998, UDP, disabled by default)
+.B TFTP (port 69, UDP)
+Accepts TFTP read and write requests; serves a stub file or discards
+uploads.
+
+.TP
+.B IRC (port 6667, TCP)
+Presents a minimal IRC server; accepts NICK/USER/JOIN/PRIVMSG so
+IRC-based C2 bots register and stay connected.
+
+.TP
+.B IRCS — IRC-over-TLS (port 6697, TCP+TLS)
+As IRC, wrapped in TLS.
+
+.TP
+.B Telnet (port 23, TCP)
+Presents a login prompt; accepts any credentials and echoes a shell-like
+banner.
+
+.TP
+.B SOCKS5 (port 1080, TCP)
+Completes the SOCKS5 handshake so proxy-aware malware believes it has
+a working SOCKS proxy.
+
+.TP
+.B ICMP Responder
+Replies to ICMP echo requests (ping). Keeps alive-checking malware
+from looping or switching C2 channels.
+
+.TP
+.B MySQL (port 3306, TCP)
+Returns a MySQL server greeting; accepts any credentials.
+
+.TP
+.B MSSQL (port 1433, TCP)
+Returns a TDS pre-login response; accepts any credentials.
+
+.TP
+.B RDP (port 3389, TCP)
+Returns an RDP negotiation response so RDP-probing malware advances past
+the connection phase.
+
+.TP
+.B SMB (port 445, TCP)
+Handles SMBv1 NEGOTIATE (including EternalBlue TRANS2 probes) and
+returns STATUS_NOT_SUPPORTED for SMBv2/3. Worms mark the host as
+reached-but-not-vulnerable and continue their subnet scan.
+
+.TP
+.B VNC (port 5900, TCP)
+Completes the RFB protocol handshake; accepts any credentials.
+
+.TP
+.B Redis (port 6379, TCP)
+Returns a Redis inline response to PING and INFO commands.
+
+.TP
+.B LDAP (port 389, TCP)
+Returns a minimal LDAP bind response; accepts any credentials.
+
+.TP
+.B TCP Catch-All (port 9999, TCP)
+Receives all TCP connections redirected by iptables from ports not
+handled by named services. Auto-detects protocol (HTTP, TLS, SSH, SMTP,
+FTP, IRC, SOCKS, RDP, SMB, MySQL, DNS) and responds accordingly.
+
+.TP
+.B UDP Catch-All (port 9998, UDP)
 Optional UDP drain service.
 
 .SH CONFIGURATION
