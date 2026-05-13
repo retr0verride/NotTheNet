@@ -1,11 +1,20 @@
 # Changelog
 
-All notable changes to NotTheNet are documented here.  
+All notable changes to NotTheNet are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses [CalVer](https://calver.org/) (`YYYY.MM.DD-N`).
 
 ---
 
 ## [Unreleased]
+
+## [2026.05.13-19] — 2026-05-13
+
+### Fixed
+- **Desktop launcher auth failure on Kali Purple / GNOME.** Polkit `allow_active` was set to `auth_admin_keep`, which requires the root password. Modern Kali has no root password set, so every authentication attempt silently failed. Changed to `auth_self` so polkit asks for the logged-in user's own password, matching `sudo` behaviour.
+- **GUI does not open after pkexec escalation on GNOME/Wayland.** `pkexec` strips `DISPLAY`/`XAUTHORITY` even with `allow_gui=true` on some GNOME Wayland systems. The launcher now recovers `DISPLAY` from the XWayland socket and sets `GDK_BACKEND=x11` (Tkinter does not support native Wayland).
+- **Launcher xterm fallback only caught pkexec exit 126.** Exit 127 (binary not found) is now also handled.
+- **`build-deb.sh` aborts if `rsync` is not installed.** Build now falls back to `cp` with manual exclusions when `rsync` is absent, so the `.deb` can be built on a minimal Kali install.
+- **`docs/installation.md`: `python3-venv` missing from requirements table.** Added to table. Changed `apt --fix-broken install` (marked optional) to `apt-get install -f` (unconditional) — on a fresh Kali install the `.deb` postinst always needs it to satisfy the `python3-venv` dependency.
 
 ## [2026.04.24-15] — 2026-04-24
 

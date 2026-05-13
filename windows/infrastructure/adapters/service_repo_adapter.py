@@ -1,0 +1,1 @@
+"""Service repository adapter."""

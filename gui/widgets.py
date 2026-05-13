@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 # Public helpers
 # ---------------------------------------------------------------------------
 
+
 def _open_path_external(path: str) -> None:
     """Open a file or directory in the platform's default handler."""
     if sys.platform == "win32":
@@ -31,7 +32,7 @@ def _open_path_external(path: str) -> None:
 # ---------------------------------------------------------------------------
 
 APP_TITLE = "NotTheNet \u2014 Fake Internet Simulator"
-APP_VERSION = "2026.04.24-18"
+APP_VERSION = "2026.05.13-19"
 PAD = 8
 FIELD_WIDTH = 22
 LOG_MAX_LINES = 2000
@@ -40,50 +41,50 @@ LOG_MAX_LINES = 2000
 # Colour scheme
 # ---------------------------------------------------------------------------
 
-C_BG       = "#13131f"
-C_PANEL    = "#1a1a2c"
-C_SURFACE  = "#222235"
-C_BORDER   = "#2d2d48"
-C_ACCENT   = "#00d4aa"
-C_ACCENT2  = "#00aaff"
-C_GREEN    = "#4ade80"
-C_RED      = "#e53e3e"
-C_ORANGE   = "#fb923c"
-C_TEXT     = "#e2e8f0"
-C_DIM      = "#4a5568"
-C_SUBTLE   = "#94a3b8"
+C_BG = "#13131f"
+C_PANEL = "#1a1a2c"
+C_SURFACE = "#222235"
+C_BORDER = "#2d2d48"
+C_ACCENT = "#00d4aa"
+C_ACCENT2 = "#00aaff"
+C_GREEN = "#4ade80"
+C_RED = "#e53e3e"
+C_ORANGE = "#fb923c"
+C_TEXT = "#e2e8f0"
+C_DIM = "#4a5568"
+C_SUBTLE = "#94a3b8"
 C_ENTRY_BG = "#111122"
 C_ENTRY_FG = "#e2e8f0"
-C_HOVER    = "#262640"
+C_HOVER = "#262640"
 C_SELECTED = "#1a3a4f"
-C_LOG_BG   = "#0c0c18"
+C_LOG_BG = "#0c0c18"
 
 # ---------------------------------------------------------------------------
 # Zoom / font / event / style constants
 # ---------------------------------------------------------------------------
 
 _ZOOM_STEP = 0.15
-_ZOOM_MIN  = 0.70
-_ZOOM_MAX  = 2.00
+_ZOOM_MIN = 0.70
+_ZOOM_MAX = 2.00
 
-_EVT_CONFIGURE  = "<Configure>"
-_EVT_BUTTON1    = "<Button-1>"
-_EVT_BUTTON4    = "<Button-4>"
-_EVT_BUTTON5    = "<Button-5>"
+_EVT_CONFIGURE = "<Configure>"
+_EVT_BUTTON1 = "<Button-1>"
+_EVT_BUTTON4 = "<Button-4>"
+_EVT_BUTTON5 = "<Button-5>"
 _EVT_MOUSEWHEEL = "<MouseWheel>"
 
 _STY_DARK_COMBO = "Dark.TCombobox"
 _STY_JSONLOG_TV = "JsonLog.Treeview"
 
-_JSON_LOG_PATH  = "logs/events.jsonl"
+_JSON_LOG_PATH = "logs/events.jsonl"
 _MAIL_HOST_DEFAULT = "mail.example.com"
 
 # Base window / pane dimensions (at zoom 1.0)
-_BASE_W,    _BASE_H    = 1000, 720
+_BASE_W, _BASE_H = 1000, 720
 _BASE_MIN_W, _BASE_MIN_H = 800, 600
-_PANE_BODY_MIN   = 340
-_PANE_LOG_MIN    = 120
-_PANE_SIDE_MIN   = 148
+_PANE_BODY_MIN = 340
+_PANE_LOG_MIN = 120
+_PANE_SIDE_MIN = 148
 _PANE_CONFIG_MIN = 500
 
 # NotTheNet globe+prohibition window icon (64x64 RGBA PNG, base64-encoded)
@@ -121,6 +122,7 @@ def _f(size: int, bold: bool = False):
 # Hover helper
 # ---------------------------------------------------------------------------
 
+
 def _hover_bind(widget, normal_bg: str, hover_bg: str):
     """Simulate button hover by swapping background colour on Enter/Leave."""
     widget.bind("<Enter>", lambda _e: widget.configure(bg=hover_bg))
@@ -130,6 +132,7 @@ def _hover_bind(widget, normal_bg: str, hover_bg: str):
 # ---------------------------------------------------------------------------
 # Tooltip
 # ---------------------------------------------------------------------------
+
 
 class _Tooltip:
     """Dark-themed tooltip that appears after a short hover delay."""
@@ -142,10 +145,10 @@ class _Tooltip:
         self._text = text
         self._tw: tk.Toplevel | None = None
         self._job: str | None = None
-        widget.bind("<Enter>",    self._on_enter, add="+")
-        widget.bind("<Leave>",    self._on_leave, add="+")
-        widget.bind("<Button>",   self._on_leave, add="+")
-        widget.bind("<Destroy>",  self._on_leave, add="+")
+        widget.bind("<Enter>", self._on_enter, add="+")
+        widget.bind("<Leave>", self._on_leave, add="+")
+        widget.bind("<Button>", self._on_leave, add="+")
+        widget.bind("<Destroy>", self._on_leave, add="+")
 
     def _on_enter(self, _event=None):
         self._cancel()
@@ -210,6 +213,7 @@ def tooltip(widget: tk.Widget, text: str) -> None:
 # Info panel (field-level help box)
 # ---------------------------------------------------------------------------
 
+
 class _InfoPanel(tk.Frame):
     """Persistent help box pinned at the bottom of each config page."""
 
@@ -221,30 +225,50 @@ class _InfoPanel(tk.Frame):
             bg="#0d0d1c",
             highlightbackground=C_ACCENT,
             highlightthickness=1,
-            padx=10, pady=8,
+            padx=10,
+            pady=8,
         )
         self._title = tk.Label(
-            self, bg="#0d0d1c", fg=C_ACCENT,
-            font=_f(9, True), anchor="w", text="",
+            self,
+            bg="#0d0d1c",
+            fg=C_ACCENT,
+            font=_f(9, True),
+            anchor="w",
+            text="",
         )
         self._title.pack(fill="x")
         self._desc = tk.Label(
-            self, bg="#0d0d1c", fg=C_TEXT,
-            font=_f(8), anchor="w", justify="left",
-            wraplength=480, text=self._IDLE,
+            self,
+            bg="#0d0d1c",
+            fg=C_TEXT,
+            font=_f(8),
+            anchor="w",
+            justify="left",
+            wraplength=480,
+            text=self._IDLE,
         )
         self._desc.pack(fill="x", pady=(2, 0))
         self._default_lbl = tk.Label(
-            self, bg="#0d0d1c", fg=C_ACCENT2,
-            font=_f(8, True), anchor="w", text="",
+            self,
+            bg="#0d0d1c",
+            fg=C_ACCENT2,
+            font=_f(8, True),
+            anchor="w",
+            text="",
         )
         self._default_lbl.pack(fill="x", pady=(2, 0))
         self._restore_fn = None
         self._restore_btn = tk.Button(
-            self, text="\u21ba",
-            bg=C_HOVER, fg=C_TEXT,
-            relief="flat", bd=0, padx=8, pady=3,
-            font=_f(10), cursor="hand2",
+            self,
+            text="\u21ba",
+            bg=C_HOVER,
+            fg=C_TEXT,
+            relief="flat",
+            bd=0,
+            padx=8,
+            pady=3,
+            font=_f(10),
+            cursor="hand2",
             state="disabled",
             command=self._do_restore,
         )
@@ -263,13 +287,9 @@ class _InfoPanel(tk.Frame):
         """Display field help in the panel."""
         self._title.configure(text=title)
         self._desc.configure(text=tip or "")
-        self._default_lbl.configure(
-            text=f"Suggested default:  {default}" if default else ""
-        )
+        self._default_lbl.configure(text=f"Suggested default:  {default}" if default else "")
         self._restore_fn = restore_fn
-        self._restore_btn.configure(
-            state="normal" if restore_fn else "disabled"
-        )
+        self._restore_btn.configure(state="normal" if restore_fn else "disabled")
 
     def clear(self):
         """Reset the panel to its idle state."""
@@ -283,6 +303,7 @@ class _InfoPanel(tk.Frame):
 # ---------------------------------------------------------------------------
 # Logging bridge: route Python log records -> GUI queue
 # ---------------------------------------------------------------------------
+
 
 class _QueueHandler(logging.Handler):
     """Non-blocking log handler that feeds formatted records into a queue."""
@@ -308,6 +329,7 @@ class _QueueHandler(logging.Handler):
 # ---------------------------------------------------------------------------
 # Widget factory helpers
 # ---------------------------------------------------------------------------
+
 
 def _label(parent, text, **kw):
     bg = kw.pop("bg", C_SURFACE)
@@ -375,19 +397,28 @@ def _section_frame(parent, title: str):
     )
 
 
-def _row(parent, label: str, widget_factory, row: int,
-         col_offset: int = 0, tip: str = "", info_panel=None, default: str = "",
-         var=None):
+def _row(
+    parent,
+    label: str,
+    widget_factory,
+    row: int,
+    col_offset: int = 0,
+    tip: str = "",
+    info_panel=None,
+    default: str = "",
+    var=None,
+):
     """Lay out a label + widget pair; update info_panel on click/focus."""
-    lbl = tk.Label(parent, text=label, bg=C_SURFACE, fg=C_SUBTLE,
-                   font=_f(9), anchor="e")
+    lbl = tk.Label(parent, text=label, bg=C_SURFACE, fg=C_SUBTLE, font=_f(9), anchor="e")
     lbl.grid(row=row, column=col_offset, sticky="e", padx=(0, 6), pady=4)
     w = widget_factory()
     w.grid(row=row, column=col_offset + 1, sticky="w", pady=4)
     if info_panel and tip:
+
         def _show(_e=None, _t=label, _d=tip, _def=default, _v=var):
             restore_fn = (lambda: _v.set(_def)) if _v is not None and _def != "" else None
             info_panel.show(_t, _d, str(_def), restore_fn=restore_fn)
+
         w.bind("<FocusIn>", _show)
         w.bind(_EVT_BUTTON1, _show)
     else:
@@ -395,4 +426,3 @@ def _row(parent, label: str, widget_factory, row: int,
             tooltip(lbl, tip)
             tooltip(w, tip)
     return w
-
