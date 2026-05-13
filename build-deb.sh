@@ -42,20 +42,39 @@ install -dm755 "$STAGING/usr/share/icons/hicolor/scalable/apps"
 
 # ── Copy project files ────────────────────────────────────────────────────────
 info "Copying project files to /opt/notthenet..."
-rsync -a \
-    --exclude='.git' \
-    --exclude='__pycache__' \
-    --exclude='*.pyc' \
-    --exclude='.venv' \
-    --exclude='venv' \
-    --exclude='*.egg-info' \
-    --exclude='.vscode' \
-    --exclude='build-deb.sh' \
-    --exclude='*.deb' \
-    --exclude='tests/' \
-    --exclude='certs/' \
-    --exclude='logs/' \
-    "${SCRIPT_DIR}/" "$STAGING/opt/notthenet/"
+if command -v rsync &>/dev/null; then
+    rsync -a \
+        --exclude='.git' \
+        --exclude='__pycache__' \
+        --exclude='*.pyc' \
+        --exclude='.venv' \
+        --exclude='venv' \
+        --exclude='*.egg-info' \
+        --exclude='.vscode' \
+        --exclude='build-deb.sh' \
+        --exclude='*.deb' \
+        --exclude='tests/' \
+        --exclude='certs/' \
+        --exclude='logs/' \
+        "${SCRIPT_DIR}/" "$STAGING/opt/notthenet/"
+else
+    warn "rsync not found — falling back to cp (installing rsync is recommended: sudo apt-get install rsync)"
+    cp -a "${SCRIPT_DIR}/." "$STAGING/opt/notthenet/"
+    # Remove excluded paths manually
+    rm -rf \
+        "$STAGING/opt/notthenet/.git" \
+        "$STAGING/opt/notthenet/__pycache__" \
+        "$STAGING/opt/notthenet/.venv" \
+        "$STAGING/opt/notthenet/venv" \
+        "$STAGING/opt/notthenet/.vscode" \
+        "$STAGING/opt/notthenet/build-deb.sh" \
+        "$STAGING/opt/notthenet/tests" \
+        "$STAGING/opt/notthenet/certs" \
+        "$STAGING/opt/notthenet/logs"
+    find "$STAGING/opt/notthenet" -name '*.pyc' -delete
+    find "$STAGING/opt/notthenet" -name '*.egg-info' -exec rm -rf {} + 2>/dev/null || true
+    find "$STAGING/opt/notthenet" -name '*.deb' -delete
+fi
 
 # ── /usr/bin/notthenet CLI launcher ──────────────────────────────────────────
 info "Creating /usr/bin/notthenet launcher..."

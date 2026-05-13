@@ -17,7 +17,18 @@
 SELF="$(readlink -f "$0")"
 
 if [[ $EUID -eq 0 ]]; then
-    # Running as root (launched by pkexec) — start the application.
+    # Running as root (re-executed by pkexec).
+    #
+    # pkexec may strip DISPLAY/XAUTHORITY on GNOME/Wayland even with
+    # allow_gui=true.  Recover the X display from the XWayland socket so
+    # Tkinter can connect (Tkinter does not support native Wayland).
+    if [[ -z "${DISPLAY:-}" ]]; then
+        for _sock in /tmp/.X11-unix/X*; do
+            [[ -S "$_sock" ]] && export DISPLAY=":${_sock##*X}" && break
+        done
+    fi
+    # Force X11/XWayland backend — required on Wayland sessions (GNOME Kali Purple).
+    export GDK_BACKEND=x11
     exec VENV_PYTHON_PLACEHOLDER SCRIPT_PLACEHOLDER "$@"
 fi
 
@@ -30,11 +41,10 @@ if [[ $EXIT_CODE -eq 0 ]]; then
     exit 0
 fi
 
-# Exit 126 = no polkit agent running (non-graphical session or Kali bare login).
-# Fall back to an xterm root shell so the GUI can still open.
-# Quote the -e argument as a single string so word-splitting doesn't break paths
-# or arguments that contain spaces.
-if [[ $EXIT_CODE -eq 126 ]]; then
+# Exit 126 = no polkit authentication agent running (text-mode / minimal session).
+# Exit 127 = pkexec could not find or execute the target binary.
+# Both cases: fall back to xterm + sudo so the GUI can still open.
+if [[ $EXIT_CODE -eq 126 ]] || [[ $EXIT_CODE -eq 127 ]]; then
     exec xterm -e "sudo VENV_PYTHON_PLACEHOLDER SCRIPT_PLACEHOLDER $(printf '%q ' "$@")"
 fi
 

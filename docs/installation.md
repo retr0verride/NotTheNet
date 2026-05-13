@@ -24,6 +24,7 @@
 | Disk | 50 MB | 200 MB (for captures) |
 | Privileges | root | root |
 | GUI toolkit | `python3-tk` | `python3-tk` |
+| Python venv | `python3-venv` | `python3-venv` |
 
 | Platform | Status |
 |----------|--------|
@@ -55,7 +56,7 @@ git clone https://github.com/retr0verride/NotTheNet.git
 cd NotTheNet
 bash build-deb.sh
 sudo dpkg -i dist/notthenet_*.deb
-sudo apt --fix-broken install   # only needed if dpkg reports missing deps
+sudo apt-get install -f         # installs any missing dependencies and completes configuration
 ```
 
 **What gets installed:**

@@ -21,7 +21,12 @@
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>
-      <allow_active>auth_admin_keep</allow_active>
+      <!--
+        auth_self: polkit asks for the current user's own password, matching
+        how `sudo` behaves.  auth_admin_keep asks for the root/admin password,
+        which fails on modern Kali where the root account has no password set.
+      -->
+      <allow_active>auth_self</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">NOTTHENET_GUI_PLACEHOLDER</annotate>
     <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
