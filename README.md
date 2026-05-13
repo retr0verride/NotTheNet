@@ -47,17 +47,12 @@ sudo dpkg -i dist/notthenet_*.deb
 sudo apt-get install -f
 ```
 
-**Air-gapped / offline install** (Kali has no internet — build the bundle on Windows, copy via USB):
+**Air-gapped / offline install** (Kali has no internet — download the `.deb` from [Releases](https://github.com/retr0verride/NotTheNet/releases/latest) on any connected machine and copy it across):
 
-```powershell
-.\make-bundle.ps1 -SkipChecks    # -> dist\NotTheNet-<ver>.zip
-```
 ```bash
-# Copy zip to Kali, then:
-cp NotTheNet-*.zip ~/ ; cd ~
-unzip NotTheNet-*.zip
-cd ~/NotTheNet
-sudo bash notthenet-bundle.sh --install
+# On Kali after copying the .deb:
+sudo dpkg -i notthenet_*.deb
+sudo apt-get install -f
 sudo notthenet
 ```
 

@@ -97,51 +97,42 @@ sudo iptables -t nat -S | grep NOTTHENET   # should return nothing
 
 ---
 
-## Method 2 — Offline / USB bundle
+## Method 2 — Offline / USB install
 
-Use when your Kali machine has **no internet access**. The bundle embeds all required Python wheels so Kali never needs to reach PyPI.
+Use when your Kali machine has **no internet access**. Download the `.deb` from GitHub Releases on any internet-connected machine and copy it to Kali.
 
-> The bundle is built on your Windows machine from the cloned repo — it is not a download. If Kali has internet, use Method 1.
+### Download (on any internet-connected machine)
 
-### Build (on Windows, internet-connected machine)
-
-```powershell
-cd U:\NotTheNet
-git pull origin main
-.\make-bundle.ps1 -SkipChecks
-# Output: dist\NotTheNet-<ver>.zip  and  dist\notthenet-bundle.sh
+```bash
+# Download the latest .deb from GitHub Releases:
+curl -L -o notthenet_latest.deb \
+  "$(curl -s https://api.github.com/repos/retr0verride/NotTheNet/releases/latest \
+    | grep 'browser_download_url.*\.deb' | cut -d'"' -f4)"
 ```
+
+Or grab it manually from [github.com/retr0verride/NotTheNet/releases/latest](https://github.com/retr0verride/NotTheNet/releases/latest).
 
 ### Transfer to Kali
 
-Copy via USB, SCP, or shared folder. If using FAT32 USB, copy the zip to local disk first — FAT32 does not support symlinks required by the Python venv.
+Copy via USB, SCP, or shared folder.
 
 ```bash
-cp NotTheNet-*.zip ~/
-cd ~
-unzip NotTheNet-*.zip
+# On Kali — install the .deb and its dependencies:
+sudo dpkg -i notthenet_*.deb
+sudo apt-get install -f
 ```
 
-### Install on Kali
-
-```bash
-cd ~/NotTheNet
-sudo bash notthenet-bundle.sh --install
-```
+> `apt-get install -f` fetches `python3-venv` and any other missing dependencies from the Kali apt mirror. If the Kali apt mirror is also unavailable, install `python3-venv` from a pre-downloaded package before running `dpkg -i`.
 
 ### Upgrade
 
-Rebuild on Windows with the latest code, transfer, then:
-
-```bash
-sudo bash notthenet-bundle.sh --update   # preserves config.json, certs, logs
-```
+Download the new `.deb` from [releases](https://github.com/retr0verride/NotTheNet/releases/latest), copy to Kali, and re-run `dpkg -i`.
 
 ### Uninstall
 
 ```bash
-sudo notthenet-uninstall            # remove system files, keep logs/certs
-sudo notthenet-uninstall --purge    # remove everything
+sudo apt remove notthenet     # remove binaries, keep /opt/notthenet (config/certs/logs)
+sudo apt purge notthenet      # remove everything including /opt/notthenet
 ```
 
 ---
