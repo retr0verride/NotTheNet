@@ -111,7 +111,7 @@ Package: ${PKG}
 Version: ${VERSION}
 Architecture: ${ARCH}
 Maintainer: retr0verride <https://github.com/retr0verride>
-Depends: python3 (>= 3.9), python3-venv, iptables, iproute2, openssl
+Depends: python3 (>= 3.10), python3-venv, iptables, iproute2, openssl
 Recommends: librsvg2-bin
 Section: net
 Priority: optional

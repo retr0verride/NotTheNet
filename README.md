@@ -33,26 +33,31 @@ git clone https://github.com/retr0verride/NotTheNet
 cd NotTheNet
 bash build-deb.sh
 sudo dpkg -i dist/notthenet_*.deb
+sudo apt-get install -f          # resolves any missing deps (e.g. python3-venv)
 sudo notthenet
 ```
 
 **Upgrading an existing install:**
 ```bash
-cd ~
-cd NotTheNet
-git pull
+cd ~/NotTheNet
+git pull origin main
+rm -f dist/*.deb
 bash build-deb.sh
 sudo dpkg -i dist/notthenet_*.deb
+sudo apt-get install -f
 ```
 
 **Air-gapped / offline install** (Kali has no internet — build the bundle on Windows, copy via USB):
 
 ```powershell
-.\make-bundle.ps1 -SkipChecks    # -> dist/NotTheNet-bundle.zip + ISO
+.\make-bundle.ps1 -SkipChecks    # -> dist\NotTheNet-<ver>.zip
 ```
 ```bash
-# On Kali:
-sudo bash notthenet-bundle.sh
+# Copy zip to Kali, then:
+cp NotTheNet-*.zip ~/ ; cd ~
+unzip NotTheNet-*.zip
+cd ~/NotTheNet
+sudo bash notthenet-bundle.sh --install
 sudo notthenet
 ```
 

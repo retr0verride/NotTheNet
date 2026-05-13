@@ -19,7 +19,7 @@
 | Component | Minimum | Recommended |
 |-----------|---------|-------------|
 | OS | Debian 11 / Ubuntu 20.04 | Kali Linux 2024+ |
-| Python | 3.9 | 3.11+ |
+| Python | 3.10 | 3.11+ |
 | RAM | 128 MB | 256 MB |
 | Disk | 50 MB | 200 MB (for captures) |
 | Privileges | root | root |
@@ -32,11 +32,9 @@
 | Kali Linux 2023 | ✅ Supported |
 | Debian 12 (Bookworm) | ✅ Supported |
 | Ubuntu 22.04 / 24.04 | ✅ Supported |
-| Ubuntu 20.04 | ⚠ Supported (Python 3.8 needs upgrade) |
+| Ubuntu 20.04 | ⚠ Supported (default Python 3.8 must be upgraded to 3.10+) |
 | Parrot OS | ⚠ Should work, untested |
 | macOS / Windows | ❌ No (requires Linux iptables) |
-
----
 
 ---
 
@@ -79,6 +77,7 @@ git pull origin main
 rm -f dist/*.deb              # remove stale builds so the glob below is unambiguous
 bash build-deb.sh
 sudo dpkg -i dist/notthenet_*.deb
+sudo apt-get install -f       # installs any missing dependencies and completes configuration
 ```
 
 `dpkg -i` on a newer `.deb` is an in-place upgrade — it replaces `/opt/notthenet/` and preserves `config.json`.
@@ -222,7 +221,7 @@ All three install methods register a desktop entry so NotTheNet appears in the K
 |------|-------------|
 | `/usr/share/applications/notthenet.desktop` | App menu entry |
 | `/usr/local/bin/notthenet-gui` | Launcher that calls `pkexec` for the password prompt |
-| `/usr/share/polkit-1/actions/com.retr0verride.notthenet.policy` | Named polkit action — `exec.path` matches `/usr/local/bin/notthenet-gui` so pkexec forwards `DISPLAY`/`XAUTHORITY` to the GUI |
+| `/usr/share/polkit-1/actions/com.retr0verride.notthenet.policy` | Named polkit action — uses `auth_self` so polkit asks for the user's own password (matches `sudo`). `exec.path` matches `/usr/local/bin/notthenet-gui`. On GNOME/Wayland the launcher recovers `DISPLAY` from XWayland and sets `GDK_BACKEND=x11` automatically. |
 | `/usr/share/icons/hicolor/scalable/apps/notthenet.svg` | SVG icon (hicolor theme) |
 | `/usr/share/icons/hicolor/128x128/apps/notthenet.png` | 128 px PNG icon (hicolor theme) |
 | `/usr/share/pixmaps/notthenet.svg` | Fallback icon for desktop environments that query pixmaps instead of hicolor |
