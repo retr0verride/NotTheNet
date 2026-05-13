@@ -1,8 +1,0 @@
-# NotTheNet Windows — Python Dependencies
-# Install: pip install -r requirements.txt
-
-# DNS packet parsing / server
-dnslib==0.9.26
-
-# TLS certificate generation
-cryptography==46.0.7

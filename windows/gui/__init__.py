@@ -1,1 +1,0 @@
-"""GUI layer — Tkinter dashboard."""
