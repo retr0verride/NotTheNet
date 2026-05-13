@@ -32,9 +32,17 @@ rm -rf NotTheNet
 git clone https://github.com/retr0verride/NotTheNet
 cd NotTheNet
 bash build-deb.sh
+sudo install -d -m 755 /usr/local/bin   # minimal Kali/WSL images may not have this path
 sudo dpkg -i dist/notthenet_*.deb
 sudo apt-get install -f          # resolves any missing deps (e.g. python3-venv)
 sudo notthenet
+```
+
+If `dpkg` fails with `notthenet.postinst: ... /usr/local/bin/notthenet-gui: No such file or directory`, run:
+
+```bash
+sudo install -d -m 755 /usr/local/bin
+sudo dpkg --configure -a
 ```
 
 **Upgrading an existing install:**
@@ -51,6 +59,7 @@ sudo apt-get install -f
 
 ```bash
 # On Kali after copying the .deb:
+sudo install -d -m 755 /usr/local/bin
 sudo dpkg -i notthenet_*.deb
 sudo apt-get install -f
 sudo notthenet
