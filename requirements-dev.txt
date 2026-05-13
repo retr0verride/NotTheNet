@@ -23,7 +23,7 @@ bandit[toml]>=1.7
 pip-audit>=2.7
 
 # ── Pre-commit ───────────────────────────────────────────────────────────────
-pre-commit>=3.8
+pre-commit>=4.6.0
 
 # ── Settings / validation (new layer dependency) ─────────────────────────────
 pydantic>=2.0
