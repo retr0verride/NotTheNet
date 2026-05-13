@@ -186,11 +186,21 @@ chmod 700 "$OPT/logs"
 # ── GUI launcher (/usr/local/bin/notthenet-gui) ───────────────────────────────
 # Use the shared template (assets/notthenet-gui-launcher) so the deb and
 # script installs produce identical launchers with polkit + xterm fallback.
-sed \
-    -e "s|VENV_PYTHON_PLACEHOLDER|/opt/notthenet/venv/bin/python|g" \
-    -e "s|SCRIPT_PLACEHOLDER|/opt/notthenet/notthenet.py|g" \
-    "$OPT/assets/notthenet-gui-launcher" > /usr/local/bin/notthenet-gui
-chmod 755 /usr/local/bin/notthenet-gui
+if [[ -f "$OPT/assets/notthenet-gui-launcher" ]]; then
+    sed \
+        -e "s|VENV_PYTHON_PLACEHOLDER|/opt/notthenet/venv/bin/python|g" \
+        -e "s|SCRIPT_PLACEHOLDER|/opt/notthenet/notthenet.py|g" \
+        "$OPT/assets/notthenet-gui-launcher" > /usr/local/bin/notthenet-gui
+    chmod 755 /usr/local/bin/notthenet-gui
+else
+    echo "[!] Warning: GUI launcher template not found at $OPT/assets/notthenet-gui-launcher"
+    echo "    Creating basic launcher instead..."
+    cat > /usr/local/bin/notthenet-gui << 'LAUNCHER'
+#!/usr/bin/env bash
+exec /opt/notthenet/venv/bin/python /opt/notthenet/notthenet.py "$@"
+LAUNCHER
+    chmod 755 /usr/local/bin/notthenet-gui
+fi
 
 # ── Polkit action ─────────────────────────────────────────────────────────────
 if [[ -d /usr/share/polkit-1/actions ]]; then
@@ -214,16 +224,14 @@ fi
 gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
 update-desktop-database -q /usr/share/applications 2>/dev/null || true
 mandb -q 2>/dev/null || true
-# Restart XFCE panel to reload icon cache and avoid gear-icon fallback.
-# Use kill+relaunch instead of --restart to avoid a DBus error dialog when
-# the session bus address is not available under runuser.
-_panel_user="${SUDO_USER:-$(logname 2>/dev/null || true)}"
-if pgrep -x xfce4-panel >/dev/null && [[ -n "$_panel_user" ]]; then
-    _disp=$(runuser -u "$_panel_user" -- bash -c 'echo ${DISPLAY:-:0}' 2>/dev/null || echo ':0')
-    runuser -u "$_panel_user" -- env DISPLAY="$_disp" pkill -x xfce4-panel 2>/dev/null || true
-    sleep 0.3
-    runuser -u "$_panel_user" -- env DISPLAY="$_disp" xfce4-panel 2>/dev/null &
-fi
+# Optional: Restart XFCE panel to reload icon cache (non-critical, fail silently)
+if command -v xfce4-panel &>/dev/null; then
+    _panel_user="${SUDO_USER:-$(logname 2>/dev/null || true)}"
+    if [[ -n "$_panel_user" ]] && pgrep -u "$_panel_user" -x xfce4-panel >/dev/null 2>&1; then
+        runuser -u "$_panel_user" -- pkill -x xfce4-panel 2>/dev/null || true
+        sleep 0.2
+    fi
+fi || true
 
 # ── Uninstall launcher (/usr/bin/notthenet-uninstall) ────────────────────────
 cat > /usr/bin/notthenet-uninstall << 'EOF'
