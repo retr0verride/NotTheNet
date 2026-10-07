@@ -17,6 +17,18 @@ from network.iptables_manager import (
     IPTablesManager,
 )
 
+
+@pytest.fixture(autouse=True)
+def _no_real_commands(monkeypatch):
+    """Never shell out to ip/iptables on the host running the tests.
+
+    Unpatched commands behave as if they failed, so route and address
+    discovery is deterministic. Tests that need specific output patch
+    ``_run`` themselves; that patch is applied after this one and wins.
+    """
+    monkeypatch.setattr("network.iptables_manager._run", lambda args: (1, "", "stubbed in tests"))
+
+
 # ── Snapshot path safety ─────────────────────────────────────────────────────
 
 class TestSnapshotPaths:
