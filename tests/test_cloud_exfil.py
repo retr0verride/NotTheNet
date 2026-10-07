@@ -2,7 +2,7 @@
 Tests for services/cloud_exfil_routes.py
 
 Covers: all five route handlers (S3, Azure Blob, MS Graph, Dropbox, GDrive),
-body capture helpers, and host-matching regexes from http_server.py.
+body capture helpers, and host-matching regexes from http_catalog.py.
 All tests are pure-function or use a lightweight mock handler — no live sockets.
 """
 
@@ -25,11 +25,13 @@ from services.cloud_exfil_routes import (
     route_gdrive_upload,
     route_graph_onedrive,
 )
-from services.http_server import (
+from services.http_catalog import (
     _AWS_S3_RE,
     _AZURE_BLOB_RE,
     _DROPBOX_HOSTS,
     _GRAPH_HOST,
+)
+from services.http_server import (
     _HandlerConfig,
 )
 
