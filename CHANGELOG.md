@@ -32,6 +32,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 - **`/health/status` reported every service as started** even when `ServiceManager.start()` failed, and showed default ports instead of configured ones. It now reports `running`, `failed` or `stopped` with the configured port.
 - **`/metrics` was served as `application/json`.** It is now `text/plain; version=0.0.4`.
 - **Docker headless ignored a failed start.** It now exits 1, like `--nogui`.
+- **Catch-all UDP thread crashed on shutdown** when `stop()` closed the socket during `select()`. `stop()` now also joins the worker.
 - **`.env.example` was never committed.** The `.gitignore` negation had an inline comment, which git treats as part of the pattern.
 - **`build-deb.sh` and `.dockerignore` exclude `state/`** so a dev machine's iptables snapshots never ship.
 

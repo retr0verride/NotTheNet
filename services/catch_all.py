@@ -406,30 +406,35 @@ class CatchAllUDPService:
             return False
 
     def _serve(self) -> None:
-        assert self._sock is not None
+        sock = self._sock
+        assert sock is not None
         while not self._stop_event.is_set():
-            ready = select.select([self._sock], [], [], 1.0)
-            if not ready[0]:
-                continue
             try:
-                data, addr = self._sock.recvfrom(4096)
-                safe_addr = sanitize_ip(addr[0])
-                logger.info("CATCH-ALL UDP from %s:%s (%d bytes)", safe_addr, addr[1], len(data))
-                jl = get_json_logger()
-                if jl:
-                    jl.log("catch_all_udp", src_ip=addr[0], src_port=addr[1],
-                           data_len=len(data))
-                # Don't respond to unknown UDP â€” no real service echoes "OK".
-                # Silently logging is more realistic than replying.
-            except Exception as e:
-                if not self._stop_event.is_set():
-                    logger.debug("Catch-all UDP error: %s", e)
+                ready, _, _ = select.select([sock], [], [], 1.0)
+                if not ready:
+                    continue
+                data, addr = sock.recvfrom(4096)
+            except (OSError, ValueError):
+                # stop() closed the socket under select()/recvfrom(): normal shutdown.
+                if self._stop_event.is_set():
+                    return
+                logger.debug("Catch-all UDP receive error", exc_info=True)
+                continue
+            safe_addr = sanitize_ip(addr[0])
+            logger.info("CATCH-ALL UDP from %s:%s (%d bytes)", safe_addr, addr[1], len(data))
+            jl = get_json_logger()
+            if jl:
+                jl.log("catch_all_udp", src_ip=addr[0], src_port=addr[1], data_len=len(data))
+            # No reply: real hosts don't answer unknown UDP, so silence is more realistic.
 
     def stop(self) -> None:
         self._stop_event.set()
         if self._sock:
             self._sock.close()
             self._sock = None
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)
+            self._thread = None
         logger.info("Catch-all UDP service stopped.")
 
     @property
