@@ -116,6 +116,7 @@ warn_unused_ignores = false
 [[tool.mypy.overrides]]
 module = ["notthenet", "headless", "version", "utils.health_server"]
 strict = true
+ignore_errors = false  # override the utils.* exemption below
 warn_return_any = true
 warn_unused_ignores = true
 

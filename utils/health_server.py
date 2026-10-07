@@ -25,7 +25,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 from urllib.parse import urlsplit
 
 from utils.validators import validate_ip, validate_port
@@ -94,11 +94,17 @@ class _TokenBucket:
             return allowed
 
 
+class _Headers(Protocol):
+    """Read-only header lookup: http.server's Message, or a plain dict in tests."""
+
+    def get(self, name: str, default: str, /) -> str: ...
+
+
 def _error_body(code: str, message: str) -> str:
     return json.dumps({"error": {"code": code, "message": message}})
 
 
-def _presented_token(headers: Mapping[str, str]) -> str:
+def _presented_token(headers: _Headers) -> str:
     """Token from ``X-Admin-Token``, else from ``Authorization: Bearer`` (what Prometheus sends)."""
     header = headers.get("X-Admin-Token", "")
     if header:
@@ -143,7 +149,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(encoded)
 
 
-_Route = Callable[[Mapping[str, str]], tuple[str, int, str]]
+_Route = Callable[[_Headers], tuple[str, int, str]]
 _JSON = "application/json"
 
 
@@ -185,7 +191,7 @@ class HealthServer:
             return {"Access-Control-Allow-Origin": origin, "Vary": "Origin"}
         return {}
 
-    def check_auth(self, headers: Mapping[str, str]) -> tuple[str, int, str] | None:
+    def check_auth(self, headers: _Headers) -> tuple[str, int, str] | None:
         """Return an error response for a protected endpoint, or None if allowed."""
         token = self._settings.admin_token
         if token:
@@ -212,10 +218,10 @@ class HealthServer:
             "uptime_seconds": self._uptime(),
         }
 
-    def _live(self, _headers: Mapping[str, str]) -> tuple[str, int, str]:
+    def _live(self, _headers: _Headers) -> tuple[str, int, str]:
         return json.dumps({"status": "ok", "uptime_seconds": self._uptime()}), 200, _JSON
 
-    def _ready(self, _headers: Mapping[str, str]) -> tuple[str, int, str]:
+    def _ready(self, _headers: _Headers) -> tuple[str, int, str]:
         ready, payload = self._readiness()
         return json.dumps(payload), 200 if ready else 503, _JSON
 
@@ -231,13 +237,13 @@ class HealthServer:
             "services": services,
         }
 
-    def _status(self, headers: Mapping[str, str]) -> tuple[str, int, str]:
+    def _status(self, headers: _Headers) -> tuple[str, int, str]:
         denied = self.check_auth(headers)
         if denied is not None:
             return denied
         return json.dumps(self._summary()), 200, _JSON
 
-    def _metrics(self, headers: Mapping[str, str]) -> tuple[str, int, str]:
+    def _metrics(self, headers: _Headers) -> tuple[str, int, str]:
         denied = self.check_auth(headers)
         if denied is not None:
             return denied
