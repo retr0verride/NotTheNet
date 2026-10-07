@@ -45,7 +45,7 @@ VS Code will detect the `.venv` automatically. If prompted, select it as the Pyt
 bash predeploy.sh
 ```
 
-Thin wrapper around `scripts/checks.py` (the same script CI runs). Executes ruff, mypy (strict on the modules in `STRICT_MYPY_FILES`, informational elsewhere), bandit, pip-audit, OpenAPI validation, shellcheck, placeholder audit, pytest with coverage, version/changelog/python-floor/cert-freshness checks. **All checks must pass before pushing.** Use `--skip-tests` for a fast lint-only pass, or `--only 1,3` to run specific steps.
+Thin wrapper around `scripts/checks.py` (the same script CI runs). Executes ruff, mypy (strict on the modules in `STRICT_MYPY_FILES`, informational elsewhere), bandit, pip-audit, OpenAPI validation, shellcheck, placeholder audit, pytest with coverage, version/changelog/python-floor/cert-freshness checks. **All checks must pass before pushing.** Use `--skip-tests` for a fast lint-only pass, or `--only ruff,pytest` to run named steps (`--help` lists them).
 
 ---
 

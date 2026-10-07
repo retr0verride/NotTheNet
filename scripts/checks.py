@@ -2,7 +2,7 @@
 """
 NotTheNet — single source of truth for all pre-merge / pre-release checks.
 
-Runs the same 12 checks executed by CI. Used by:
+Runs the same checks executed by CI (see STEPS at the bottom). Used by:
   - .github/workflows/ci.yml  (lint job)
   - predeploy.sh              (local thin wrapper)
   - ship.sh                   (release gate)
@@ -11,7 +11,7 @@ Usage:
     python scripts/checks.py                # run everything
     python scripts/checks.py --skip-tests   # skip pytest (CI matrix runs it separately)
     python scripts/checks.py --skip-install # don't install/upgrade tool versions
-    python scripts/checks.py --only 1,3,7   # run only specific step numbers
+    python scripts/checks.py --only ruff,pytest  # run only the named steps
 
 Exit code: 0 on success, 1 on first failure (informational steps never fail).
 """
@@ -107,8 +107,7 @@ def step_install() -> None:
     passed("tools ready")
 
 
-def step_0_secrets() -> None:
-    step("0/12", "Secret scan (gitleaks)")
+def step_secrets() -> None:
     if not shutil.which("gitleaks"):
         warn("gitleaks not installed — skipping (optional locally; required in CI)")
         return
@@ -121,26 +120,22 @@ def step_0_secrets() -> None:
     passed("gitleaks")
 
 
-def step_1_ruff() -> None:
-    step("1/12", "Lint (ruff)")
+def step_ruff() -> None:
     run([PY, "-m", "ruff", "check", "."])
     passed("ruff")
 
 
-def step_2a_mypy_legacy() -> None:
-    step("2a/12", "Type check — legacy (mypy, informational)")
+def step_mypy_legacy() -> None:
     subprocess.call([PY, "-m", "mypy", "notthenet.py", "services/", "network/", "utils/"])
     info("(informational — legacy code lacks strict annotations)")
 
 
-def step_2b_mypy_strict() -> None:
-    step("2b/12", "Type check — strict modules (mypy --strict)")
+def step_mypy_strict() -> None:
     run([PY, "-m", "mypy", *STRICT_MYPY_FILES, "--strict", "--ignore-missing-imports"])
     passed("mypy strict")
 
 
-def step_3_bandit() -> None:
-    step("3/12", "Security scan (bandit — fail on HIGH severity)")
+def step_bandit() -> None:
     # -c pyproject.toml picks up [tool.bandit] exclude_dirs/skips. The CI
     # runner has no .venv so this defence-in-depth keeps local + CI parity.
     run([
@@ -151,8 +146,7 @@ def step_3_bandit() -> None:
     passed("bandit")
 
 
-def step_3b_vulture() -> None:
-    step("3b/13", "Dead code detection (vulture)")
+def step_vulture() -> None:
     rc = subprocess.call(
         [
             PY, "-m", "vulture", ".",
@@ -166,20 +160,17 @@ def step_3b_vulture() -> None:
     passed("vulture")
 
 
-def step_4_pip_audit() -> None:
-    step("4/12", "SCA (pip-audit)")
+def step_pip_audit() -> None:
     run([PY, "-m", "pip_audit", "--requirement", "requirements.txt", "--strict"])
     passed("pip-audit")
 
 
-def step_5_openapi() -> None:
-    step("5/12", "OpenAPI spec validation")
+def step_openapi() -> None:
     run([PY, "-m", "openapi_spec_validator", "openapi.yaml"])
     passed("openapi-spec-validator")
 
 
-def step_6_shellcheck() -> None:
-    step("6/12", "Shellcheck")
+def step_shellcheck() -> None:
     if not shutil.which("shellcheck"):
         warn("shellcheck not installed — skipping (optional locally; required in CI)")
         return
@@ -199,8 +190,7 @@ def step_6_shellcheck() -> None:
     passed("shellcheck")
 
 
-def step_7_placeholders() -> None:
-    step("7/12", "Placeholder consistency audit")
+def step_placeholders() -> None:
     pattern = re.compile(r"[A-Z][A-Z_]*_PLACEHOLDER")
     placeholders: set[str] = set()
     assets = REPO_ROOT / "assets"
@@ -229,8 +219,7 @@ def step_7_placeholders() -> None:
     passed(f"placeholder audit ({len(placeholders)} tokens)")
 
 
-def step_8_pytest() -> None:
-    step("8/12", "Tests (pytest)")
+def step_pytest() -> None:
     tests_dir = REPO_ROOT / "tests"
     if not tests_dir.is_dir() or not list(tests_dir.glob("test_*.py")):
         info("(no tests found — skipping)")
@@ -247,8 +236,7 @@ def step_8_pytest() -> None:
     passed("pytest")
 
 
-def step_9_version() -> None:
-    step("9/12", "Version consistency")
+def step_version() -> None:
     source = (REPO_ROOT / "version.py").read_text(encoding="utf-8")
     toml = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     m_source = re.search(r'(?m)^APP_VERSION = "([^"]+)"$', source)
@@ -273,8 +261,7 @@ def step_9_version() -> None:
     passed(f"all files at v{m_source.group(1)}")
 
 
-def step_10_changelog() -> None:
-    step("10/12", "CHANGELOG check")
+def step_changelog() -> None:
     cl = REPO_ROOT / "CHANGELOG.md"
     if not cl.is_file():
         info("(no CHANGELOG.md — skipping)")
@@ -291,8 +278,7 @@ def step_10_changelog() -> None:
         warn(f"v{ver} not found in CHANGELOG.md")
 
 
-def step_11_python_floor() -> None:
-    step("11/12", "pyproject.toml Python version floor")
+def step_python_floor() -> None:
     toml = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     m = re.search(r'requires-python\s*=\s*"([^"]+)"', toml)
     py_min = m.group(1) if m else ""
@@ -301,8 +287,7 @@ def step_11_python_floor() -> None:
     passed(f"Python version floor OK ({py_min or 'unset'})")
 
 
-def step_12_stale_certs() -> None:
-    step("12/12", "Stale temp-cert check")
+def step_stale_certs() -> None:
     certs = REPO_ROOT / "certs"
     stale = list(certs.glob("_dyn_*")) if certs.is_dir() else []
     if stale:
@@ -314,23 +299,24 @@ def step_12_stale_certs() -> None:
 
 
 # ── Step registry ────────────────────────────────────────────────────────────
-STEPS: dict[int, tuple[str, Callable[[], None]]] = {
-    0:  ("secrets",       step_0_secrets),
-    1:  ("ruff",          step_1_ruff),
-    2:  ("mypy-legacy",   step_2a_mypy_legacy),  # 2a
-    3:  ("mypy-strict",   step_2b_mypy_strict),  # 2b
-    4:  ("bandit",        step_3_bandit),
-    5:  ("vulture",       step_3b_vulture),
-    6:  ("pip-audit",     step_4_pip_audit),
-    7:  ("openapi",       step_5_openapi),
-    8:  ("shellcheck",    step_6_shellcheck),
-    9:  ("placeholders",  step_7_placeholders),
-    10: ("pytest",        step_8_pytest),
-    11: ("version",       step_9_version),
-    12: ("changelog",     step_10_changelog),
-    13: ("python-floor",  step_11_python_floor),
-    14: ("stale-certs",   step_12_stale_certs),
-}
+STEPS: list[tuple[str, str, Callable[[], None]]] = [
+    ("secrets", "Secret scan (gitleaks)", step_secrets),
+    ("ruff", "Lint (ruff)", step_ruff),
+    ("mypy-legacy", "Type check — legacy (mypy, informational)", step_mypy_legacy),
+    ("mypy-strict", "Type check — strict modules (mypy --strict)", step_mypy_strict),
+    ("bandit", "Security scan (bandit — fail on HIGH severity)", step_bandit),
+    ("vulture", "Dead code detection (vulture)", step_vulture),
+    ("pip-audit", "SCA (pip-audit)", step_pip_audit),
+    ("openapi", "OpenAPI spec validation", step_openapi),
+    ("shellcheck", "Shellcheck", step_shellcheck),
+    ("placeholders", "Placeholder consistency audit", step_placeholders),
+    ("pytest", "Tests (pytest)", step_pytest),
+    ("version", "Version consistency", step_version),
+    ("changelog", "CHANGELOG check", step_changelog),
+    ("python-floor", "pyproject.toml Python version floor", step_python_floor),
+    ("stale-certs", "Stale temp-cert check", step_stale_certs),
+]
+STEP_NAMES = [name for name, _, _ in STEPS]
 
 
 def main() -> int:
@@ -348,30 +334,30 @@ def main() -> int:
     )
     p.add_argument(
         "--only",
-        help="comma-separated step indices to run (see registry, 0-14)",
+        help=f"comma-separated step names to run: {','.join(STEP_NAMES)}",
     )
     args = p.parse_args()
 
     os.chdir(REPO_ROOT)
 
+    selected = STEP_NAMES
+    if args.only:
+        selected = [x.strip() for x in args.only.split(",") if x.strip()]
+        unknown = sorted(set(selected) - set(STEP_NAMES))
+        if unknown:
+            print(f"unknown step(s): {', '.join(unknown)}; valid: {', '.join(STEP_NAMES)}",
+                  file=sys.stderr)
+            return 2
+
     if not args.skip_install:
         step_install()
 
-    selected: list[int]
-    if args.only:
-        try:
-            selected = [int(x.strip()) for x in args.only.split(",")]
-        except ValueError:
-            print("--only must be a comma-separated list of integers", file=sys.stderr)
-            return 2
-    else:
-        selected = list(STEPS.keys())
-
-    for idx in selected:
-        name, fn = STEPS[idx]
+    plan = [(n, t, fn) for n, t, fn in STEPS if n in selected]
+    for i, (name, title, fn) in enumerate(plan, 1):
         if args.skip_tests and name == "pytest":
-            step("8/12", "Tests (pytest) — SKIPPED via --skip-tests")
+            step(f"{i}/{len(plan)}", f"{title} — SKIPPED via --skip-tests")
             continue
+        step(f"{i}/{len(plan)}", f"{title} [{name}]")
         fn()
 
     print(_c("32", "\nAll predeploy checks passed."))
