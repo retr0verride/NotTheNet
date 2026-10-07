@@ -20,10 +20,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 - **One headless code path.** `--nogui`, `--headless` and `NTN_HEADLESS=1` now all run `headless.py` on top of `ServiceManager`. The parallel `domain/`, `application/` and `infrastructure/` layers (DI container, ports, adapters, pydantic settings, OTel hooks; about 1,300 lines) are removed.
 - **Health endpoint is opt-in: `NTN_HEALTH_ENABLED=1`.** The Docker image and compose file set it. systemd `--nogui` does not open a port. Bad `NTN_HEALTH_*` / `NTN_ADMIN_TOKEN` values (including a token shorter than 16 characters) stop startup with a clear error, and a health port that cannot be bound exits 1.
 - **`APP_VERSION` lives in `version.py`.** Headless and `--preflight` no longer import tkinter.
+- **The `.deb` installs fully offline.** `build-deb.sh` vendors dependency wheels for CPython 3.10 to 3.14 on x86_64 and aarch64; postinst installs with `--no-index`. Previously postinst pip-installed from PyPI, so the documented "Offline / USB" method failed without internet. `setproctitle` is pinned (`==1.3.8`) so the vendored set is reproducible.
+- **Releases are cut with `bash ship.sh`** (bump, checks, commit, tag, push). It refuses to run off `main` or with a dirty tree, and reverts the bump if checks fail.
 - **`notthenet.py` owns the CLI.** Added `--version`. `NTN_LOG_LEVEL` and `NTN_JSON_LOGS` now work in every mode.
 
 ### Removed
 - `NTN_BIND_IP`, `NTN_REDIRECT_IP`, `NTN_SPOOF_PUBLIC_IP`, `NTN_INTERFACE`, `NTN_PROCESS_MASQ`, `NTN_DROP_PRIVS`, `NTN_LOG_DIR`, `NTN_CERT_PATH`, `NTN_KEY_PATH`, `NTN_CONFIG_PATH` and `NTN_OTEL_*` overrides. Set these in `config.json` (or pass `--config`).
+- `ship.ps1`, `make-bundle.ps1`, `predeploy.ps1` (Windows release flow, superseded by `ship.sh` and the offline `.deb`), and `install-offline.sh` / `prepare-usb.ps1` (orphaned USB path).
+- The docker-compose `observability` profile (Prometheus + Grafana). Its `docs/prometheus.yml` never existed, so it could not start, and its `GRAFANA_PASSWORD` guard made a plain `docker compose up` fail when the variable was unset. `/metrics` is unchanged.
 - OpenTelemetry hooks (the SDK was never a dependency, and no code recorded spans).
 - `pydantic` / `pydantic-settings` dev dependencies.
 - Automatic loading of `./.env` outside Docker (pydantic-settings did this). Docker Compose still loads it via `env_file:`; elsewhere, export the variables.

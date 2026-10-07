@@ -52,6 +52,7 @@ if command -v rsync &>/dev/null; then
         --exclude='*.egg-info' \
         --exclude='.vscode' \
         --exclude='build-deb.sh' \
+        --exclude='ship.sh' \
         --exclude='*.deb' \
         --exclude='tests/' \
         --exclude='certs/' \
@@ -69,6 +70,7 @@ else
         "$STAGING/opt/notthenet/venv" \
         "$STAGING/opt/notthenet/.vscode" \
         "$STAGING/opt/notthenet/build-deb.sh" \
+        "$STAGING/opt/notthenet/ship.sh" \
         "$STAGING/opt/notthenet/tests" \
         "$STAGING/opt/notthenet/certs" \
         "$STAGING/opt/notthenet/logs" \
@@ -77,6 +79,28 @@ else
     find "$STAGING/opt/notthenet" -name '*.egg-info' -exec rm -rf {} + 2>/dev/null || true
     find "$STAGING/opt/notthenet" -name '*.deb' -delete
 fi
+
+# ── Vendored dependency wheels (offline install) ─────────────────────────────
+# postinst installs only from these (--no-index), so the .deb works on an
+# air-gapped Kali. Covers CPython 3.10-3.14 on x86_64 and aarch64.
+BUILD_PY="${BUILD_PY:-python3}"
+"$BUILD_PY" -m pip --version >/dev/null 2>&1 || {
+    echo "[!] $BUILD_PY has no pip; install python3-pip (needed to download wheels)."
+    exit 1
+}
+WHEEL_DIR="$STAGING/opt/notthenet/wheels"
+install -dm755 "$WHEEL_DIR"
+info "Downloading dependency wheels for offline install..."
+for pyver in 3.10 3.11 3.12 3.13 3.14; do
+    for arch in x86_64 aarch64; do
+        "$BUILD_PY" -m pip download --quiet --disable-pip-version-check \
+            --only-binary=:all: --implementation cp --python-version "$pyver" \
+            --platform "manylinux_2_28_${arch}" --platform "manylinux_2_17_${arch}" \
+            --platform "manylinux2014_${arch}" \
+            --dest "$WHEEL_DIR" \
+            -r "${SCRIPT_DIR}/requirements.txt" setuptools wheel
+    done
+done
 
 # ── /usr/bin/notthenet CLI launcher ──────────────────────────────────────────
 info "Creating /usr/bin/notthenet launcher..."
@@ -153,12 +177,17 @@ if [[ -f /usr/local/bin/notthenet ]] && \
     exit 1
 fi
 
-# ── Python virtualenv + dependencies ─────────────────────────────────────────
+# ── Python virtualenv + dependencies (offline, from vendored wheels) ─────────
 echo "[*] Creating Python virtualenv..."
 python3 -m venv "$OPT/venv"
-"$OPT/venv/bin/pip" install --quiet --upgrade pip setuptools wheel
-"$OPT/venv/bin/pip" install --quiet -r "$OPT/requirements.txt"
-"$OPT/venv/bin/pip" install --quiet -e "$OPT" --no-deps
+PIP_OFFLINE=("$OPT/venv/bin/pip" install --quiet --disable-pip-version-check
+             --no-index --find-links "$OPT/wheels")
+if ! "${PIP_OFFLINE[@]}" setuptools wheel -r "$OPT/requirements.txt"; then
+    echo "[!] No bundled wheels match $(python3 --version) on $(uname -m)."
+    echo "    The .deb vendors wheels for CPython 3.10-3.14 on x86_64/aarch64."
+    exit 1
+fi
+"${PIP_OFFLINE[@]}" --no-build-isolation --no-deps -e "$OPT"
 
 # ── TLS certificate ───────────────────────────────────────────────────────────
 if [[ ! -f "$OPT/certs/server.crt" ]]; then

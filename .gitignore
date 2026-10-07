@@ -64,9 +64,6 @@ bandit-results.sarif
 state/
 /tmp/notthenet_iptables_save.rules
 
-# ── Offline install wheelhouse (populated by prepare-usb.ps1) ────────────────
-wheelhouse/
-
 # ── Docker build artefacts ────────────────────────────────────────────────────
 *.tar
 
@@ -75,9 +72,6 @@ wheelhouse/
 
 # ── ruff cache ────────────────────────────────────────────────────────────────
 .ruff_cache/
-
-# Generated single-file bundle (produced by make-bundle.ps1)
-notthenet-bundle.sh
 
 # mypy cache
 .mypy_cache/

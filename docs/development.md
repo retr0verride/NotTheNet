@@ -49,43 +49,15 @@ Thin wrapper around `scripts/checks.py` (the same script CI runs). Executes ruff
 
 ---
 
-## Windows (development only)
+## Cutting a release
 
-NotTheNet **runs on Kali Linux only**. The Windows workflow is for developers who write and test code on a Windows host before pushing.
-
-### 1. Clone and set up the environment
-
-```powershell
-git clone https://github.com/retr0verride/NotTheNet
-cd NotTheNet
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+```bash
+bash ship.sh                # bump version, run checks, commit, tag, push
+bash ship.sh --no-push      # commit and tag locally only
+bash ship.sh --skip-checks  # skip scripts/checks.py (use sparingly)
 ```
 
-### 2. Open in VS Code
-
-```powershell
-code .
-```
-
-### 3. Run predeploy checks before committing
-
-```powershell
-.\predeploy.ps1
-```
-
-Thin wrapper around `scripts/checks.py` (the same script CI runs). Executes ruff, mypy (strict on the modules in `STRICT_MYPY_FILES`, informational elsewhere), bandit, pip-audit, OpenAPI validation, shellcheck, placeholder audit, pytest with coverage, version/changelog/python-floor/cert-freshness checks. **All checks must pass before pushing.** Use `--skip-tests` for a fast lint-only pass, or `--only 1,3` to run specific steps.
-
-### 4. Cut a release
-
-```powershell
-.\ship.ps1                # bump version, run predeploy, build bundle, commit, tag, push
-.\ship.ps1 -SkipPush      # build artifacts only (no git ops)
-.\ship.ps1 -SkipPredeploy # skip checks (use sparingly)
-```
-
-`ship.ps1` is the one-command release path: it bumps `pyproject.toml` + `version.py` to today's `YYYY.MM.DD-N`, runs `predeploy.ps1`, calls `make-bundle.ps1 -SkipChecks` to produce `dist/NotTheNet-<ver>.zip` + `dist/notthenet-bundle.sh`, then `git commit -m "chore(release): <ver>"`, `git tag -a v<ver>`, and pushes branch + tag to `origin`. CI re-runs the same `scripts/checks.py` server-side and (on tag push) builds the `.deb` and drafts a GitHub Release.
+`ship.sh` must run on a clean `main`. It bumps `version.py` and `pyproject.toml` to today's `YYYY.MM.DD-N`, runs `scripts/checks.py` (reverting the bump if it fails), commits `chore(release): <ver>`, tags `v<ver>` and pushes branch and tag. On the tag, CI re-runs the checks, builds the `.deb` (with dependency wheels vendored for offline installs), builds the sdist/wheel with SLSA provenance, and drafts the GitHub Release.
 
 ---
 

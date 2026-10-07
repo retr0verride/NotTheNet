@@ -62,4 +62,3 @@ state/
 # Build bundles and installers
 *.zip
 *.tar.gz
-notthenet-bundle.sh

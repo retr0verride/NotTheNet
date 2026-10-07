@@ -58,14 +58,10 @@ pip install ruff mypy bandit pytest
 ### 5. Run the full pre-deploy gate
 
 ```bash
-# Linux
 bash predeploy.sh
-
-# Windows dev machine
-.\predeploy.ps1
 ```
 
-Both wrappers invoke `scripts/checks.py` — the same script CI runs. It executes 12 steps: secret scan, ruff, mypy (informational + strict on the modules in `STRICT_MYPY_FILES`), bandit, pip-audit, OpenAPI validation, shellcheck, placeholder audit, pytest with coverage gate, version consistency, CHANGELOG check, Python floor check, and stale `_dyn_*` cert sweep. Use `--skip-tests` for a fast pass or `--only 1,3` for a subset.
+The wrapper invokes `scripts/checks.py` — the same script CI runs. It executes 12 steps: secret scan, ruff, mypy (informational + strict on the modules in `STRICT_MYPY_FILES`), bandit, pip-audit, OpenAPI validation, shellcheck, placeholder audit, pytest with coverage gate, version consistency, CHANGELOG check, Python floor check, and stale `_dyn_*` cert sweep. Use `--skip-tests` for a fast pass or `--only 1,3` for a subset.
 
 All steps must pass before submitting a PR.
 

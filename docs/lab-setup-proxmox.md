@@ -50,7 +50,7 @@ Each VM has a virtual [NIC (Network Interface Card)](https://en.wikipedia.org/wi
 > **Skip this section if your Kali VM has internet access** — the standard path through Parts 1–2 is faster.  
 > Use this section if you are building the lab on an **air-gapped** Proxmox host, or if policy prevents the Kali VM from ever reaching the internet — even during setup.
 
-This section covers: downloading the right Kali ISO, getting NotTheNet onto the air-gapped machine via a USB bundle ISO, and mounting it all from Proxmox.
+This section covers: downloading the right Kali ISO, getting the NotTheNet `.deb` onto the air-gapped machine as an ISO, and mounting it all from Proxmox.
 
 ---
 
@@ -66,44 +66,38 @@ The Kali project publishes a fully-offline installer that includes every package
 
 ---
 
-### 0.2 Build the NotTheNet bundle on Windows
+### 0.2 Download the NotTheNet .deb
 
-On your Windows machine (the one with internet):
+On any machine with internet, download the latest release package:
 
-```powershell
-cd U:\NotTheNet
-.\make-bundle.ps1 -SkipChecks
+```bash
+curl -L -o notthenet_latest.deb \
+  "$(curl -s https://api.github.com/repos/retr0verride/NotTheNet/releases/latest \
+    | grep 'browser_download_url.*\.deb' | cut -d'"' -f4)"
 ```
 
-This produces `dist\NotTheNet-<version>.zip` containing all Python dependencies (pre-downloaded wheels), the scripts, and the offline installer. No internet needed on the target machine.
+Or grab it manually from [github.com/retr0verride/NotTheNet/releases/latest](https://github.com/retr0verride/NotTheNet/releases/latest).
 
-> `make-bundle.ps1` requires Python 3.10+ and pip in PATH. It pip-downloads all wheels declared in `requirements.txt` into the bundle before zipping.
+The `.deb` carries every Python dependency as a pre-built wheel (CPython 3.10 to 3.14, x86_64 and aarch64), so installing it never touches the network.
 
 ---
 
-### 0.3 Create a bundle ISO
+### 0.3 Wrap the .deb in an ISO
 
-Proxmox cannot directly mount a `.zip` as a virtual CD drive, so wrap the bundle in an ISO:
-
-**On Windows (using `oscdimg` from the Windows ADK, or `mkisofs` via WSL):**
-
-```powershell
-# Option A — Windows ADK (oscdimg):
-# Download ADK from https://learn.microsoft.com/en-us/windows-hardware/get-started/adk-install
-# Install, choose only "Deployment Tools" component
-
-$src = "dist"
-$iso = "dist\notthenet-bundle.iso"
-& "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg\oscdimg.exe" `
-    -n -m -o "$src" "$iso"
-```
+Proxmox attaches ISOs, not loose files, as virtual CD drives:
 
 ```bash
-# Option B — WSL / Linux:
-mkisofs -o dist/notthenet-bundle.iso dist/
+mkdir notthenet-iso
+cp notthenet_*.deb notthenet-iso/
+mkisofs -o notthenet-deb.iso -R -J notthenet-iso/
 ```
 
-The result is a `notthenet-bundle.iso` you can upload to Proxmox alongside the Kali ISO.
+On Windows without WSL, `oscdimg` from the Windows ADK (Deployment Tools component) does the same job:
+
+```powershell
+& "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg\oscdimg.exe" `
+    -n -m notthenet-iso notthenet-deb.iso
+```
 
 ---
 
@@ -113,7 +107,7 @@ In the Proxmox web UI:
 
 1. **Datacenter → _your node_ → local → ISO Images → Upload**
 2. Upload `kali-linux-*-installer-amd64.iso`
-3. Upload `notthenet-bundle.iso`
+3. Upload `notthenet-deb.iso`
 
 Both should appear in the ISO list once uploaded.
 
@@ -124,14 +118,14 @@ Both should appear in the ISO list once uploaded.
 Follow [Part 1 (Proxmox Network Setup)](#part-1--proxmox-network-setup) and [Part 2.1 (Create the VM)](#21-create-the-vm) normally, **but**:
 
 - Set the primary CD/DVD drive to the Kali installer ISO.
-- Add a **second CD/DVD drive** for the bundle:
+- Add a **second CD/DVD drive** for NotTheNet:
   - Proxmox → **kali-notthenet → Hardware → Add → CD/DVD Drive**
   - Bus: `IDE`, Device: `1`
-  - Select `notthenet-bundle.iso`
+  - Select `notthenet-deb.iso`
 
-> Having two CD drives lets Kali install from one ISO and read the bundle from the other without needing network access for either.
+Two CD drives let Kali install from one ISO and read the `.deb` from the other without network access for either.
 
-**Network tab:** `net0` → `vmbr1` **only** — the VM never needs internet. Do **not** attach `vmbr0`.
+**Network tab:** `net0` → `vmbr1` **only**. The VM never needs internet. Do **not** attach `vmbr0`.
 
 ---
 
@@ -144,76 +138,49 @@ Key installer choices for an air-gapped install:
 | Installer screen | Setting |
 |-----------------|---------|
 | Software selection | Accept defaults (uses the offline packages on the disc) |
-| Network mirror | **"No"** — do not configure a network mirror |
+| Network mirror | **"No"**, do not configure a network mirror |
 | Proxy | Leave blank |
 
 Complete the install normally. When done, the VM will reboot into Kali.
 
 ---
 
-### 0.7 Install NotTheNet from the bundle ISO
+### 0.7 Install NotTheNet from the ISO
 
-After Kali boots, the second CD drive (bundle ISO) is available. Mount and install:
+After Kali boots, mount the second CD drive and install the package:
 
 ```bash
 # Find the CD drive device (usually /dev/sr0 or /dev/sr1)
 lsblk -o NAME,TYPE,FSTYPE,LABEL | grep -i iso
 
-# Mount the bundle ISO (example using /dev/sr1 — adjust if needed)
-sudo mkdir -p /mnt/bundle
-sudo mount /dev/sr1 /mnt/bundle
-
-# The bundle zip is at the root of the ISO
-ls /mnt/bundle/
-# → NotTheNet-<version>.zip  (and possibly other files)
-
-# Extract and install
-cp /mnt/bundle/NotTheNet-*.zip /tmp/
-cd /tmp
-unzip NotTheNet-*.zip
-cd NotTheNet
-sudo bash notthenet-bundle.sh
-
-sudo umount /mnt/bundle
+sudo mkdir -p /mnt/notthenet
+sudo mount /dev/sr1 /mnt/notthenet
+sudo dpkg -i /mnt/notthenet/notthenet_*.deb
+sudo umount /mnt/notthenet
 ```
 
-The bundle installer creates the virtualenv, installs all bundled wheels, generates TLS certificates, installs the desktop launcher, and sets up polkit rules — identical to the online install, but entirely offline.
+The package depends on `python3-venv`, `iptables`, `iproute2` and `openssl`. If `dpkg -i` reports one missing, download that package's `.deb` on the internet-connected machine, add it to the ISO, and install it first.
 
-After this step, continue from [Part 2.3 (Configure the lab interface)](#23-configure-the-lab-interface) — you can skip the NIC-switch steps since this VM is already on `vmbr1`.
+The postinst creates the virtualenv from the bundled wheels, generates TLS certificates, installs the desktop launcher, and sets up polkit rules.
+
+After this step, continue from [Part 2.3 (Configure the lab interface)](#23-configure-the-lab-interface). You can skip the NIC-switch steps since this VM is already on `vmbr1`.
 
 ---
 
-### 0.8 Updating an existing install from a new bundle ISO
+### 0.8 Updating an existing install
 
-When a new version of NotTheNet is released, rebuild the bundle on Windows (`.\make-bundle.ps1 -SkipChecks`), create a new ISO (§0.3), upload it to Proxmox (§0.4), and attach it to the running Kali VM:
+When a new version is released, repeat §0.2 to §0.4 with the new `.deb`, then swap the ISO on the running VM:
 
-**Attach the new bundle ISO to an already-running VM:**
-
-Proxmox → **kali-notthenet → Hardware → CD/DVD Drive (ide1) → Edit** → select the new ISO → OK.
-
-No reboot needed — Proxmox hot-swaps the virtual disc.
-
-**On Kali, mount and update:**
+Proxmox → **kali-notthenet → Hardware → CD/DVD Drive (ide1) → Edit** → select the new ISO → OK. No reboot needed.
 
 ```bash
-# Re-mount (unmount first if the old ISO is still mounted)
-sudo umount /mnt/bundle 2>/dev/null || true
-sudo mount /dev/sr1 /mnt/bundle
-
-# Extract to /tmp (always extract fresh — do not overwrite a running install in-place)
-cp /mnt/bundle/NotTheNet-*.zip /tmp/
-cd /tmp
-rm -rf NotTheNet_update && mkdir NotTheNet_update
-unzip -o NotTheNet-*.zip -d NotTheNet_update
-cd NotTheNet_update/NotTheNet
-
-# Run in update mode — preserves config.json, certs/, and logs/
-sudo bash notthenet-bundle.sh --update
-
-sudo umount /mnt/bundle
+sudo umount /mnt/notthenet 2>/dev/null || true
+sudo mount /dev/sr1 /mnt/notthenet
+sudo dpkg -i /mnt/notthenet/notthenet_*.deb
+sudo umount /mnt/notthenet
 ```
 
-The `--update` flag skips the interactive prompt and always copies new files into your existing install directory without touching your settings, certificates, or captured logs. See [Installation → Method 2 (Offline / USB bundle)](installation.md#method-2--offline--usb-bundle) for full details on what is and is not overwritten.
+`dpkg -i` on a newer `.deb` upgrades in place and keeps `/opt/notthenet/config.json`. See [Installation → Method 2](installation.md#method-2--offline--usb-install).
 
 ---
 
@@ -375,19 +342,7 @@ cd NotTheNet
 sudo bash notthenet-install.sh
 ```
 
-**Air-gapped Kali (USB bundle from Windows):**
-
-```bash
-# On Windows -- bump version, run all checks, build bundle, commit, tag, push:
-.\ship.ps1
-
-# On Kali -- unzip and install from USB:
-unzip /media/usb/NotTheNet-*.zip
-cd NotTheNet
-sudo bash notthenet-bundle.sh
-```
-
-See [Offline / USB Install](installation.md#offline--usb-install) for full details.
+**Air-gapped Kali:** install the release `.deb` from an ISO or USB stick. See [Part 0](#part-0--offline--air-gapped-setup) or [Installation → Method 2](installation.md#method-2--offline--usb-install).
 
 The installer creates a virtualenv, installs Python dependencies, generates TLS certificates, installs the desktop launcher, and sets up polkit rules so you can launch with GUI elevation.
 

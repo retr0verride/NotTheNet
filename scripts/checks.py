@@ -4,8 +4,8 @@ NotTheNet — single source of truth for all pre-merge / pre-release checks.
 
 Runs the same 12 checks executed by CI. Used by:
   - .github/workflows/ci.yml  (lint job)
-  - predeploy.ps1             (Windows local thin wrapper)
-  - predeploy.sh              (Linux/macOS local thin wrapper)
+  - predeploy.sh              (local thin wrapper)
+  - ship.sh                   (release gate)
 
 Usage:
     python scripts/checks.py                # run everything
@@ -183,12 +183,10 @@ def step_6_shellcheck() -> None:
     if not shutil.which("shellcheck"):
         warn("shellcheck not installed — skipping (optional locally; required in CI)")
         return
-    excluded = {"notthenet-bundle.sh"}
     targets = [
         str(p) for p in REPO_ROOT.rglob("*.sh")
         if ".git" not in p.parts
         and ".venv" not in p.parts
-        and p.name not in excluded
     ]
     if not targets:
         info("(no .sh files found)")

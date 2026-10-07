@@ -65,7 +65,7 @@ sudo apt-get install -f
 sudo notthenet
 ```
 
-See [docs/installation.md](docs/installation.md) for all three install methods (`.deb`, offline bundle, dev script) with upgrade and uninstall steps.
+See [docs/installation.md](docs/installation.md) for all three install methods (`.deb`, offline `.deb`, dev script) with upgrade and uninstall steps.
 
 ---
 
@@ -100,7 +100,7 @@ See [docs/installation.md](docs/installation.md) for all three install methods (
 
 | Guide | |
 |---|---|
-| [Installation](docs/installation.md) | Install, update, uninstall, offline USB bundle |
+| [Installation](docs/installation.md) | Install, update, uninstall, offline install |
 | [Configuration](docs/configuration.md) | Every config.json field with examples |
 | [Usage](docs/usage.md) | GUI walkthrough, CLI mode, analysis workflow |
 | [Services](docs/services.md) | Per-service technical reference |

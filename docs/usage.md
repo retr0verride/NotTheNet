@@ -26,7 +26,7 @@ This guide shows you how to use NotTheNet day-to-day — launching the GUI, conf
 NotTheNet must be run as **root** (administrator) because standard internet ports like 53 (DNS), 80 (HTTP), and 443 (HTTPS) are restricted to root on Linux. It also needs root to set up traffic redirection rules.
 
 ```bash
-# Standard launch (works for .deb and offline-bundle installs):
+# Standard launch (.deb install):
 sudo notthenet
 
 # Load a specific configuration file:

@@ -16,7 +16,7 @@ When you detonate (run) a malware sample in a lab, the malware tries to connect 
 
 | Document | What it covers |
 |----------|----------------|
-| [Installation](installation.md) | How to install NotTheNet on Kali (`.deb` package, offline/USB bundle, or dev script) |
+| [Installation](installation.md) | How to install NotTheNet on Kali (`.deb` package online or offline, or dev script) |
 | [Configuration](configuration.md) | Every setting in `config.json` explained |
 | [Usage](usage.md) | How to use the GUI, run in headless mode, and analyse malware step by step |
 | [Services](services.md) | Details on every fake service (DNS, HTTP, SMTP, FTP, and 20+ more) |
@@ -47,7 +47,7 @@ sudo dpkg -i dist/notthenet_*.deb
 sudo notthenet
 ```
 
-Three install methods are available — see [Installation](installation.md) for the offline bundle and dev-install options. Then click **▶ Start**.
+Three install methods are available — see [Installation](installation.md) for the offline (air-gapped) and dev-install options. Then click **▶ Start**.
 
 That's it. From this moment, any program on your analysis machine that tries to "talk to the internet" — whether it's looking up a domain name, loading a web page, sending an email, or connecting to a random port — will get a believable fake response from NotTheNet instead.
 

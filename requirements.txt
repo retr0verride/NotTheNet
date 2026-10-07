@@ -10,11 +10,10 @@ dnslib==0.9.26
 # PYSEC-2026-3552/3553/3554 (pip-audit, 2026-10-07).
 cryptography==50.0.2
 
-# Optional: process title masquerade (renames process to kernel-thread-like name)
-# Gracefully skipped if not installed, but recommended for stealth deployments.
-# Not installed by default: compiled per-platform. Install separately with:
-#   pip install setproctitle>=1.3
-setproctitle>=1.3
+# Process title masquerade (renames the process to a kernel-thread-like name).
+# The code degrades gracefully if it is missing. Pinned so the wheels vendored
+# into the .deb are reproducible.
+setproctitle==1.3.8
 
 # Note: All other functionality uses Python stdlib only:
 #   http.server, ssl, socketserver, threading, tkinter, json, logging,
