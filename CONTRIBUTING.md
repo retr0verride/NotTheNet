@@ -162,10 +162,11 @@ The Tkinter GUI is split into a `gui/` package for maintainability:
 | -------- | --------- |
 | `gui/widgets.py` | Constants, colours, reusable widget factories, tooltip |
 | `gui/dialogs.py` | `_GeneralPage`, `_JsonEventsPage`, `_ServicePage`, `_DNSPage` |
-| `gui/views.py` | `DashboardMixin` — all `_build_*` layout methods |
-| `gui/logic.py` | `ServiceControlMixin` — service lifecycle, log polling |
-| `gui/app.py` | `NotTheNetApp` class (combines both mixins) + `main()` |
-| `notthenet.py` | Thin entry point (~24 lines) |
+| `gui/service_pages.py` | Field and checkbox specs for every generic service page (add GUI options here) |
+| `gui/views.py` | `DashboardMixin`: all `_build_*` layout methods |
+| `gui/logic.py` | `ServiceControlMixin`: service lifecycle, log polling |
+| `gui/app.py` | `NotTheNetApp` class (combines both mixins) + `run_gui()` |
+| `notthenet.py` | CLI entry point: argument parsing, mode dispatch, crash log |
 
 ---
 
