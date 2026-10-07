@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import tkinter as tk
 from tkinter import messagebox
@@ -53,6 +55,7 @@ class _PreflightPage(tk.Frame):
         self._local_labels: list[tk.Label] = []
         self._running = False
         self._cert_server_proc: subprocess.Popen | None = None
+        self._cert_server_dir: str | None = None
         self._build()
 
     def _build(self):
@@ -190,7 +193,7 @@ class _PreflightPage(tk.Frame):
         self._serve_btn.pack(side="left")
         _hover_bind(self._serve_btn, C_HOVER, C_SELECTED)
         tooltip(self._serve_btn,
-                "Start a temporary HTTP server on port 8080 serving certs/.\n"
+                "Start a temporary HTTP server on port 8080 serving ca.crt only.\n"
                 "Browse to the URL on the victim and install ca.crt.")
 
         self._cert_url_var = tk.StringVar()
@@ -209,6 +212,30 @@ class _PreflightPage(tk.Frame):
         else:
             self._start_cert_server()
 
+    def _resolve_serve_ip(self) -> str:
+        """Resolve a concrete lab-facing IP to bind the cert server to.
+
+        Never binds 0.0.0.0: the cert server must be reachable only on the lab
+        segment, not every interface (including the management LAN).
+        """
+        from utils.validators import validate_ip
+
+        redirect = (self.cfg.get("general", "redirect_ip") or "").strip()
+        if redirect and redirect not in ("auto", "0.0.0.0", "127.0.0.1"):
+            ok, norm = validate_ip(redirect)
+            if ok:
+                return norm
+        bind = (self.cfg.get("general", "bind_ip") or "").strip()
+        if bind and bind not in ("0.0.0.0", "::"):
+            ok, norm = validate_ip(bind)
+            if ok:
+                return norm
+        logger.warning(
+            "cert server: no concrete lab IP configured (bind_ip/redirect_ip); "
+            "falling back to 10.10.10.1"
+        )
+        return "10.10.10.1"
+
     def _start_cert_server(self):
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         certs_dir = os.path.join(project_root, "certs")
@@ -221,21 +248,35 @@ class _PreflightPage(tk.Frame):
             )
             return
 
-        bind_ip = self.cfg.get("general", "bind_ip") or "10.10.10.1"
+        serve_ip = self._resolve_serve_ip()
         port = 8080
+
+        # Serve ONLY ca.crt from an isolated temp dir. http.server exposes its
+        # whole --directory (with listing), so pointing it at certs/ would leak
+        # the Root CA private key (ca.key) and server.key. Copy just the public
+        # cert into a throwaway dir instead.
+        try:
+            serve_dir = tempfile.mkdtemp(prefix="ntn_cacert_")
+            shutil.copy2(ca_path, os.path.join(serve_dir, "ca.crt"))
+        except OSError as exc:
+            messagebox.showerror("CA Cert Server", f"Failed to prepare cert directory:\n{exc}")
+            return
+        self._cert_server_dir = serve_dir
 
         try:
             self._cert_server_proc = subprocess.Popen(
                 [sys.executable, "-m", "http.server", str(port),
-                 "--bind", bind_ip, "--directory", certs_dir],
+                 "--bind", serve_ip, "--directory", serve_dir],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
         except Exception as exc:
+            shutil.rmtree(serve_dir, ignore_errors=True)
+            self._cert_server_dir = None
             messagebox.showerror("CA Cert Server", f"Failed to start HTTP server:\n{exc}")
             return
 
-        url = f"http://{bind_ip}:{port}/ca.crt"
+        url = f"http://{serve_ip}:{port}/ca.crt"
         self._cert_url_var.set(f"\u2398  {url}")
         self._serve_btn.configure(
             text="\u25a0  Stop Serving", bg=C_RED, fg="#ffffff",
@@ -247,6 +288,9 @@ class _PreflightPage(tk.Frame):
         if self._cert_server_proc:
             self._cert_server_proc.terminate()
             self._cert_server_proc = None
+        if self._cert_server_dir:
+            shutil.rmtree(self._cert_server_dir, ignore_errors=True)
+            self._cert_server_dir = None
         self._cert_url_var.set("")
         self._serve_btn.configure(
             text="\u25b6  Serve CA Cert", bg=C_HOVER, fg=C_TEXT,

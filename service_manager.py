@@ -45,7 +45,7 @@ from services.tftp_server import TFTPService
 from services.vnc_server import VNCService
 from utils.cert_utils import ensure_certs
 from utils.json_logger import close_json_logger, init_json_logger
-from utils.privilege import drop_privileges, require_root_or_warn, restore_privileges
+from utils.privilege import drop_privileges, is_root, require_root_or_warn, restore_privileges
 from utils.validators import validate_config
 
 logger = logging.getLogger(__name__)
@@ -563,12 +563,19 @@ class ServiceManager:
     def _maybe_drop_privileges(self) -> None:
         """Drop root privileges after all ports are bound and iptables applied.
 
-        Controlled by general.drop_privileges (default: false).
-        WARNING: privilege drop is permanent — service restart requires a full
-        process relaunch.
+        Controlled by general.drop_privileges.  If the drop is requested while
+        running as root but fails (missing service account, seteuid error),
+        startup is aborted: the honeypot must never serve malware traffic as
+        root.  When NotTheNet was not started as root the drop is simply skipped
+        (ports < 1024 will not have bound).
         """
         if not self.config.get("general", "drop_privileges"):
             logger.debug("Privilege drop disabled in config.")
+            return
+        if not is_root():
+            logger.info(
+                "Privilege drop requested but not running as root; skipping."
+            )
             return
         user = self.config.get("general", "drop_privileges_user") or "nobody"
         group = self.config.get("general", "drop_privileges_group") or "nogroup"
@@ -578,8 +585,20 @@ class ServiceManager:
                 "Root privileges dropped to %s:%s — restart will require relaunch.",
                 user, group,
             )
-        else:
-            logger.warning("Privilege drop requested but failed or not applicable.")
+            return
+        # Drop failed while root: refuse to keep serving as root. Tear everything
+        # down first so nothing remains exposed, then abort the process.
+        logger.error(
+            "FATAL: privilege drop to %s:%s failed while running as root. "
+            "Refusing to serve traffic as root. Create the service account "
+            "(e.g. 'useradd --system %s') or set general.drop_privileges=false.",
+            user, group, user,
+        )
+        try:
+            self.stop()
+        except Exception:
+            logger.error("Cleanup during privilege-drop abort failed", exc_info=True)
+        raise SystemExit(1)
 
     def _apply_fingerprints(self) -> None:
         """Apply TCP/IP OS fingerprint spoofing to server sockets."""

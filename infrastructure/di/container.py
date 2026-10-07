@@ -128,6 +128,11 @@ class Container:
             orchestrator,
             bind_ip=settings.health_bind,
             port=settings.health_port,
+            admin_token=(
+                settings.admin_token.get_secret_value()
+                if settings.admin_token is not None
+                else None
+            ),
         )
 
         return cls(config_store, sink, repo, orchestrator, health_svc, health_server)

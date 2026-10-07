@@ -30,17 +30,19 @@ import threading
 from collections.abc import Callable
 
 from utils.logging_utils import sanitize_log_string
-from utils.validators import validate_port
+from utils.validators import validate_ip, validate_port
 
 logger = logging.getLogger(__name__)
 
 _RULE_COMMENT = "NOTTHENET"
 _PROC_NET_DEV = "/proc/net/dev"
 
-# Store snapshots in the project's logs/ directory instead of /tmp/ to prevent
-# symlink races on shared systems (CWE-59).  The logs/ directory is app-owned
-# and already exists by the time iptables rules are applied.
-_SNAPSHOT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
+# Store snapshots in a root-owned state/ directory, NOT logs/.  logs/ is chowned
+# to the unprivileged drop user (nobody), so a post-drop compromise could
+# overwrite the snapshot that systemd's ExecStopPost feeds to `iptables-restore`
+# as root.  state/ is created 0700 root and is never chowned to the drop user.
+# Keeping it under the project root (not /tmp/) also avoids symlink races (CWE-59).
+_SNAPSHOT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "state")
 _IPTABLES_SAVE_FILE = os.path.join(_SNAPSHOT_DIR, ".iptables_save.rules")
 _MANGLE_SAVE_FILE = os.path.join(_SNAPSHOT_DIR, ".mangle_save.rules")
 _FILTER_SAVE_FILE = os.path.join(_SNAPSHOT_DIR, ".filter_save.rules")
@@ -117,10 +119,24 @@ def _iptables_available() -> bool:
     return code == 0
 
 
+def _ensure_snapshot_dir() -> None:
+    """Create the root-owned snapshot dir (0700) if absent.
+
+    Snapshots are written here as root before the privilege drop; the dir is
+    never chowned to the drop user, so a post-drop compromise cannot tamper with
+    what ``ExecStopPost`` later restores as root.
+    """
+    try:
+        os.makedirs(_SNAPSHOT_DIR, mode=0o700, exist_ok=True)
+    except OSError as e:
+        logger.warning("Could not create snapshot dir %s: %s", _SNAPSHOT_DIR, e)
+
+
 def _save_nat_snapshot() -> bool:
     """Snapshot the current nat table so it can be fully restored on stop."""
     if not shutil.which("iptables-save"):
         return False
+    _ensure_snapshot_dir()
     code, out, _ = _run(["iptables-save", "-t", "nat"])
     if code == 0:
         try:
@@ -168,6 +184,7 @@ def _save_mangle_snapshot() -> bool:
     """Snapshot the current mangle table before applying TTL rules."""
     if not shutil.which("iptables-save"):
         return False
+    _ensure_snapshot_dir()
     code, out, _ = _run(["iptables-save", "-t", "mangle"])
     if code == 0:
         try:
@@ -210,6 +227,7 @@ def _save_filter_snapshot() -> bool:
     """Snapshot the current filter table before harden-lab rules are applied."""
     if not shutil.which("iptables-save"):
         return False
+    _ensure_snapshot_dir()
     code, out, _ = _run(["iptables-save", "-t", "filter"])
     if code == 0:
         try:
@@ -485,6 +503,17 @@ class IPTablesManager:
             # Non-gateway (loopback) mode: empty string would break iptables;
             # default to loopback which is what loopback mode wants anyway.
             self.redirect_ip = configured_redirect or "127.0.0.1"
+        # Final boundary check: redirect_ip is interpolated into iptables
+        # --to-destination, so revalidate it regardless of how it was derived.
+        ok, norm = validate_ip(self.redirect_ip)
+        if ok:
+            self.redirect_ip = norm
+        else:
+            logger.warning(
+                "redirect_ip %r is not a valid IP; falling back to 127.0.0.1",
+                sanitize_log_string(str(self.redirect_ip)),
+            )
+            self.redirect_ip = "127.0.0.1"
         # When > 0, add a mangle POSTROUTING TTL rule so outgoing packets
         # appear to have traversed internet routing hops rather than being
         # served from a directly-connected host.

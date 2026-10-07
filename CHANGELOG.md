@@ -7,6 +7,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ## [Unreleased]
 
+### Security
+- **iptables snapshots moved from `logs/` to a root-owned `state/` dir (0700).** `logs/` is chowned to the drop user, so a post-drop compromise could rewrite the snapshot that `ExecStopPost` restores as root.
+- **Startup aborts if the privilege drop fails while running as root.** Previously it logged a warning and kept serving malware traffic as root.
+- **`redirect_ip` is revalidated before it reaches `iptables --to-destination`.** Invalid values fall back to `127.0.0.1`.
+- **CA cert server serves only `ca.crt` from a temp dir, bound to the lab IP.** It previously exposed all of `certs/` (including `ca.key`) with directory listing, and could bind `0.0.0.0`.
+- **Health API: `/health/status` and `/metrics` fail closed off-loopback.** Without `NTN_ADMIN_TOKEN` they return 403 on any non-loopback bind. The token is accepted as `X-Admin-Token` or `Authorization: Bearer` (what Prometheus sends). CORS no longer reflects arbitrary origins when no allowlist is set. **Breaking:** the token env var is renamed `NTN_HEALTH_TOKEN` → `NTN_ADMIN_TOKEN`.
+- **Grafana no longer defaults to `changeme`.** `docker compose` refuses to start it unless `GRAFANA_PASSWORD` is set.
+- **`cryptography` bumped 46.0.7 → 50.0.2** (GHSA-537c-gmf6-5ccf, PYSEC-2026-3552/3553/3554).
+
+### Fixed
+- **`.env.example` was never committed.** The `.gitignore` negation had an inline comment, which git treats as part of the pattern.
+- **`build-deb.sh` and `.dockerignore` exclude `state/`** so a dev machine's iptables snapshots never ship.
+
 ## [2026.05.13-19] — 2026-05-13
 
 ### Fixed

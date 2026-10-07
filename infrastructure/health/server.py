@@ -7,20 +7,25 @@ Endpoints
 ─────────
 GET /health/live    → 200 {"status":"ok"}           (liveness probe)
 GET /health/ready   → 200/503 {"status":"ready"|"degraded"}  (readiness probe)
-GET /health/status  → 200 full status JSON            (requires X-Admin-Token)
+GET /health/status  → 200 full status JSON            (requires admin token)
 GET /metrics        → 200 Prometheus text format      (scraped by OTel collector)
 
 Security
 ────────
 - Binds to 127.0.0.1 by default (never 0.0.0.0 in production without a firewall).
-- /health/status requires the ``X-Admin-Token`` header to match NTN_HEALTH_TOKEN.
+- /health/status and /metrics require the ``X-Admin-Token`` header to match
+  NTN_ADMIN_TOKEN.  When no token is configured they are served only on a
+  loopback bind; on any non-loopback bind they are refused (403) until a token
+  is set.  /health/live and /health/ready are always open (they expose no data).
 - Rate limiting: max 60 requests / 60 s per IP (token bucket).
-- CORS: configurable allowed origins via NTN_HEALTH_CORS_ORIGINS (comma-separated).
+- CORS: origins must be explicitly allowlisted via NTN_HEALTH_CORS_ORIGINS
+  (comma-separated); the request Origin is never blindly reflected.
 - No request body is ever read (DoS mitigation: avoids slow-body attacks).
 """
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import os
@@ -69,7 +74,9 @@ _rate_limiter = _TokenBucket(capacity=60, refill_rate=1.0)
 def _cors_headers(origin: str) -> dict[str, str]:
     allowed = os.environ.get("NTN_HEALTH_CORS_ORIGINS", "")
     origins = {o.strip() for o in allowed.split(",") if o.strip()}
-    if not origins or origin in origins or "*" in origins:
+    if not origins:
+        return {}  # No allowlist configured → no CORS (never reflect the caller's Origin)
+    if "*" in origins or origin in origins:
         return {"Access-Control-Allow-Origin": origin or "*"}
     return {}
 
@@ -154,12 +161,14 @@ class HealthServer:
         orchestrator: Any,     # application.orchestrator.ServiceOrchestrator
         bind_ip: str = "127.0.0.1",
         port: int = 8080,
+        admin_token: str | None = None,
     ) -> None:
         self._health_svc = health_svc
         self._orchestrator = orchestrator
         self._bind_ip = os.environ.get("NTN_HEALTH_BIND", bind_ip)
         self._port = int(os.environ.get("NTN_HEALTH_PORT", port))
-        self._admin_token = os.environ.get("NTN_HEALTH_TOKEN", "")
+        self._admin_token = admin_token or ""
+        self._loopback_bind = self._compute_loopback(self._bind_ip)
         self._server: HTTPServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -169,6 +178,35 @@ class HealthServer:
             "/health/status":  self._handle_status,
             "/metrics":        self._handle_metrics,
         }
+
+    @staticmethod
+    def _compute_loopback(bind_ip: str) -> bool:
+        """True only if bind_ip is a loopback address.
+
+        Hostnames and wildcards (0.0.0.0, ::) are treated as non-loopback so the
+        auth gate fails closed for anything that could be remotely reachable.
+        """
+        try:
+            return ipaddress.ip_address(bind_ip).is_loopback
+        except ValueError:
+            return False
+
+    def _require_auth(self, req: _HealthHandler) -> tuple[str, int] | None:
+        """Authorize a sensitive endpoint.
+
+        Returns an (error_body, status) tuple to send back, or None if the
+        request is allowed to proceed.
+        """
+        if self._admin_token:
+            if not _constant_time_compare(_presented_token(req), self._admin_token):
+                return _error_body("ERR_UNAUTHORIZED", "Invalid or missing admin token"), 401
+            return None
+        if not self._loopback_bind:
+            return _error_body(
+                "ERR_FORBIDDEN",
+                "Endpoint disabled: set NTN_ADMIN_TOKEN to expose it on a non-loopback bind",
+            ), 403
+        return None
 
     def start(self) -> None:
         """Start the health server on a daemon thread."""
@@ -211,16 +249,17 @@ class HealthServer:
         return json.dumps(payload), 200 if is_ready else 503
 
     def _handle_status(self, req: _HealthHandler) -> tuple[str, int]:
-        # Require admin token when one is configured.
-        if self._admin_token:
-            provided = req.headers.get("X-Admin-Token", "")
-            if not _constant_time_compare(provided, self._admin_token):
-                return _error_body("ERR_UNAUTHORIZED", "Invalid or missing X-Admin-Token"), 401
+        denied = self._require_auth(req)
+        if denied is not None:
+            return denied
         payload = self._orchestrator.summary()
         return json.dumps(payload), 200
 
     def _handle_metrics(self, req: _HealthHandler) -> tuple[str, int]:
         """Prometheus text format — minimal exposition for scraping."""
+        denied = self._require_auth(req)
+        if denied is not None:
+            return denied
         summary = self._orchestrator.summary()
         lines = [
             "# HELP notthenet_services_running Number of services currently running",
@@ -240,6 +279,20 @@ class HealthServer:
                 f"notthenet_uptime_seconds {summary['uptime_seconds']}",
             ]
         return "\n".join(lines) + "\n", 200
+
+
+def _presented_token(req: _HealthHandler) -> str:
+    """Return the token from ``X-Admin-Token`` or ``Authorization: Bearer``.
+
+    The bearer form is what Prometheus sends from a scrape job's
+    ``authorization.credentials`` setting.
+    """
+    header = req.headers.get("X-Admin-Token", "")
+    if header:
+        return header
+    auth = req.headers.get("Authorization", "")
+    scheme, _, credentials = auth.partition(" ")
+    return credentials.strip() if scheme.lower() == "bearer" else ""
 
 
 def _constant_time_compare(a: str, b: str) -> bool:

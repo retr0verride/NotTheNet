@@ -56,6 +56,7 @@ if command -v rsync &>/dev/null; then
         --exclude='tests/' \
         --exclude='certs/' \
         --exclude='logs/' \
+        --exclude='state/' \
         "${SCRIPT_DIR}/" "$STAGING/opt/notthenet/"
 else
     warn "rsync not found — falling back to cp (installing rsync is recommended: sudo apt-get install rsync)"
@@ -70,7 +71,8 @@ else
         "$STAGING/opt/notthenet/build-deb.sh" \
         "$STAGING/opt/notthenet/tests" \
         "$STAGING/opt/notthenet/certs" \
-        "$STAGING/opt/notthenet/logs"
+        "$STAGING/opt/notthenet/logs" \
+        "$STAGING/opt/notthenet/state"
     find "$STAGING/opt/notthenet" -name '*.pyc' -delete
     find "$STAGING/opt/notthenet" -name '*.egg-info' -exec rm -rf {} + 2>/dev/null || true
     find "$STAGING/opt/notthenet" -name '*.deb' -delete

@@ -10,7 +10,7 @@ info:
     `NTN_HEALTH_PORT` environment variables.
 
     **Authentication** — the `/health/status` endpoint requires the
-    `X-Admin-Token` header when `NTN_HEALTH_TOKEN` is set.
+    an admin token (see the `adminToken` / `bearerToken` schemes).
     Unauthenticated liveness and readiness probes never require a token.
 
     **Rate limiting** — 60 requests per 60 s per source IP (token bucket).
@@ -102,10 +102,11 @@ paths:
       summary: Detailed service status
       description: |
         Returns the full status of every registered service.
-        Requires `X-Admin-Token` header when `NTN_HEALTH_TOKEN` is set.
+        Requires an admin token (see the `adminToken` / `bearerToken` schemes).
       tags: [admin]
       security:
         - adminToken: []
+        - bearerToken: []
       responses:
         "200":
           description: Full service status snapshot
@@ -115,6 +116,8 @@ paths:
                 $ref: "#/components/schemas/StatusResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/RateLimited"
 
@@ -127,6 +130,9 @@ paths:
         format.  Intended for scraping by an OTel Collector or Prometheus
         instance running on the same host.
       tags: [observability]
+      security:
+        - adminToken: []
+        - bearerToken: []
       responses:
         "200":
           description: Prometheus text format metrics
@@ -147,6 +153,10 @@ paths:
                 # HELP notthenet_uptime_seconds Seconds since last start
                 # TYPE notthenet_uptime_seconds counter
                 notthenet_uptime_seconds 3661.4
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/RateLimited"
 
@@ -157,8 +167,12 @@ components:
       in: header
       name: X-Admin-Token
       description: |
-        Set `NTN_HEALTH_TOKEN` environment variable to require this token.
-        If the variable is empty, the endpoint is unauthenticated.
+        Must match `NTN_ADMIN_TOKEN`. When that variable is unset, protected
+        endpoints are served only on a loopback bind and return 403 otherwise.
+    bearerToken:
+      type: http
+      scheme: bearer
+      description: "Same token as `adminToken`, sent as `Authorization: Bearer <token>`."
 
   schemas:
     LivenessResponse:
@@ -246,13 +260,22 @@ components:
 
   responses:
     Unauthorized:
-      description: Missing or invalid X-Admin-Token
+      description: Missing or invalid admin token
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
           example:
             error: unauthorized
+
+    Forbidden:
+      description: No admin token configured and the server is bound off-loopback
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: forbidden
 
     RateLimited:
       description: Too many requests — back off and retry

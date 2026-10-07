@@ -40,6 +40,9 @@ services:
       NTN_JSON_LOGS: "1"
       NTN_HEALTH_BIND: "0.0.0.0"   # expose health port to host for scraping
       NTN_HEALTH_PORT: "8080"
+      # NTN_ADMIN_TOKEN must be set (via .env) to expose /health/status and
+      # /metrics on this non-loopback bind. Without it those two endpoints
+      # return 403. Prometheus must send it as a bearer token (see .env.example).
 
     # ── Volumes ───────────────────────────────────────────────────────────────
     volumes:
@@ -96,7 +99,7 @@ services:
     container_name: notthenet-grafana
     profiles: [observability]
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_PASSWORD:-changeme}"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_PASSWORD:?set GRAFANA_PASSWORD in .env}"
       GF_USERS_ALLOW_SIGN_UP: "false"
     ports:
       - "127.0.0.1:3000:3000"

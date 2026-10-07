@@ -23,7 +23,8 @@ env/
 # ── Twelve-Factor secrets (NEVER commit) ─────────────────────────────────────
 .env
 .env.*
-!.env.example        # template is safe to commit
+# The template is safe to commit.
+!.env.example
 *.secret
 
 # ── TLS keys and generated certs (NEVER commit) ──────────────────────────────
@@ -60,9 +61,7 @@ coverage.xml
 bandit-results.sarif
 
 # ── iptables state snapshots (runtime, contain rule details) ─────────────────
-logs/.iptables_save.rules
-logs/.mangle_save.rules
-logs/.filter_save.rules
+state/
 /tmp/notthenet_iptables_save.rules
 
 # ── Offline install wheelhouse (populated by prepare-usb.ps1) ────────────────

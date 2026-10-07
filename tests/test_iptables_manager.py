@@ -26,10 +26,10 @@ class TestSnapshotPaths:
         assert "/tmp" not in _SNAPSHOT_DIR  # noqa: S108
         assert "\\Temp" not in _SNAPSHOT_DIR
 
-    def test_snapshot_dir_is_logs(self):
-        assert _SNAPSHOT_DIR.endswith("logs")
+    def test_snapshot_dir_is_state(self):
+        assert _SNAPSHOT_DIR.endswith("state")
 
-    def test_save_file_under_logs(self):
+    def test_save_file_under_snapshot_dir(self):
         assert _IPTABLES_SAVE_FILE.startswith(_SNAPSHOT_DIR)
         assert _MANGLE_SAVE_FILE.startswith(_SNAPSHOT_DIR)
 
