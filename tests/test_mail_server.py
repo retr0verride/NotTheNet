@@ -1,10 +1,10 @@
-"""Tests for services/mail_server.py SMTP parsing and save behavior."""
+"""Tests for SMTP parsing/save behavior and POP3/IMAP service config."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from services import mail_server
+from services import imap_server, pop3_server, smtp_server
 
 
 class _FakeConn:
@@ -19,8 +19,8 @@ class _FakeConn:
         self.closed = True
 
 
-def _smtp(save_dir: str | None = None) -> mail_server._SMTPClientThread:
-    return mail_server._SMTPClientThread(
+def _smtp(save_dir: str | None = None) -> smtp_server._SMTPClientThread:
+    return smtp_server._SMTPClientThread(
         conn=_FakeConn(),
         addr=("127.0.0.1", 2525),
         hostname="mail.example.com",
@@ -87,7 +87,7 @@ def test_save_email_skips_when_disk_cap_exceeded(tmp_path: Path) -> None:
 
 
 def test_smtp_service_reads_configurable_limits() -> None:
-    svc = mail_server.SMTPService({
+    svc = smtp_server.SMTPService({
         "conn_timeout_sec": 17,
         "max_connections": 19,
         "max_email_size_bytes": 2222,
@@ -100,8 +100,8 @@ def test_smtp_service_reads_configurable_limits() -> None:
 
 
 def test_pop3_imap_service_reads_timeout_and_connections() -> None:
-    pop3 = mail_server.POP3Service({"conn_timeout_sec": 21, "max_connections": 9})
-    imap = mail_server.IMAPService({"conn_timeout_sec": 22, "max_connections": 8})
+    pop3 = pop3_server.POP3Service({"conn_timeout_sec": 21, "max_connections": 9})
+    imap = imap_server.IMAPService({"conn_timeout_sec": 22, "max_connections": 8})
     assert pop3.conn_timeout == 21
     assert pop3.max_connections == 9
     assert imap.conn_timeout == 22

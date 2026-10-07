@@ -23,22 +23,17 @@ from services.dot_server import DoTService
 from services.ftp_server import FTPService
 from services.http_server import HTTPService, HTTPSService
 from services.icmp_responder import ICMPResponder
+from services.imap_server import IMAPService, IMAPSService
 from services.irc_server import IRCService, IRCSTLSService
 from services.ldap_server import LDAPService
-from services.mail_server import (
-    IMAPService,
-    IMAPSService,
-    POP3Service,
-    POP3SService,
-    SMTPService,
-    SMTPSService,
-)
 from services.mssql_server import MSSQLService
 from services.mysql_server import MySQLService
 from services.ntp_server import NTPService
+from services.pop3_server import POP3Service, POP3SService
 from services.rdp_server import RDPService
 from services.redis_server import RedisService
 from services.smb_server import SMBService
+from services.smtp_server import SMTPService, SMTPSService
 from services.socks5_server import Socks5Service
 from services.telnet_server import TelnetService
 from services.tftp_server import TFTPService
