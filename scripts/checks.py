@@ -253,22 +253,28 @@ def step_8_pytest() -> None:
 
 def step_9_version() -> None:
     step("9/12", "Version consistency")
-    widget = (REPO_ROOT / "gui" / "widgets.py").read_text(encoding="utf-8")
+    source = (REPO_ROOT / "version.py").read_text(encoding="utf-8")
     toml = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    nt = (REPO_ROOT / "notthenet.py").read_text(encoding="utf-8")
-    m_widget = re.search(r'APP_VERSION\s*=\s*"([^"]+)"', widget)
+    m_source = re.search(r'(?m)^APP_VERSION = "([^"]+)"$', source)
     m_toml = re.search(r'(?m)^version\s*=\s*"([^"]+)"', toml)
-    if not m_widget or not m_toml:
-        fail("could not parse version from gui/widgets.py or pyproject.toml")
-    assert m_widget and m_toml
-    if m_widget.group(1) != m_toml.group(1):
+    if not m_source or not m_toml:
+        fail("could not parse version from version.py or pyproject.toml")
+    assert m_source and m_toml
+    if m_source.group(1) != m_toml.group(1):
         fail(
-            f"version mismatch: gui/widgets.py={m_widget.group(1)} "
+            f"version mismatch: version.py={m_source.group(1)} "
             f"vs pyproject.toml={m_toml.group(1)}"
         )
-    if re.search(r"(?m)^APP_VERSION\s*=", nt):
-        fail("notthenet.py has a local APP_VERSION assignment (should import from gui.widgets)")
-    passed(f"all files at v{m_widget.group(1)}")
+    dupes = [
+        str(p.relative_to(REPO_ROOT))
+        for p in REPO_ROOT.rglob("*.py")
+        if p.name != "version.py"
+        and not any(part.startswith(".") for part in p.relative_to(REPO_ROOT).parts)
+        and re.search(r"(?m)^\s*APP_VERSION\s*=", p.read_text(encoding="utf-8"))
+    ]
+    if dupes:
+        fail(f"APP_VERSION assigned outside version.py: {', '.join(dupes)}")
+    passed(f"all files at v{m_source.group(1)}")
 
 
 def step_10_changelog() -> None:
@@ -277,8 +283,8 @@ def step_10_changelog() -> None:
     if not cl.is_file():
         info("(no CHANGELOG.md — skipping)")
         return
-    widget = (REPO_ROOT / "gui" / "widgets.py").read_text(encoding="utf-8")
-    m = re.search(r'APP_VERSION\s*=\s*"([^"]+)"', widget)
+    source = (REPO_ROOT / "version.py").read_text(encoding="utf-8")
+    m = re.search(r'(?m)^APP_VERSION = "([^"]+)"$', source)
     if not m:
         info("(could not read version — skipping)")
         return

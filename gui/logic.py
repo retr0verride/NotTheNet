@@ -25,6 +25,7 @@ from gui.widgets import (
 )
 from service_manager import ServiceManager
 from utils.logging_utils import setup_logging
+from version import APP_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -301,8 +302,6 @@ class ServiceControlMixin(_ControlHost):
 
     def _fetch_latest_release(self) -> None:
         """Network call — runs on worker thread, schedules GUI update via after()."""
-        from gui.widgets import APP_VERSION  # noqa: PLC0415
-
         try:
             req = urllib.request.Request(  # noqa: S310
                 self._RELEASES_URL,
@@ -330,8 +329,6 @@ class ServiceControlMixin(_ControlHost):
         error: str | None,
     ) -> None:
         """Main-thread callback: show result dialog and restore UI state."""
-        from gui.widgets import APP_VERSION  # noqa: PLC0415
-
         self._btn_check_updates.configure(state="normal")
         if self._start_time is None:
             self._status_label.configure(text="\u25cf  Stopped", fg=C_DIM)

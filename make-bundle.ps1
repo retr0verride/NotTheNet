@@ -525,7 +525,7 @@ else
 fi
 
 # â”€â”€ Done â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-_VER=$(grep -oP '(?<=APP_VERSION = ")[^"]+' "${INSTALL_DIR:-$SCRIPT_DIR}/gui/widgets.py" 2>/dev/null || echo "unknown")
+_VER=$(grep -oP '(?<=APP_VERSION = ")[^"]+' "${INSTALL_DIR:-$SCRIPT_DIR}/version.py" 2>/dev/null || echo "unknown")
 echo ""
 if [[ "$MODE" == "update" ]]; then
 echo -e "${GREEN}+------------------------------------------------------+${NC}"
@@ -625,7 +625,7 @@ fi
 
     # â”€â”€ Optional zip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     $projectRoot = (Resolve-Path ".").Path
-    $ver = (Select-String -Path (Join-Path $projectRoot 'gui\widgets.py') -Pattern 'APP_VERSION\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+    $ver = (Select-String -Path (Join-Path $projectRoot 'version.py') -Pattern 'APP_VERSION\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
     if ($true) {
         $zipPath     = if ($ZipOutput) { [System.IO.Path]::GetFullPath($ZipOutput) } else { [System.IO.Path]::GetFullPath("dist\NotTheNet-" + $ver + ".zip") }
         $excludeDirs = @('.venv','.mypy_cache','.pytest_cache','.ruff_cache',

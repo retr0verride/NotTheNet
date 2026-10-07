@@ -85,7 +85,7 @@ Thin wrapper around `scripts/checks.py` (the same script CI runs). Executes ruff
 .\ship.ps1 -SkipPredeploy # skip checks (use sparingly)
 ```
 
-`ship.ps1` is the one-command release path: it bumps `pyproject.toml` + `gui/widgets.py` to today's `YYYY.MM.DD-N`, runs `predeploy.ps1`, calls `make-bundle.ps1 -SkipChecks` to produce `dist/NotTheNet-<ver>.zip` + `dist/notthenet-bundle.sh`, then `git commit -m "chore(release): <ver>"`, `git tag -a v<ver>`, and pushes branch + tag to `origin`. CI re-runs the same `scripts/checks.py` server-side and (on tag push) builds the `.deb` and drafts a GitHub Release.
+`ship.ps1` is the one-command release path: it bumps `pyproject.toml` + `version.py` to today's `YYYY.MM.DD-N`, runs `predeploy.ps1`, calls `make-bundle.ps1 -SkipChecks` to produce `dist/NotTheNet-<ver>.zip` + `dist/notthenet-bundle.sh`, then `git commit -m "chore(release): <ver>"`, `git tag -a v<ver>`, and pushes branch + tag to `origin`. CI re-runs the same `scripts/checks.py` server-side and (on tag push) builds the `.deb` and drafts a GitHub Release.
 
 ---
 

@@ -31,7 +31,6 @@ from gui.widgets import (
     _ZOOM_MAX,
     _ZOOM_MIN,
     _ZOOM_STEP,
-    APP_VERSION,
     C_ACCENT,
     C_ACCENT2,
     C_BG,
@@ -54,6 +53,7 @@ from gui.widgets import (
     _hover_bind,
     tooltip,
 )
+from version import APP_VERSION
 
 # ---------------------------------------------------------------------------
 # Globe canvas icon

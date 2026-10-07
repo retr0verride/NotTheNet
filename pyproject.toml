@@ -39,7 +39,7 @@ notthenet = "notthenet:main"
 # CPE: cpe:2.3:a:retr0verride:notthenet:*:*:*:*:*:python:*:*
 
 [tool.setuptools]
-py-modules = ["notthenet", "config", "service_manager"]
+py-modules = ["notthenet", "config", "service_manager", "version"]
 
 [tool.setuptools.packages.find]
 where = ["."]

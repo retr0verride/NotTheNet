@@ -43,7 +43,7 @@ except (FileNotFoundError, OSError):
     )
     os.chdir(_SCRIPT_DIR)
 
-from gui.widgets import APP_VERSION  # noqa: F401,E402  — single source of truth
+from version import APP_VERSION  # noqa: E402
 
 
 def _headless_main() -> None:
