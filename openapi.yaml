@@ -10,11 +10,11 @@ info:
     Binds to `127.0.0.1:8080` by default.  Override with `NTN_HEALTH_BIND` /
     `NTN_HEALTH_PORT` environment variables.
 
-    **Authentication** — `/health/status` and `/metrics` require the admin
+    **Authentication**: `/health/status` and `/metrics` require the admin
     token (see the `adminToken` / `bearerToken` schemes). Liveness and
     readiness probes never require a token.
 
-    **Rate limiting** — per source IP token bucket: burst of 60, refilled at
+    **Rate limiting**: per source IP token bucket, burst of 60, refilled at
     1 request/s. Exceeding the limit returns HTTP 429.
 
     **CORS** — configured via `NTN_HEALTH_CORS_ORIGINS` (comma-separated).

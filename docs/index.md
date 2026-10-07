@@ -23,6 +23,8 @@ When you detonate (run) a malware sample in a lab, the malware tries to connect 
 | [Network & iptables](network.md) | How NotTheNet redirects traffic and what iptables rules it creates |
 | [Security Hardening](security-hardening.md) | How to lock down your lab so malware cannot escape |
 | [Troubleshooting](troubleshooting.md) | Common problems and how to fix them |
+| [Architecture](architecture.md) | How the code fits together, adding a service, releasing |
+| [Development](development.md) | Dev environment, tests, quality gate |
 | [Lab Setup: Proxmox + Kali + FlareVM](lab-setup-proxmox.md) | Proxmox — recommended for dedicated hardware or a home server |
 | [Lab Setup: VirtualBox / VMware](lab-setup-vbox.md) | VirtualBox or VMware Workstation — works on a Windows or Mac laptop |
 | [Safe Detonation](safe-detonation.md) | Step-by-step checklist for safely running a malware sample |
@@ -47,7 +49,7 @@ sudo dpkg -i dist/notthenet_*.deb
 sudo notthenet
 ```
 
-Three install methods are available — see [Installation](installation.md) for the offline (air-gapped) and dev-install options. Then click **▶ Start**.
+Three install methods are available. See [Installation](installation.md) for the offline (air-gapped) and dev-install options. Then click **▶ Start**.
 
 That's it. From this moment, any program on your analysis machine that tries to "talk to the internet" — whether it's looking up a domain name, loading a web page, sending an email, or connecting to a random port — will get a believable fake response from NotTheNet instead.
 

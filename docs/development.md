@@ -105,8 +105,9 @@ These extensions give you inline lint and type errors as you code:
 
 ## Project Structure
 
-| Path | Contents |
-|------|----------|
+See [architecture.md](architecture.md) for the code map, startup sequence, and how to add a service.
+
+------|----------|
 | `notthenet.py` | Main entry point — GUI, config, orchestration |
 | `services/` | One module per fake service (DNS, HTTP, SMTP, FTP, catch-all, DoH/WebSocket, dynamic responses) |
 | `network/` | iptables management, TCP/IP OS fingerprint spoofing |

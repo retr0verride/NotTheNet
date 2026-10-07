@@ -110,6 +110,7 @@ See [docs/installation.md](docs/installation.md) for all three install methods (
 | [Safe Detonation](docs/safe-detonation.md) | Proxmox snapshots, KVM cloaking, artifact handling |
 | [Security Hardening](docs/security-hardening.md) | Lab isolation, privilege model, OpenSSF practices |
 | [Troubleshooting](docs/troubleshooting.md) | Common errors and fixes |
+| [Architecture](docs/architecture.md) | Code map, adding a service, releasing |
 | [Changelog](CHANGELOG.md) | Full release history |
 
 Man page: [man/notthenet.1](man/notthenet.1) — installed automatically by notthenet-install.sh.

@@ -1,9 +1,9 @@
 """
-NotTheNet - Service Protocol & Base Class
+NotTheNet - Service protocol.
 
-Provides the formal contract (ServiceProtocol) that all services must satisfy,
-and a concrete BaseService that implements the common TCP accept-loop boilerplate
-shared by the majority of services.
+ServiceProtocol is the contract every service in _SERVICE_REGISTRY
+(service_manager.py) satisfies: an ``enabled`` flag, ``start() -> bool``,
+``stop()`` and a ``running`` property.
 """
 
 from __future__ import annotations

@@ -42,7 +42,8 @@ pip install ruff mypy bandit pytest
 ### 3. Make your changes
 
 - Follow the existing code style (PEP 8, enforced by Ruff).
-- Line length limit: **120 characters** (see `pyproject.toml [tool.ruff]`).
+- Line length limit: **100 characters** (see `pyproject.toml [tool.ruff]`).
+- Read [docs/architecture.md](docs/architecture.md) for the code map and how to add a service.
 - All `subprocess` calls must use `shell=False` — no exceptions.
 - All user-facing strings must be validated through `utils/validators.py`.
 
@@ -61,7 +62,7 @@ pip install ruff mypy bandit pytest
 bash predeploy.sh
 ```
 
-The wrapper invokes `scripts/checks.py` — the same script CI runs. It runs: secret scan, ruff, mypy (informational + strict on the modules in `STRICT_MYPY_FILES`), bandit, pip-audit, OpenAPI validation, shellcheck, placeholder audit, pytest with coverage gate, version consistency, CHANGELOG check, Python floor check, and stale `_dyn_*` cert sweep. Use `--skip-tests` for a fast pass or `--only ruff,pytest` for a subset (`--help` lists step names).
+The wrapper invokes `scripts/checks.py`, the same script CI runs. It runs: secret scan, ruff, mypy (informational + strict on the modules in `STRICT_MYPY_FILES`), bandit, pip-audit, OpenAPI validation, shellcheck, placeholder audit, pytest with coverage gate, version consistency, CHANGELOG check, Python floor check, and stale `_dyn_*` cert sweep. Use `--skip-tests` for a fast pass or `--only ruff,pytest` for a subset (`--help` lists step names).
 
 All steps must pass before submitting a PR.
 
