@@ -63,7 +63,7 @@ class ServiceRepoAdapter:
         if self._manager is None:
             return
         try:
-            self._manager.stop()  # type: ignore[no-untyped-call]
+            self._manager.stop()
         except Exception as exc:
             logger.error("ServiceManager.stop() failed: %s", exc, exc_info=True)
 

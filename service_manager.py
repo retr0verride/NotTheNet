@@ -648,7 +648,7 @@ class ServiceManager:
         )
         self._iptables = iptables
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop all services and remove iptables rules."""
         restore_privileges()  # Need root to remove iptables rules
         with self._lock:

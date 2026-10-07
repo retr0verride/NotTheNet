@@ -271,17 +271,16 @@ cp -r logs/emails emails_$(date +%s)/
 ## Command-Line Reference
 
 ```
-usage: notthenet.py [-h] [--config CONFIG] [--nogui] [--preflight] [--loglevel LEVEL]
-
-Fake internet simulator for malware analysis.
+usage: notthenet.py [-h] [--config CONFIG] [--nogui] [--preflight] [--loglevel LEVEL] [--version]
 
 options:
   -h, --help            Show this help message and exit
   --config CONFIG       Path to JSON config file (default: config.json)
-  --nogui               Run in headless/CLI mode without the GUI
+  --nogui, --headless   Run without the GUI (also enabled by NTN_HEADLESS=1)
   --preflight           Run local preflight checks and exit
   --loglevel LEVEL      Override log level: DEBUG, INFO, WARNING, ERROR
                         (default: value from config general.log_level)
+  --version             Print the version and exit
 ```
 
 ### Examples
