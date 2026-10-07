@@ -49,13 +49,15 @@ systemd (`assets/notthenet.service`) runs headless without the health endpoint. 
 
 1. Validate `config.json` (`utils/validators.py`). Any error aborts.
 2. Restore root if a previous run dropped it, and warn if not root.
-3. Optional host prep: stop conflicting system services, apply lab hardening.
+3. Host prep, if enabled: stop conflicting system services (`auto_evict_services`), apply lab hardening (`auto_hardening`).
 4. Warn on duplicate port assignments.
 5. Open the JSONL event log and make sure TLS certs exist.
 6. Build and start every service in `_SERVICE_REGISTRY` order.
-7. Apply iptables rules for the services that actually started.
-8. Apply TCP/IP fingerprint spoofing and process-title masquerade.
-9. Drop root to the configured service account. If that fails while running as root, stop everything and exit; the tool never serves malware traffic as root.
+7. Apply iptables rules for the services that actually started (`auto_iptables`).
+8. Apply TCP/IP fingerprint spoofing (`tcp_fingerprint`) and process-title masquerade (`process_masquerade`).
+9. Drop root to the configured service account (`drop_privileges`). If the drop is enabled and fails while running as root, stop everything and exit rather than serve traffic as root.
+
+Every flag in parentheses lives under `general` in `config.json` and defaults to on.
 
 `stop()` reverses it: stop services in parallel, remove iptables rules, restore saved host state.
 

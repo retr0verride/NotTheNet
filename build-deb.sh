@@ -180,14 +180,20 @@ fi
 # ── Python virtualenv + dependencies (offline, from vendored wheels) ─────────
 echo "[*] Creating Python virtualenv..."
 python3 -m venv "$OPT/venv"
-PIP_OFFLINE=("$OPT/venv/bin/pip" install --quiet --disable-pip-version-check
-             --no-index --find-links "$OPT/wheels")
-if ! "${PIP_OFFLINE[@]}" setuptools wheel -r "$OPT/requirements.txt"; then
-    echo "[!] No bundled wheels match $(python3 --version) on $(uname -m)."
-    echo "    The .deb vendors wheels for CPython 3.10-3.14 on x86_64/aarch64."
-    exit 1
+# Bundled wheels cover CPython 3.10-3.14 on x86_64/aarch64. Anything else
+# falls back to PyPI, which needs internet.
+PIP=("$OPT/venv/bin/pip" install --quiet --disable-pip-version-check)
+OFFLINE=(--no-index --find-links "$OPT/wheels")
+if ! "${PIP[@]}" "${OFFLINE[@]}" setuptools wheel -r "$OPT/requirements.txt" 2>/dev/null; then
+    echo "[!] No bundled wheels match $(python3 --version) on $(uname -m); trying PyPI..."
+    OFFLINE=()
+    if ! "${PIP[@]}" setuptools wheel -r "$OPT/requirements.txt"; then
+        echo "[!] Dependency install failed. Offline installs need CPython 3.10-3.14"
+        echo "    on x86_64 or aarch64; otherwise this host needs internet access."
+        exit 1
+    fi
 fi
-"${PIP_OFFLINE[@]}" --no-build-isolation --no-deps -e "$OPT"
+"${PIP[@]}" "${OFFLINE[@]}" --no-build-isolation --no-deps -e "$OPT"
 
 # ── TLS certificate ───────────────────────────────────────────────────────────
 if [[ ! -f "$OPT/certs/server.crt" ]]; then

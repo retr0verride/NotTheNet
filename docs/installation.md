@@ -177,6 +177,8 @@ Backs up `config.json`, pulls the latest code, reinstalls the package, and resto
 diff config.json <(git show origin/main:config.json)
 ```
 
+> **`update.sh` on a `.deb` install rebuilds the package, which downloads dependency wheels, so it needs internet and `python3-pip`.**
+>
 > **`update.sh` works on `.deb` installs too.** When run on a system where the `notthenet` package is registered with `dpkg`, it pulls the latest source, rebuilds the `.deb`, backs up `/opt/notthenet/config.json`, runs `dpkg -i`, restores the user config, and merges any new default keys. The version is verified post-install (`dpkg-query -W` must equal `version.py:APP_VERSION`) so silent build failures are caught.
 
 ### Uninstall
