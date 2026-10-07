@@ -6,12 +6,12 @@ Fake IRC server for capturing IRC-based C2 (botnet) traffic.
 Many botnets use IRC for command-and-control: the bot connects to an IRC
 server, joins a private channel, and waits for PRIVMSG commands from an
 operator.  This server accepts all connections, responds with a realistic
-IRC welcome sequence (numerics 001â€“005, LUSERS, MOTD), and handles the
+IRC welcome sequence (numerics 001–005, LUSERS, MOTD), and handles the
 full set of common IRC commands so bots proceed to join channels and sit
-waiting for orders â€” fully captured in the sandbox.
+waiting for orders — fully captured in the sandbox.
 
 Security notes (OpenSSF):
-- Lines are capped at 512 bytes (RFC 1459 Â§2.3); data beyond is discarded
+- Lines are capped at 512 bytes (RFC 1459 §2.3); data beyond is discarded
 - Nick, channel, and message strings are sanitized before logging
 - Runs each connection in a daemon thread; cannot block process exit
 - No data is forwarded to any external host; all traffic is intercepted
@@ -30,7 +30,7 @@ from utils.logging_utils import sanitize_ip, sanitize_log_string
 
 logger = logging.getLogger(__name__)
 
-_MAX_LINE = 512       # RFC 1459 Â§2.3
+_MAX_LINE = 512       # RFC 1459 §2.3
 _PING_INTERVAL = 120  # idle seconds before the server sends a keepalive PING
 _PING_TIMEOUT  = 60   # seconds to wait for PONG before forcibly closing
 _CHANNEL_EPOCH = 1735689600  # 2025-01-01T00:00:00Z
@@ -61,7 +61,7 @@ class _IRCClientThread(threading.Thread):
         self._sem = sem
         self._waiting_for_pong: bool = False
 
-    # â”€â”€ I/O helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── I/O helpers ──────────────────────────────────────────────────────────
 
     def _send(self, line: str):
         """Send a server-originated message (prefixed with :hostname)."""
@@ -77,11 +77,11 @@ class _IRCClientThread(threading.Thread):
         except OSError:
             pass
 
-    # â”€â”€ Registration burst â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Registration burst ───────────────────────────────────────────────────
 
     def _welcome(self):
         """
-        Send the RFC 1459 registration burst: 001â€“005, LUSERS, MOTD end.
+        Send the RFC 1459 registration burst: 001–005, LUSERS, MOTD end.
         This is the sequence that tells the client it has successfully
         registered and may begin sending channel commands.
         """
@@ -113,7 +113,7 @@ class _IRCClientThread(threading.Thread):
             self._send(f"372 {nick} :- {motd_line}")
         self._send(f"376 {nick} :End of /MOTD command.")
 
-    # â”€â”€ Channel join response â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Channel join response ─────────────────────────────────────────────────
 
     def _do_join(self, channel: str):
         """Emit RFC-correct join response: JOIN echo + topic + NAMREPLY."""
@@ -135,7 +135,7 @@ class _IRCClientThread(threading.Thread):
         # 366 RPL_ENDOFNAMES
         self._send(f"366 {nick} {channel} :End of /NAMES list.")
 
-    # â”€â”€ Main read loop â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Main read loop ────────────────────────────────────────────────────────
 
     def run(self) -> None:
         safe_addr = sanitize_ip(self.addr[0])
@@ -192,7 +192,7 @@ class _IRCClientThread(threading.Thread):
                 self.conn.settimeout(_PING_INTERVAL)
             return chunk
 
-    # â”€â”€ Command dispatcher â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Command dispatcher ────────────────────────────────────────────────────
 
     def _dispatch(self, line: str, safe_addr: str):
         """Dispatch one IRC client message."""
@@ -212,7 +212,7 @@ class _IRCClientThread(threading.Thread):
         elif self.registered and cmd:
             self._send(f"421 {self.nick} {cmd} :Unknown command")
 
-    # â”€â”€ Per-command handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Per-command handlers ──────────────────────────────────────────────
 
     def _cmd_cap(self, rest: str, _sa: str):
         sub = rest.split()[0].upper() if rest.split() else ""
@@ -386,11 +386,11 @@ class _IRCClientThread(threading.Thread):
     }
 
 
-# â”€â”€â”€ Service wrappers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Service wrappers ────────────────────────────────────────────────────────
 
 
 class IRCService:
-    """Fake IRC server â€” accepts botnet C2 connections on TCP."""
+    """Fake IRC server — accepts botnet C2 connections on TCP."""
 
     def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
         self.enabled = config.get("enabled", True)
@@ -470,7 +470,7 @@ class IRCSTLSService:
 
     Modern botnets increasingly use SSL IRC to avoid plaintext interception.
     This service wraps each accepted connection in TLS before handing it to
-    the same ``_IRCClientThread`` handler â€” giving you full IRC sinkholing
+    the same ``_IRCClientThread`` handler — giving you full IRC sinkholing
     over encrypted channels with no code duplication.
     """
 
@@ -496,7 +496,7 @@ class IRCSTLSService:
             os.path.exists(self.cert_path) and os.path.exists(self.key_path)
         ):
             logger.warning(
-                "IRC/TLS (port %d): cert or key not found â€” skipping", self.port
+                "IRC/TLS (port %d): cert or key not found — skipping", self.port
             )
             return False
         try:
@@ -539,7 +539,7 @@ class IRCSTLSService:
                 conn = self._ssl_ctx.wrap_socket(raw_conn, server_side=True)
             except ssl.SSLError as e:
                 logger.debug("IRC/TLS handshake failed %s: %s", addr[0], e)
-                self._sem.release()   # release slot â€” session never started
+                self._sem.release()   # release slot — session never started
                 try:
                     raw_conn.close()
                 except OSError:

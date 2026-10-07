@@ -63,7 +63,7 @@ _MAX_WORKER_THREADS = 50
 
 _DEFAULT_SERVER_HEADER = "Apache/2.4.51"
 
-# Cipher suites: ECDHE forward secrecy + AEAD â€” no RC4, 3DES, CBC
+# Cipher suites: ECDHE forward secrecy + AEAD — no RC4, 3DES, CBC
 _SECURE_CIPHERS = (
     "ECDHE-ECDSA-AES128-GCM-SHA256:"
     "ECDHE-RSA-AES128-GCM-SHA256:"
@@ -123,7 +123,7 @@ _NCSI_RESPONSES: dict[str, bytes] = {
 
 # Google / Android / ChromeOS connectivity checks and Apple captive portal
 # detection hosts.  These are queried by the OS (not just the browser) and
-# must return EXACT expected responses â€” wrong body or status code causes the
+# must return EXACT expected responses — wrong body or status code causes the
 # OS to show "No internet" and some malware will stall waiting for connectivity.
 _CAPTIVE_PORTAL_HOSTS = frozenset({
     # Google generate_204: Chrome OS, Android, Windows/macOS Chrome
@@ -231,7 +231,7 @@ _PKI_HOSTS = frozenset({
     "r10.o.lencr.org", "r11.o.lencr.org",
 })
 
-# Minimal CRL stub â€” an empty DER-encoded X.509 Certificate Revocation List.
+# Minimal CRL stub — an empty DER-encoded X.509 Certificate Revocation List.
 # We generate it lazily on first use.
 _STUB_CRL_CACHE: bytes | None = None
 _STUB_CRL_LOCK = threading.Lock()
@@ -272,12 +272,12 @@ def _get_stub_crl() -> bytes:
 # Minimal OCSP "good" response stub (DER).  Real OCSP responses are complex;
 # we return a small valid-looking binary payload with the correct content-type.
 # Most CryptoAPI implementations accept a timeout/error gracefully and don't
-# hard-fail on soft-fail OCSP â€” but returning HTML would be worse.
+# hard-fail on soft-fail OCSP — but returning HTML would be worse.
 _STUB_OCSP_RESPONSE = (
     b"\x30\x03"    # SEQUENCE { OCSPResponse
     b"\x0a\x01"    # ENUMERATED (1 byte)
     b"\x00"        # successful (0)
-    # responseBytes omitted â€” this is a "successful but no details" stub.
+    # responseBytes omitted — this is a "successful but no details" stub.
     # CryptoAPI treats this as soft-pass (same as timeout).
 )
 
@@ -312,7 +312,7 @@ _SERVER_LAST_MODIFIED = (
     datetime.now(timezone.utc) - timedelta(days=_LAST_MODIFIED_AGE_DAYS)
 ).strftime(f"%a, %d %b %Y {_LAST_MODIFIED_TIME_OF_DAY}")
 
-# RFC 1918 private address ranges â€” returning one of these as a "public" IP
+# RFC 1918 private address ranges — returning one of these as a "public" IP
 # would let sandbox-aware malware detect the private network.
 _RFC1918_NETWORKS = (
     ipaddress.ip_network("10.0.0.0/8"),
@@ -335,21 +335,21 @@ def _validate_spoof_ip(raw: str, context: str = "") -> str:
         addr = ipaddress.ip_address(raw)
     except ValueError:
         logger.error(
-            "Invalid spoof_public_ip '%s' in %s config â€” must be a valid IPv4/IPv6 address; "
+            "Invalid spoof_public_ip '%s' in %s config — must be a valid IPv4/IPv6 address; "
             "IP spoofing disabled.", raw, context or "http"
         )
         return ""
     if any(addr in net for net in _RFC1918_NETWORKS):
         logger.warning(
-            "spoof_public_ip '%s' (%s) is a private/loopback address â€” "
+            "spoof_public_ip '%s' (%s) is a private/loopback address — "
             "sandbox detection tools may still flag this as non-internet traffic.",
             raw, context or "http"
         )
     return raw
 
 
-# â”€â”€ IP-check response formatters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# Pure functions: (ip, path) â†’ (body, content_type, extra_headers | None).
+# ── IP-check response formatters ────────────────────────────────────────────
+# Pure functions: (ip, path) → (body, content_type, extra_headers | None).
 # Used by FakeHTTPHandler._send_ip_check_response via _IP_CHECK_FORMATTERS.
 
 _COMCAST_GEO = {
@@ -658,11 +658,11 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
 
         Windows polls these hosts to determine whether to show the
         'Internet access' indicator. When the response body matches
-        exactly, Windows reports full connectivity â€” which prevents
+        exactly, Windows reports full connectivity — which prevents
         certain malware from stalling in a 'no network' idle loop.
         """
         path = (self.path or "/").split("?")[0]
-        # www.msftconnecttest.com/redirect should return HTTP 302 â†’ HTTPS.
+        # www.msftconnecttest.com/redirect should return HTTP 302 → HTTPS.
         # Returning 200+body here triggers mismatches in NCSI validator
         # tools and is a detectable fingerprint for savvy malware.
         if path == "/redirect":
@@ -740,7 +740,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         if not route_websocket_upgrade(self):
             self._send_normal_response()
 
-    # â”€â”€ Route registry â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Route registry ────────────────────────────────────────────────
     # Each entry: (predicate(self, host) -> bool, handler(self, host) -> bool|None).
     # Handler returns True (or None) if it consumed the request, False to
     # fall through. Evaluated in priority order; first match wins.
@@ -894,28 +894,28 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Server", self._cfg.server_header)
             self.send_header("Accept-Ranges", "bytes")
             self.send_header("Vary", "Accept-Encoding")
-            # ETag varies per path â€” a single static value for every URL is
+            # ETag varies per path — a single static value for every URL is
             # a detectable fingerprint (real servers use inode/mtime/size).
-            _path_etag = hashlib.md5(  # noqa: S324  # nosec B324 â€” not crypto
+            _path_etag = hashlib.md5(  # noqa: S324  # nosec B324 — not crypto
                 (self.path or "/").encode(), usedforsecurity=False
             ).hexdigest()[:13]
             self.send_header("ETag", f'"3a4b1c-{_path_etag}"')
             self.send_header("Last-Modified", _SERVER_LAST_MODIFIED)
             self.send_header("Connection", "keep-alive")
             self.end_headers()
-            # HEAD requests MUST NOT include a message body (RFC 7231 Â§4.3.2).
+            # HEAD requests MUST NOT include a message body (RFC 7231 §4.3.2).
             # send_response() / send_header() still ran, so headers are correct.
             if self.command != "HEAD":
                 self.wfile.write(body)
         except OSError:
-            pass  # Client disconnected â€” normal for malware scanners
+            pass  # Client disconnected — normal for malware scanners
 
     def _send_connect_response(self):
         """Handle HTTP CONNECT tunnel request.
 
         Malware configured to route traffic via an HTTP proxy sends
         CONNECT to tunnel to its C2 (typically port 443).  Returning
-        a proper 200 response â€” rather than an HTML page â€” lets the
+        a proper 200 response — rather than an HTML page — lets the
         malware believe the tunnel was established; the subsequent TLS
         handshake fails (no real upstream), but the connection is logged
         and the client closes cleanly instead of seeing garbled HTML.
@@ -947,7 +947,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         do_OPTIONS = do_PATCH = do_TRACE = _send_fake_response
     do_CONNECT = _send_connect_response
 
-    # First line of the HTTP/2 client connection preface (RFC 7540 Â§3.5).
+    # First line of the HTTP/2 client connection preface (RFC 7540 §3.5).
     _HTTP2_PREFACE_LINE = b"PRI * HTTP/2.0"
 
     def _handle_http2_goaway(self):
@@ -955,9 +955,9 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         Respond to an HTTP/2 connection preface with a server SETTINGS
         frame followed by GOAWAY(HTTP_1_1_REQUIRED).
 
-        RFC 7540 Â§3.5  â€” the server sends its own connection preface
+        RFC 7540 §3.5  — the server sends its own connection preface
                          (a SETTINGS frame) before any other frame.
-        RFC 7540 Â§6.8  â€” GOAWAY carries the last processed stream ID
+        RFC 7540 §6.8  — GOAWAY carries the last processed stream ID
                          and an error code.
         Error 0x0D (HTTP_1_1_REQUIRED) tells the client to retry the
         request using HTTP/1.1 rather than h2.  Well-behaved HTTP/2
@@ -970,7 +970,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         except OSError:
             return
         try:
-            # Empty SETTINGS frame â€” server connection preface (RFC 7540 Â§6.5)
+            # Empty SETTINGS frame — server connection preface (RFC 7540 §6.5)
             settings_frame = (
                 b"\x00\x00\x00"       # payload length: 0
                 b"\x04"               # frame type: SETTINGS
@@ -994,7 +994,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
     def handle_one_request(self):
         try:
             # Read the request line ourselves so we can inspect it before
-            # parse_request() sees it â€” needed for HTTP/2 preface detection.
+            # parse_request() sees it — needed for HTTP/2 preface detection.
             self.raw_requestline = self.rfile.readline(65537)  # type: ignore[misc]
             if not self.raw_requestline:
                 self.close_connection = True  # type: ignore[misc]
@@ -1006,7 +1006,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
                 self.send_error(414)
                 self.close_connection = True  # type: ignore[misc]
                 return
-            # HTTP/2 connection preface (RFC 7540 Â§3.5): respond with
+            # HTTP/2 connection preface (RFC 7540 §3.5): respond with
             # SETTINGS + GOAWAY(HTTP_1_1_REQUIRED) and close.
             if self.raw_requestline.startswith(self._HTTP2_PREFACE_LINE):
                 safe_addr = sanitize_ip(self.client_address[0])
@@ -1209,7 +1209,7 @@ class HTTPSService:
             | ssl.OP_SINGLE_ECDH_USE
         )
         ctx.set_ciphers(_SECURE_CIPHERS)
-        # Advertise h2 + http/1.1 via ALPN â€” matches real Apache 2.4.x ServerHello.
+        # Advertise h2 + http/1.1 via ALPN — matches real Apache 2.4.x ServerHello.
         # When h2 is negotiated the handler detects the connection preface and
         # sends GOAWAY(HTTP_1_1_REQUIRED) so the client retries on HTTP/1.1.
         ctx.set_alpn_protocols(["h2", "http/1.1"])

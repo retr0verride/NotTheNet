@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 _ICMP_ECHO_REQUEST = 8
 _MIN_IP_HDR        = 20
 _MIN_ICMP_HDR      = 8
-_LOG_INTERVAL      = 5.0  # seconds between repeated log entries for the same srcâ†’dst pair
+_LOG_INTERVAL      = 5.0  # seconds between repeated log entries for the same src→dst pair
 
 
 class ICMPResponder:

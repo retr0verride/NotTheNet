@@ -8,7 +8,7 @@ Why this matters:
     etc.), then awaits a shell prompt before executing downloaded payloads.
 
     Without a proper Telnet login sequence the bot drops the connection
-    immediately â€” none of its credential spray or payload execution is visible.
+    immediately — none of its credential spray or payload execution is visible.
 
     This server:
       - Sends realistic Telnet option negotiations (WILL ECHO, WILL SGA)
@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 SESSION_TIMEOUT = 60  # seconds per session
 
-# â”€â”€â”€ Telnet option bytes (RFC 854) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Telnet option bytes (RFC 854) ───────────────────────────────────────────
 IAC  = b"\xff"
 WILL = b"\xfb"
 WONT = b"\xfc"
@@ -48,8 +48,8 @@ ECHO = b"\x01"
 SGA  = b"\x03"   # Suppress Go Ahead
 
 # Server sends these immediately after connection:
-#   IAC WILL ECHO  â†’ we echo characters (standard Telnet)
-#   IAC WILL SGA   â†’ suppress go-ahead (standard Telnet)
+#   IAC WILL ECHO  → we echo characters (standard Telnet)
+#   IAC WILL SGA   → suppress go-ahead (standard Telnet)
 #   IAC DO SGA
 _NEGOTIATE = IAC + WILL + ECHO + IAC + WILL + SGA + IAC + DO + SGA
 
@@ -57,21 +57,21 @@ _NEGOTIATE = IAC + WILL + ECHO + IAC + WILL + SGA + IAC + DO + SGA
 _ECHO_OFF = IAC + WILL + ECHO
 _ECHO_ON  = IAC + WONT + ECHO
 
-# â”€â”€â”€ Fake shell command responses â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Fake shell command responses ────────────────────────────────────────────
 _SHELL_RESPONSES: dict[str, bytes | None] = {
     "id":       b"uid=0(root) gid=0(root)\r\n",
     "whoami":   b"root\r\n",
     "uname -a": b"Linux router 4.19.0-18-mips #1 SMP Mon Mar 16 06:00:00 UTC 2020 mips GNU/Linux\r\n",
     "uname":    b"Linux\r\n",
     "hostname": b"router\r\n",
-    "pwd":      b"/root\r\n",  # nosec B105 â€” shell command key, not a credential
+    "pwd":      b"/root\r\n",  # nosec B105 — shell command key, not a credential
     "ls":       b"bin  dev  etc  lib  proc  root  tmp  usr  var\r\n",
     "ls -la":   b"total 0\r\ndrwxr-xr-x 12 root root 0 Jan  1 00:00 .\r\n",
     "cat /proc/cpuinfo": b"processor\t: 0\r\ncpu model\t: MIPS 24Kc\r\n",
     "free":     b"             total       used       free\r\nMem:         62976      41280      21696\r\n",
     "ps":       b"PID   USER     COMMAND\r\n    1 root     init\r\n",
     "ps aux":   b"PID   USER     COMMAND\r\n    1 root     init\r\n",
-    "exit":     None,  # special â€” close session
+    "exit":     None,  # special — close session
     "quit":     None,
     "logout":   None,
 }
@@ -82,11 +82,11 @@ def _shell_response(cmd: str) -> bytes | None:
     stripped = cmd.strip()
     if stripped in _SHELL_RESPONSES:
         return _SHELL_RESPONSES[stripped]
-    # wget / curl / tftp â€” acknowledge but do nothing (no real download)
+    # wget / curl / tftp — acknowledge but do nothing (no real download)
     lower = stripped.lower()
     if lower.startswith(("wget ", "curl ", "tftp ")):
         return b"connecting...\r\n"
-    # cd â€” always succeed
+    # cd — always succeed
     if lower.startswith("cd "):
         return b""
     # empty line
@@ -113,7 +113,7 @@ class _TelnetSession(threading.Thread):
         self.prompt = prompt.encode()
         self._sem = sem
 
-    # â”€â”€ I/O helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── I/O helpers ──────────────────────────────────────────────────────────
 
     def _send(self, data: bytes) -> bool:
         try:
@@ -161,7 +161,7 @@ class _TelnetSession(threading.Thread):
             if len(buf) < max_bytes:
                 buf += ch
         return buf
-    # â”€â”€ Session main â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Session main ─────────────────────────────────────────────────────────
 
     def _do_login(self, safe_addr: str) -> tuple[str, str | None]:
         """Run login: / Password: sequence. Returns (username, password) or None."""

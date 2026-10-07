@@ -3,10 +3,10 @@ NotTheNet - Fake SMB Server (TCP port 445)
 
 Why this matters:
     SMB is the most-exploited protocol for lateral movement:
-      - WannaCry / NotPetya  â€” EternalBlue (MS17-010, SMBv1 TRANS2 exploit)
-      - Emotet, Ryuk         â€” SMBv2 credential spray over port 445
-      - Impacket             â€” smbclient, psexec-style lateral movement
-      - REvil / BlackMatter  â€” scan 445 before encrypting network shares
+      - WannaCry / NotPetya  — EternalBlue (MS17-010, SMBv1 TRANS2 exploit)
+      - Emotet, Ryuk         — SMBv2 credential spray over port 445
+      - Impacket             — smbclient, psexec-style lateral movement
+      - REvil / BlackMatter  — scan 445 before encrypting network shares
 
     Key intelligence:
       - Dialect list reveals whether the client is probing for SMBv1

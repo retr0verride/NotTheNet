@@ -4,7 +4,7 @@ Accepts FTP connections, optionally receives uploads, always reports success.
 
 Security notes (OpenSSF):
 - Upload directory is resolved via os.path.realpath and path-traversal checked
-- UUID-based filenames for saved uploads â€” no attacker path/name control
+- UUID-based filenames for saved uploads — no attacker path/name control
 - Total upload size capped (disk exhaustion prevention)
 - PASV port range is restricted to avoid footprint on reserved ports
 - No shell=True subprocess calls
@@ -194,7 +194,7 @@ class _FTPSession(threading.Thread):
                     logger.debug("FTP PASV server close failed", exc_info=True)
                 self._pasv_server = None
 
-    # Static command â†’ response mapping (commands that just send a fixed reply)
+    # Static command → response mapping (commands that just send a fixed reply)
     _SIMPLE_RESPONSES: dict[str, str] = {
         "USER": "230 Login successful",
         "PASS": "230 Login successful",

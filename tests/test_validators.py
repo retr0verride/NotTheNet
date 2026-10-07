@@ -1,5 +1,5 @@
 ﻿"""
-Tests for utils/validators.py â€” cover all public functions.
+Tests for utils/validators.py — cover all public functions.
 These are pure-Python, no I/O, safe to run anywhere.
 """
 
@@ -16,7 +16,7 @@ from utils.validators import (
     validate_port,
 )
 
-# â”€â”€ validate_ip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── validate_ip ──────────────────────────
 
 class TestValidateIp:
     def test_valid_ipv4(self):
@@ -50,7 +50,7 @@ class TestValidateIp:
         assert addr == "0.0.0.0"
 
 
-# â”€â”€ validate_port â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â
+# ── validate_port ────────────────────────────────────────────────────────────
 
 class TestValidatePort:
     def test_valid_ports(self):
@@ -85,7 +85,7 @@ class TestValidatePort:
         assert not ok
 
 
-# â”€â”€ validate_hostname â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── validate_hostname ────────────────────────
 
 class TestValidateHostname:
     def test_simple_hostname(self):
@@ -114,7 +114,7 @@ class TestValidateHostname:
         assert validate_hostname("host123.example.com")
 
 
-# â”€â”€ validate_bind_ip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â
+# ── validate_bind_ip ─────────────────────────────────────────────────────────
 
 class TestValidateBindIp:
     def test_wildcard_ipv4(self):
@@ -137,7 +137,7 @@ class TestValidateBindIp:
         assert not ok
 
 
-# â”€â”€ sanitize_path â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â
+# ── sanitize_path ────────────────────────────────────────────────────────────
 
 class TestSanitizePath:
     def test_safe_subpath(self):
@@ -165,7 +165,7 @@ class TestSanitizePath:
                 assert ".." not in os.path.relpath(result, parent)
 
 
-# â”€â”€ validate_http_method â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── validate_http_method ───────────────────────
 
 class TestValidateHttpMethod:
     def test_standard_methods(self):
@@ -183,7 +183,7 @@ class TestValidateHttpMethod:
         assert not validate_http_method("")
 
 
-# â”€â”€ validate_config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+# ── validate_config ──────────────────────────────────────────────────────────
 
 class TestValidateConfig:
     def test_valid_full_config(self):

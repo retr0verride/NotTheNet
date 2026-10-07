@@ -14,7 +14,7 @@ Security notes (OpenSSF):
 - Malformed / undersized NTP packets (< 48 bytes) are silently dropped
 - No reflection amplification: response is exactly 48 bytes regardless of
   request size
-- The response spoofs Stratum 2 from reference "LOCL" â€” realistic enough to
+- The response spoofs Stratum 2 from reference "LOCL" — realistic enough to
   satisfy clients without exposing internal details
 - Runs in a daemon thread; cannot block process exit
 """
@@ -54,7 +54,7 @@ def _build_response(request: bytes) -> bytes | None:
     if len(request) < 48:
         return None
 
-    # Echo client's transmit timestamp as originate timestamp (RFC 5905 Â§8)
+    # Echo client's transmit timestamp as originate timestamp (RFC 5905 §8)
     orig_secs, orig_frac = struct.unpack("!II", request[40:48])
 
     now = time.time()
@@ -63,16 +63,16 @@ def _build_response(request: bytes) -> bytes | None:
     xmt_secs, xmt_frac = ref_secs, ref_frac
 
     # Packet layout (48 bytes, big-endian):
-    #   1B  LI=0 | VN=3 | Mode=4 (server)   â†’ 0b00_011_100 = 0x1C
+    #   1B  LI=0 | VN=3 | Mode=4 (server)   → 0b00_011_100 = 0x1C
     #   1B  Stratum = 2 (secondary reference)
     #   1B  Poll interval = 6 (log2 max interval, signed)
-    #   1B  Precision = -20 (log2 clock precision â‰ˆ 1 Âµs, signed)
-    #   4B  Root delay     (fixed-point 16.16, â‰ˆ 10 ms upstream RTT)
-    #   4B  Root dispersion (fixed-point 16.16, â‰ˆ 20 ms cumulative dispersion)
+    #   1B  Precision = -20 (log2 clock precision ≈ 1 µs, signed)
+    #   4B  Root delay     (fixed-point 16.16, ≈ 10 ms upstream RTT)
+    #   4B  Root dispersion (fixed-point 16.16, ≈ 20 ms cumulative dispersion)
     #   4B  Reference ID   upstream Stratum-1 IP (time.google.com = 216.239.35.0)
-    #       RFC 5905 Â§7.3: for Stratum 2+, Reference ID must be the IPv4 address
+    #       RFC 5905 §7.3: for Stratum 2+, Reference ID must be the IPv4 address
     #       of the upstream reference clock, NOT an ASCII keyword like "LOCL".
-    #       Sending "LOCL" at Stratum 2 is a detectable fingerprint â€” real
+    #       Sending "LOCL" at Stratum 2 is a detectable fingerprint — real
     #       stratum-2 servers always encode an upstream IP here.
     #   8B  Reference timestamp  (secs + frac)
     #   8B  Originate timestamp  (echoed from client)
@@ -84,8 +84,8 @@ def _build_response(request: bytes) -> bytes | None:
         2,              # Stratum 2
         6,              # Poll exponent
         -20,            # Precision exponent
-        655,            # Root delay     (â‰ˆ 10 ms; NTP 16.16 fixed-point, 0.010 Ã— 65536)
-        1311,           # Root dispersion (â‰ˆ 20 ms; Stratum-2 servers never report zero)
+        655,            # Root delay     (≈ 10 ms; NTP 16.16 fixed-point, 0.010 × 65536)
+        1311,           # Root dispersion (≈ 20 ms; Stratum-2 servers never report zero)
         b"\xd8\xef\x23\x00",  # Reference ID: 216.239.35.0 (time.google.com Stratum 1)
         ref_secs, ref_frac,
         orig_secs, orig_frac,
@@ -95,7 +95,7 @@ def _build_response(request: bytes) -> bytes | None:
 
 
 class NTPService:
-    """Fake NTP server â€” responds to all NTP queries with system time."""
+    """Fake NTP server — responds to all NTP queries with system time."""
 
     def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
         self.enabled = config.get("enabled", True)

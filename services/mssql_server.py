@@ -3,15 +3,15 @@ NotTheNet - Fake MSSQL Server (TCP port 1433)
 
 Why this matters:
     SQL Server is heavily targeted in enterprise environments by:
-      - QakBot / Emotet     â€” lateral movement via SQL server
-      - Ransomware           â€” query stored creds before encrypting
-      - Password sprayers    â€” sa / admin account brute-force over TCP/1433
-      - Impacket mssqlclient â€” red-team and malware C2 implants
+      - QakBot / Emotet     — lateral movement via SQL server
+      - Ransomware           — query stored creds before encrypting
+      - Password sprayers    — sa / admin account brute-force over TCP/1433
+      - Impacket mssqlclient — red-team and malware C2 implants
 
     Key trick in this service: the TDS Pre-Login response sets
     ENCRYPTION=ENCRYPT_NOT_SUPPORTED (0x02), which causes clients that follow
     the spec to send their Login7 record in plaintext.  The password in Login7
-    is only XOR-obfuscated (nibble-swap + XOR 0xA5) â€” completely reversible â€”
+    is only XOR-obfuscated (nibble-swap + XOR 0xA5) — completely reversible —
     so we recover the plaintext credential without any key material.
 
 Security notes (OpenSSF):
@@ -46,8 +46,8 @@ def _prelogin_response() -> bytes:
     TDS Pre-Login response.
 
     Tokens (offset relative to start of Pre-Login message body, after TDS header):
-      VERSION    offset=0x001a  length=6   â†’ 15.0.2000.5 (SQL Server 2019 RTM)
-      ENCRYPTION offset=0x0020  length=1   â†’ 0x02 (ENCRYPT_NOT_SUP)
+      VERSION    offset=0x001a  length=6   → 15.0.2000.5 (SQL Server 2019 RTM)
+      ENCRYPTION offset=0x0020  length=1   → 0x02 (ENCRYPT_NOT_SUP)
       TERMINATOR 0xFF
 
     With ENCRYPT_NOT_SUP, the client sends Login7 without TLS, and the
@@ -114,24 +114,24 @@ class _MSSQLSession(threading.Thread):
         try:
             self.conn.settimeout(SESSION_TIMEOUT)
 
-            # â”€â”€ 1. Read Pre-Login request â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # ── 1. Read Pre-Login request ──────────────────────────────────
             pkt_type, _ = self._read_tds_packet()
             if pkt_type != _TDS_PRELOGIN:
                 return
 
-            # â”€â”€ 2. Send Pre-Login response (ENCRYPT_NOT_SUP) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # ── 2. Send Pre-Login response (ENCRYPT_NOT_SUP) ───────────────
             self.conn.sendall(_prelogin_response())
 
-            # â”€â”€ 3. Read Login7 (arrives plaintext) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # ── 3. Read Login7 (arrives plaintext) ────────────────────────
             pkt_type, body = self._read_tds_packet()
             if pkt_type != _TDS_LOGIN7 or len(body) < 48:
                 return
 
-            # Login7 offset table (bytes 36â€¦47):
+            # Login7 offset table (bytes 36…47):
             #   [36] ibHostName  [38] cchHostName
             #   [40] ibUserName  [42] cchUserName
             #   [44] ibPassword  [46] cchPassword
-            username = ""  # nosec B105 â€” honeypot: captures whatever the malware sends
+            username = ""  # nosec B105 — honeypot: captures whatever the malware sends
             password = ""  # nosec B105
             try:
                 user_off, user_len = struct.unpack("<HH", body[40:44])

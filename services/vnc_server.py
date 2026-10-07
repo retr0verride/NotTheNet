@@ -3,9 +3,9 @@ NotTheNet - Fake VNC Server (TCP port 5900)
 
 Why this matters:
     VNC is a favourite for:
-      - Remote-access trojans  â€” UltraVNC, TinyVNC, Hidden-VNC (hVNC) payloads
-      - Botnets                â€” spread by scanning for open 5900 with weak passwords
-      - Ransomware pre-ops     â€” manual reconnaissance before detonation
+      - Remote-access trojans  — UltraVNC, TinyVNC, Hidden-VNC (hVNC) payloads
+      - Botnets                — spread by scanning for open 5900 with weak passwords
+      - Ransomware pre-ops     — manual reconnaissance before detonation
 
     Key intelligence:
       - The RFB version string the client sends reveals the client software
@@ -22,7 +22,7 @@ Why this matters:
       6. Always accepts (sends SecurityResult = 0 OK)
 
 Security notes (OpenSSF):
-- Challenge is os.urandom(16) â€” never reused, never predictable
+- Challenge is os.urandom(16) — never reused, never predictable
 - DES response bytes are only logged as hex; no crypto operation is performed
 - Each session runs in a daemon thread; cannot block process exit
 - Sessions are bounded to SESSION_TIMEOUT seconds

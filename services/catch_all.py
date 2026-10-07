@@ -5,9 +5,9 @@ responds with a protocol-aware response to keep malware engaged and
 capture as much of its communication as possible.
 
 Protocol detection (first-byte inspection):
-  - HTTP  â†’ proper HTTP/1.1 200 OK response
-  - TLS   â†’ complete TLS handshake using existing certs, then HTTP 200
-  - Other â†’ generic "200 OK" banner
+  - HTTP  → proper HTTP/1.1 200 OK response
+  - TLS   → complete TLS handshake using existing certs, then HTTP 200
+  - Other → generic "200 OK" banner
 
 Security notes (OpenSSF):
 - Accepts at most MAX_CONNECTIONS simultaneous TCP connections
@@ -38,13 +38,13 @@ SESSION_TIMEOUT = 10   # seconds — max lifetime of a single catch-all session
 PEEK_TIMEOUT    = 0.5  # seconds to wait for initial bytes before sending banner
 LOG_PREVIEW     = 256  # max bytes logged per received chunk (sanitized)
 
-# HTTP request method prefixes â€” first 4 bytes of a plain-text HTTP request
+# HTTP request method prefixes — first 4 bytes of a plain-text HTTP request
 _HTTP_PREFIXES = (
     b"GET ", b"POST", b"PUT ", b"HEAD",
     b"OPTI", b"DELE", b"PATC", b"TRAC", b"CONN",
 )
 
-# Realistic-looking HTTP 200 response â€” satisfies malware that checks the body
+# Realistic-looking HTTP 200 response — satisfies malware that checks the body
 _HTTP_200 = (
     b"HTTP/1.1 200 OK\r\n"
     b"Server: Apache/2.4.57\r\n"
@@ -54,7 +54,7 @@ _HTTP_200 = (
     b"\r\n"
 )
 
-# For unknown protocols, echo nothing protocol-specific â€” just close.
+# For unknown protocols, echo nothing protocol-specific — just close.
 # Sending "200 OK" to a non-HTTP protocol is a detectable anomaly.
 _GENERIC_BANNER = b""
 
@@ -222,7 +222,7 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
         sock      = self.request
 
         try:
-            # â”€â”€ 1. Peek at first bytes to detect protocol â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # ── 1. Peek at first bytes to detect protocol ──────────────────
             sock.settimeout(self.peek_timeout)
             try:
                 peek = sock.recv(8, socket.MSG_PEEK)
@@ -231,7 +231,7 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
 
             protocol = _detect_protocol(peek)
 
-            # â”€â”€ 2. Complete TLS handshake if the client is speaking TLS â”€â”€â”€â”€
+            # ── 2. Complete TLS handshake if the client is speaking TLS ────
             if protocol == "tls":
                 sock = self._upgrade_tls(sock, safe_addr, src_port)
                 if sock is None:
@@ -244,7 +244,7 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
 
             sock.settimeout(self.session_timeout)
 
-            # â”€â”€ 3. Read the first request payload â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # ── 3. Read the first request payload ─────────────────────────
             #    For plain sockets, MSG_PEEK left the data in the buffer so
             #    recv() here returns those same bytes plus whatever follows.
             #    For TLS sockets, recv() returns decrypted plaintext.
@@ -264,7 +264,7 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
             except Exception:
                 logger.debug("Catch-all TCP initial recv failed", exc_info=True)
 
-            # â”€â”€ 4. Send protocol-appropriate response â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # ── 4. Send protocol-appropriate response ──────────────────────
             response = (
                 _HTTP_200 if protocol in ("http", "tls") else _GENERIC_BANNER
             )
@@ -274,7 +274,7 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
                 logger.debug("Catch-all send failed for %s:%s: %s", safe_addr, src_port, e)
                 return
 
-            # â”€â”€ 5. Log to structured JSON events â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # ── 5. Log to structured JSON events ───────────────────────────
             jl = get_json_logger()
             if jl:
                 jl.log(
@@ -285,7 +285,7 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
                     payload_bytes=len(first_data),
                 )
 
-            # â”€â”€ 6. Keep reading to capture follow-on messages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # ── 6. Keep reading to capture follow-on messages ──────────────
             try:
                 while True:
                     chunk = sock.recv(4096)
@@ -353,7 +353,7 @@ class CatchAllTCPService:
                 " (TLS ready)" if (
                     os.path.exists(self.cert_path)
                     and os.path.exists(self.key_path)
-                ) else " (no certs â€” TLS fallback disabled)"
+                ) else " (no certs — TLS fallback disabled)"
             )
             logger.info(
                 "Catch-all TCP service started on %s:%s%s",

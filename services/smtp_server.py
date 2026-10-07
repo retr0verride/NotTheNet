@@ -128,7 +128,7 @@ class _SMTPClientThread(threading.Thread):
             self._send("235 2.7.0 Authentication successful")
             return
         if self._auth_state is not None:
-            # Unexpected state â€” reset
+            # Unexpected state — reset
             self._auth_state = None
 
         cmd = line.strip().upper()[:10]
@@ -257,7 +257,7 @@ class _SMTPClientThread(threading.Thread):
         except Exception:
             logger.debug("SMTP disk-usage check failed", exc_info=True)
 
-        fname = f"{uuid.uuid4().hex}.eml"  # UUID filename â€” no attacker control
+        fname = f"{uuid.uuid4().hex}.eml"  # UUID filename — no attacker control
         path = os.path.join(self.save_dir, fname)
         try:
             with open(path, "w", encoding="utf-8", errors="replace") as f:
@@ -298,8 +298,8 @@ class _SMTPServer(socketserver.ThreadingTCPServer):
         """Spawn a session thread that fully owns the socket lifetime.
 
         Overriding process_request (instead of finish_request) avoids the
-        ThreadingTCPServer race where shutdown_request() â€” which closes the
-        socket â€” is called immediately after finish_request() returns but
+        ThreadingTCPServer race where shutdown_request() — which closes the
+        socket — is called immediately after finish_request() returns but
         before the session thread has read a single byte.
         """
         if not self._sem.acquire(blocking=False):
@@ -318,7 +318,7 @@ class _SMTPServer(socketserver.ThreadingTCPServer):
             max_disk_usage_bytes=self.smtp_max_disk_usage_bytes,
         )
         # Wrap run() so the semaphore is released and the socket is closed
-        # when the session ends â€” the server lifecycle never touches it.
+        # when the session ends — the server lifecycle never touches it.
         _orig_run = t.run
 
         def _guarded_run():
@@ -337,7 +337,7 @@ class _SMTPServer(socketserver.ThreadingTCPServer):
 
 
 class _SMTPSServer(_SMTPServer):
-    """SMTPS variant â€” wraps each accepted socket in TLS before handing off."""
+    """SMTPS variant — wraps each accepted socket in TLS before handing off."""
 
     def __init__(
         self,
@@ -437,7 +437,7 @@ class SMTPService:
 class SMTPSService:
     """
     Fake SMTPS server (implicit TLS on port 465).
-    Uses the same protocol handler as SMTP â€” just wraps the socket in TLS
+    Uses the same protocol handler as SMTP — just wraps the socket in TLS
     before the banner is sent.  RedLine, AgentTesla, FormBook, and most
     other stealers that exfiltrate via email use port 465 exclusively.
     """

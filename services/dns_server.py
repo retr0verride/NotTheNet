@@ -3,8 +3,8 @@ NotTheNet - DNS Server
 Resolves every hostname to redirect_ip, fooling malware DNS lookups.
 
 Key differences from INetSim / FakeNet-NG:
-- Single threaded async UDP server â€” no socket leak on restart
-- Handles PTR (reverse DNS) cleanly â€” returns a synthetic hostname
+- Single threaded async UDP server — no socket leak on restart
+- Handles PTR (reverse DNS) cleanly — returns a synthetic hostname
 - Custom record overrides supported via config
 - All query names sanitized before logging (log injection prevention)
 - dnslib used for packet building (no manual DNS byte-packing bugs)
@@ -12,7 +12,7 @@ Key differences from INetSim / FakeNet-NG:
 Security notes (OpenSSF):
 - Max UDP packet size accepted: 512 bytes (RFC 1035), extended to 4096 with EDNS
 - Truncated / malformed packets are silently dropped, never crash the server
-- Query name length validated (â‰¤ 253 chars per RFC 1035)
+- Query name length validated (≤ 253 chars per RFC 1035)
 """
 
 from __future__ import annotations
@@ -106,7 +106,7 @@ class _FakeResolver:
         # Pool of public-looking IPs to return in A responses.  iptables
         # REDIRECT rules catch them regardless of destination IP, so returning
         # a plausible public IP here is transparent to routing but prevents
-        # malware from flagging the "all domains â†' 10.x.x.x" pattern.
+        # malware from flagging the "all domains → 10.x.x.x" pattern.
         self._public_ips: list[str] = list(public_response_ips or [])
         # Kill-switch domains: return NXDOMAIN so malware that checks for
         # an "intercepted" domain (expecting resolution) sees the domain as
@@ -159,13 +159,13 @@ class _FakeResolver:
             if handler:
                 return handler(self, reply, qname, safe_name, request)
 
-            # Unknown / unsupported query types â€” NOERROR with empty answer.
+            # Unknown / unsupported query types — NOERROR with empty answer.
             logger.debug("  -> empty NOERROR for qtype=%s: %s", request.q.qtype, safe_name)
 
 
         except Exception as e:
             logger.warning("DNS resolve error: %s", e)
-            reply.header.rcode = 2  # SERVFAIL â€” never crash the server
+            reply.header.rcode = 2  # SERVFAIL — never crash the server
         return reply
 
 
@@ -384,7 +384,7 @@ class DNSService:
             )
             # Launch threads manually instead of start_thread() so we can
             # pass poll_interval=2.0 to serve_forever(), reducing idle
-            # wakeups from 4/sec to 1/sec (2 servers Ã— 0.5/sec each).
+            # wakeups from 4/sec to 1/sec (2 servers × 0.5/sec each).
             for srv in (self._server_udp, self._server_tcp):
                 def _run(s=srv):
                     s.isRunning = True

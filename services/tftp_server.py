@@ -15,7 +15,7 @@ This server:
   - Handles WRQ (write request) by accepting and saving uploaded data to
     disk for forensic analysis, up to a configurable size cap
   - Uses proper TIDs (each transfer gets its own ephemeral UDP socket) per
-    RFC 1350 Â§4, so well-behaved clients are not confused by responses from
+    RFC 1350 §4, so well-behaved clients are not confused by responses from
     an unexpected port
 
 Security notes (OpenSSF):
@@ -39,7 +39,7 @@ from utils.logging_utils import sanitize_ip, sanitize_log_string
 
 logger = logging.getLogger(__name__)
 
-# â”€â”€â”€ TFTP constants (RFC 1350) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── TFTP constants (RFC 1350) ────────────────────────────────────────────────
 
 _OP_RRQ   = 1  # Read request
 _OP_WRQ   = 2  # Write request
@@ -47,7 +47,7 @@ _OP_DATA  = 3  # Data block
 _OP_ACK   = 4  # Acknowledgement
 _OP_ERROR = 5  # Error
 
-_BLOCK_SIZE = 512           # RFC 1350 Â§2: fixed 512-byte data blocks
+_BLOCK_SIZE = 512           # RFC 1350 §2: fixed 512-byte data blocks
 _TRANSFER_TIMEOUT = 5.0     # seconds to wait for each ACK/DATA
 _MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB per upload
 _MAX_TRANSFERS = 50         # concurrent transfer cap (BoundedSemaphore)
@@ -61,7 +61,7 @@ if len(_RRQ_STUB) >= _BLOCK_SIZE:
     raise RuntimeError("RRQ stub must fit in a single DATA block")
 
 
-# â”€â”€â”€ Packet builders â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Packet builders ──────────────────────────────────────────────────────────
 
 def _parse_rrq_wrq(data: bytes) -> tuple[str | None, str | None]:
     """
@@ -95,13 +95,13 @@ def _error(code: int, msg: str) -> bytes:
     return struct.pack("!HH", _OP_ERROR, code) + msg.encode() + b"\x00"
 
 
-# â”€â”€â”€ Per-transfer thread â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Per-transfer thread ──────────────────────────────────────────────────────
 
 class _TFTPTransferThread(threading.Thread):
     """
     Handles one TFTP transfer (RRQ or WRQ) on its own ephemeral UDP socket.
 
-    Per RFC 1350 Â§4, each transfer uses a new TID (Transfer ID = port number)
+    Per RFC 1350 §4, each transfer uses a new TID (Transfer ID = port number)
     so that the client can distinguish responses to concurrent transfers.
     """
 
@@ -145,12 +145,12 @@ class _TFTPTransferThread(threading.Thread):
             if self._sem:
                 self._sem.release()
 
-    # â”€â”€ RRQ (client reads a file from us) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── RRQ (client reads a file from us) ────────────────────────────────────
 
     def _handle_rrq(self, sock: socket.socket, safe_addr: str, safe_file: str):
         """
         Serve the static stub to any RRQ.  Sending a single DATA block
-        smaller than 512 bytes signals end-of-file per RFC 1350 Â§6.
+        smaller than 512 bytes signals end-of-file per RFC 1350 §6.
         """
         logger.info("TFTP RRQ [%s] file=%s", safe_addr, safe_file)
         jl = get_json_logger()
@@ -171,7 +171,7 @@ class _TFTPTransferThread(threading.Thread):
                 retries -= 1
         logger.debug("TFTP RRQ [%s] complete", safe_addr)
 
-    # â”€â”€ WRQ (client writes a file to us) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── WRQ (client writes a file to us) ─────────────────────────────────────
 
     def _handle_wrq(self, sock: socket.socket, safe_addr: str, safe_file: str):
         """
@@ -194,7 +194,7 @@ class _TFTPTransferThread(threading.Thread):
             self.upload_dir, f"{uuid.uuid4().hex}_{safe_name[:64]}"
         )
 
-        # ACK block 0 â€” signals we accept the write
+        # ACK block 0 — signals we accept the write
         sock.sendto(_ack(0), self.client_addr)
 
         received_bytes = 0
@@ -222,7 +222,7 @@ class _TFTPTransferThread(threading.Thread):
                 sock.sendto(_ack(blk), self.client_addr)
 
                 if len(chunk) < _BLOCK_SIZE:
-                    break  # Short block = last block (RFC 1350 Â§6)
+                    break  # Short block = last block (RFC 1350 §6)
 
                 expected_block = (expected_block + 1) & 0xFFFF  # wrap at 65535
 
@@ -231,10 +231,10 @@ class _TFTPTransferThread(threading.Thread):
         )
 
 
-# â”€â”€â”€ Service wrapper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Service wrapper ──────────────────────────────────────────────────────────
 
 class TFTPService:
-    """Fake TFTP server â€” handles RRQ (read) and WRQ (write) on UDP."""
+    """Fake TFTP server — handles RRQ (read) and WRQ (write) on UDP."""
 
     def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
         self.enabled = config.get("enabled", True)

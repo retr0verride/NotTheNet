@@ -7,7 +7,7 @@ detection, FCrDNS, NCSI overrides, Windows NCSI overrides, and the
 public IP pool all apply identically.
 
 Each DNS message is framed with a 2-byte big-endian length prefix,
-exactly as specified for DNS-over-TCP (RFC 1035 Â§4.2.2).
+exactly as specified for DNS-over-TCP (RFC 1035 §4.2.2).
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ except ImportError:
 
 
 class _FakeClientHandler:
-    """Minimal handler shim â€” provides attributes _FakeResolver.resolve() accesses."""
+    """Minimal handler shim — provides attributes _FakeResolver.resolve() accesses."""
 
     def __init__(self, addr: tuple):
         self.client_address = addr
@@ -57,7 +57,7 @@ class DoTService:
         self.bind_ip = config.get("bind_ip", "0.0.0.0")
         self.cert_file = config.get("cert_file", "certs/server.crt")
         self.key_file = config.get("key_file", "certs/server.key")
-        # Resolver settings â€” inherited from DNS config by service_manager
+        # Resolver settings — inherited from DNS config by service_manager
         self.redirect_ip = config.get("resolve_to", "127.0.0.1")
         self.ttl = int(config.get("ttl", 300))
         self.handle_ptr = bool(config.get("handle_ptr", True))
@@ -86,7 +86,7 @@ class DoTService:
             logger.error("DoT service cannot start: dnslib not installed.")
             return False
 
-        # Build TLS context â€” minimum TLSv1.2, ALPN "dot" per RFC 7858
+        # Build TLS context — minimum TLSv1.2, ALPN "dot" per RFC 7858
         try:
             self._ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             self._ssl_ctx.minimum_version = ssl.TLSVersion.TLSv1_2
@@ -178,7 +178,7 @@ class DoTService:
         try:
             sock.settimeout(10.0)
             while True:
-                # RFC 1035 Â§4.2.2: 2-byte big-endian message length prefix
+                # RFC 1035 §4.2.2: 2-byte big-endian message length prefix
                 length_bytes = self._recv_exact(sock, 2)
                 if not length_bytes:
                     break
@@ -192,7 +192,7 @@ class DoTService:
                 try:
                     request = DNSRecord.parse(data)
                 except Exception:
-                    break  # malformed DNS message â€” silently close
+                    break  # malformed DNS message — silently close
                 reply = self._resolver.resolve(request, handler)
                 reply_bytes = reply.pack()
                 sock.sendall(struct.pack("!H", len(reply_bytes)) + reply_bytes)

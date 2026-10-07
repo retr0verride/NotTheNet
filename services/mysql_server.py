@@ -5,20 +5,20 @@ Why this matters:
     SQL-injecting stealers, database credential harvesters, and malware that
     exfiltrates data to a remote MySQL instance all speak the MySQL wire
     protocol.  Common families:
-      - RedLine, Vidar, Raccoon  â€” exfiltrate logs to actor-controlled MySQL
-      - Web shells               â€” probe for local MySQL with default creds
-      - Brute-force tools        â€” spray username/password combos over TCP/3306
+      - RedLine, Vidar, Raccoon  — exfiltrate logs to actor-controlled MySQL
+      - Web shells               — probe for local MySQL with default creds
+      - Brute-force tools        — spray username/password combos over TCP/3306
 
     This server:
       1. Sends an authentic MySQL 5.7.x Handshake V10 greeting packet
       2. Reads the client's HandshakeResponse41 and extracts the username
-         (the auth response is an SHA1 hash â€” not reversible â€” but the
+         (the auth response is an SHA1 hash — not reversible — but the
          username arrives in plaintext)
       3. Returns an OK packet so the client proceeds to issue queries
       4. Logs every COM_QUERY the client sends (credentials, commands, etc.)
 
 Security notes (OpenSSF):
-- Auth challenge is os.urandom(20) â€” never reused, never predictable
+- Auth challenge is os.urandom(20) — never reused, never predictable
 - Received query strings are sanitised before logging (log injection)
 - Each session runs in a daemon thread; cannot block process exit
 - Sessions are bounded to SESSION_TIMEOUT seconds
