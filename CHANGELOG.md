@@ -16,7 +16,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 - **Grafana no longer defaults to `changeme`.** `docker compose` refuses to start it unless `GRAFANA_PASSWORD` is set.
 - **`cryptography` bumped 46.0.7 → 50.0.2** (GHSA-537c-gmf6-5ccf, PYSEC-2026-3552/3553/3554).
 
+### Changed
+- **One headless code path.** `--nogui`, `--headless` and `NTN_HEADLESS=1` now all run `headless.py` on top of `ServiceManager`. The parallel `domain/`, `application/` and `infrastructure/` layers (DI container, ports, adapters, pydantic settings, OTel hooks; about 1,300 lines) are removed.
+- **Health endpoint is opt-in: `NTN_HEALTH_ENABLED=1`.** The Docker image and compose file set it. systemd `--nogui` does not open a port. Bad `NTN_HEALTH_*` / `NTN_ADMIN_TOKEN` values (including a token shorter than 16 characters) stop startup with a clear error, and a health port that cannot be bound exits 1.
+- **`APP_VERSION` lives in `version.py`.** Headless and `--preflight` no longer import tkinter.
+- **`notthenet.py` owns the CLI.** Added `--version`. `NTN_LOG_LEVEL` and `NTN_JSON_LOGS` now work in every mode.
+
+### Removed
+- `NTN_BIND_IP`, `NTN_REDIRECT_IP`, `NTN_SPOOF_PUBLIC_IP`, `NTN_INTERFACE`, `NTN_PROCESS_MASQ`, `NTN_DROP_PRIVS`, `NTN_LOG_DIR`, `NTN_CERT_PATH`, `NTN_KEY_PATH`, `NTN_CONFIG_PATH` and `NTN_OTEL_*` overrides. Set these in `config.json` (or pass `--config`).
+- OpenTelemetry hooks (the SDK was never a dependency, and no code recorded spans).
+- `pydantic` / `pydantic-settings` dev dependencies.
+
 ### Fixed
+- **Headless/Docker mode failed at import on a clean `requirements.txt` install** (`No module named 'pydantic'`).
+- **`/health/status` reported every service as started** even when `ServiceManager.start()` failed, and showed default ports instead of configured ones. It now reports `running`, `failed` or `stopped` with the configured port.
+- **`/metrics` was served as `application/json`.** It is now `text/plain; version=0.0.4`.
+- **Docker headless ignored a failed start.** It now exits 1, like `--nogui`.
 - **`.env.example` was never committed.** The `.gitignore` negation had an inline comment, which git treats as part of the pattern.
 - **`build-deb.sh` and `.dockerignore` exclude `state/`** so a dev machine's iptables snapshots never ship.
 

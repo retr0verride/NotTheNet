@@ -5,6 +5,7 @@ Never logs raw untrusted bytes verbatim.
 """
 
 import ipaddress
+import json
 import logging
 import logging.handlers
 import os
@@ -55,15 +56,31 @@ def sanitize_hostname(hostname: str, max_length: int = 253) -> str:
     return safe[:max_length]
 
 
+class JsonFormatter(logging.Formatter):
+    """One JSON object per line, for log shippers (Docker: ``NTN_JSON_LOGS=1``)."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%S%z"),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+        }
+        if record.exc_info:
+            payload["exc_info"] = self.formatException(record.exc_info)
+        return json.dumps(payload, default=str)
+
+
 def setup_logging(
     log_dir: str = "logs",
     log_level: str = "INFO",
     log_to_file: bool = True,
+    json_console: bool = False,
 ) -> logging.Logger:
     """
     Configure application-wide logging with:
     - Rotating file handler (size-limited, prevents disk fill)
-    - Console handler
+    - Console handler (plain text, or JSON lines when json_console is set)
     - Sanitized formatter
     """
     level = getattr(logging, log_level.upper(), logging.INFO)
@@ -85,7 +102,7 @@ def setup_logging(
     if not has_console:
         ch = logging.StreamHandler(sys.stdout)
         ch.setLevel(level)
-        ch.setFormatter(formatter)
+        ch.setFormatter(JsonFormatter() if json_console else formatter)
         logger.addHandler(ch)
 
     # Rotating file handler — caps at 10 MB × 5 backups = 50 MB max.

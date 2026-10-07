@@ -38,6 +38,7 @@ services:
       NTN_HEADLESS: "1"
       NTN_LOG_LEVEL: "${NTN_LOG_LEVEL:-INFO}"
       NTN_JSON_LOGS: "1"
+      NTN_HEALTH_ENABLED: "1"
       NTN_HEALTH_BIND: "0.0.0.0"   # expose health port to host for scraping
       NTN_HEALTH_PORT: "8080"
       # NTN_ADMIN_TOKEN must be set (via .env) to expose /health/status and

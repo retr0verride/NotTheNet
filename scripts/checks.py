@@ -34,13 +34,15 @@ PINNED_TOOLS = [
     "bandit-sarif-formatter==1.1.1",
     "pip-audit==2.10.0",
     "mypy==1.19.1",
-    "pydantic==2.13.2",
-    "pydantic-settings==2.13.1",
     "openapi-spec-validator==0.8.4",
     "pytest==9.0.3",
     "pytest-cov==7.1.0",
     "pytest-timeout==2.4.0",
 ]
+
+# Fully annotated modules held to mypy --strict. Keep in sync with the strict
+# override in pyproject.toml and the mypy hook in .pre-commit-config.yaml.
+STRICT_MYPY_FILES = ["notthenet.py", "headless.py", "version.py", "utils/health_server.py"]
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PY = sys.executable
@@ -132,12 +134,8 @@ def step_2a_mypy_legacy() -> None:
 
 
 def step_2b_mypy_strict() -> None:
-    step("2b/12", "Type check — new layers (mypy --strict)")
-    run([
-        PY, "-m", "mypy",
-        "domain/", "application/", "infrastructure/",
-        "--strict", "--ignore-missing-imports", "--explicit-package-bases",
-    ])
+    step("2b/12", "Type check — strict modules (mypy --strict)")
+    run([PY, "-m", "mypy", *STRICT_MYPY_FILES, "--strict", "--ignore-missing-imports"])
     passed("mypy strict")
 
 

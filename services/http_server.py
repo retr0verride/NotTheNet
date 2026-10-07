@@ -555,7 +555,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         self.log_request(code)
         self.send_header("Date", self.date_time_string())
 
-    def log_message(self, fmt, *args):  # type: ignore[override]
+    def log_message(self, _format, *_args):  # type: ignore[override]
         pass  # suppress default stderr logging
 
     def _send_ip_check_response(self, host: str):

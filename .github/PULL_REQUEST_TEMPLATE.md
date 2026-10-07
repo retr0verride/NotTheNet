@@ -15,11 +15,11 @@ Fixes # (issue)
 ## Checklist
 
 ### Code quality
-- [ ] `ruff` passes with no errors (run via `pre-commit run ruff`)
-- [ ] `mypy --strict` passes for all changed files under `domain/`, `application/`, `infrastructure/`
+- [ ] `python scripts/checks.py` passes (ruff, strict mypy, bandit, pip-audit, tests, version)
+- [ ] New fully annotated modules are added to `STRICT_MYPY_FILES` in `scripts/checks.py`
 - [ ] `bandit` reports no new HIGH/MEDIUM findings
-- [ ] New logic is covered by unit tests (≥80% branch coverage maintained)
-- [ ] Cyclomatic complexity of changed functions ≤ 10
+- [ ] New logic is covered by unit tests
+- [ ] Cyclomatic complexity of changed functions ≤ 12 (ruff `C901`)
 
 ### Security
 - [ ] No secrets, tokens, or credentials committed (gitleaks clean)
@@ -27,15 +27,14 @@ Fixes # (issue)
 - [ ] No new bare `except:` or `except Exception: pass` clauses
 - [ ] If iptables rules are modified: net-admin privilege is the minimum required
 
-### Domain integrity
-- [ ] Domain layer (`domain/`) imports **nothing** from `infrastructure/` or `gui/`
-- [ ] Application layer imports only `domain/` ports
-- [ ] New exceptions inherit from `domain.exceptions.NotTheNetError`
+### Structure
+- [ ] Nothing outside `gui/` imports tkinter (headless and Docker run without it)
+- [ ] New services are registered in `_SERVICE_REGISTRY` in `service_manager.py`
 
 ### Tests
 - [ ] Unit tests added / updated
 - [ ] If Kali-only behaviour: guarded with `@pytest.mark.kali` or `test_kali_fidelity.py`
-- [ ] CI passes locally: `pytest --cov --cov-fail-under=80`
+- [ ] CI passes locally: `python scripts/checks.py`
 
 ### Documentation
 - [ ] `CHANGELOG.md` entry added under **[Unreleased]** (Conventional Commits format)

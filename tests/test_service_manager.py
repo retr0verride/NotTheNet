@@ -227,41 +227,42 @@ class TestBuildServicePorts:
         assert ports["udp"] == []
 
 
-# ── ServiceRepoAdapter ────────────────────────────────────────────────────────
+# ── service_report ───────────────────────────────────────────────────────────
 
-class TestServiceRepoAdapter:
-    """Verify adapter lifecycle and lazy-init contract."""
+class _FakeService:
+    def __init__(self, running: bool) -> None:
+        self.running = running
 
-    def _adapter(self, tmp_path):
-        from config import Config
-        from infrastructure.adapters.service_repo_adapter import ServiceRepoAdapter
 
-        cfg = Config.__new__(Config)
-        cfg._data = _cfg(tmp_path)._data
-        cfg._path = str(tmp_path / "config.json")
-        return ServiceRepoAdapter(cfg)
+class TestServiceReport:
+    """service_report() feeds the health API: one row per registered service."""
 
-    def test_manager_not_created_at_init(self, tmp_path):
-        adapter = self._adapter(tmp_path)
-        assert adapter._manager is None
+    def test_all_stopped_before_start(self, tmp_path):
+        report = ServiceManager(_cfg(tmp_path)).service_report()
+        assert [r["name"] for r in report] == [s.name for s in _SERVICE_REGISTRY]
+        assert {r["state"] for r in report} == {"stopped"}
 
-    def test_probe_instantiates_manager(self, tmp_path):
-        adapter = self._adapter(tmp_path)
-        adapter.probe()
-        assert adapter._manager is not None
+    def test_running_failed_and_stopped_states(self, tmp_path):
+        sm = ServiceManager(_cfg(tmp_path))
+        sm._services = {"dns": _FakeService(True), "http": _FakeService(False)}
+        sm._failed = {"https"}
+        states = {r["name"]: r["state"] for r in sm.service_report()}
+        assert states["dns"] == "running"
+        assert states["http"] == "stopped"
+        assert states["https"] == "failed"
+        assert states["ftp"] == "stopped"
 
-    def test_stop_all_before_start_is_noop(self, tmp_path):
-        """stop_all() before start_all() must not raise (manager is None)."""
-        adapter = self._adapter(tmp_path)
-        adapter.stop_all()  # should not raise
+    def test_reports_configured_port_not_default(self, tmp_path):
+        sm = ServiceManager(_cfg(tmp_path, {"http": {"port": 8081}}))
+        ports = {r["name"]: r["port"] for r in sm.service_report()}
+        assert ports["http"] == 8081
+        assert ports["https"] == 443
 
-    def test_is_running_before_start_returns_false(self, tmp_path):
-        adapter = self._adapter(tmp_path)
-        assert adapter.is_running("dns") is False
-
-    def test_get_status_before_start_returns_empty(self, tmp_path):
-        adapter = self._adapter(tmp_path)
-        assert adapter.get_status() == []
+    def test_stop_clears_failed(self, tmp_path):
+        sm = ServiceManager(_cfg(tmp_path))
+        sm._failed = {"https"}
+        sm.stop()
+        assert {r["state"] for r in sm.service_report()} == {"stopped"}
 
 
 # ── DNS resolve_to auto-derive in gateway mode ───────────────────────────────

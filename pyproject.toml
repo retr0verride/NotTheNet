@@ -39,11 +39,11 @@ notthenet = "notthenet:main"
 # CPE: cpe:2.3:a:retr0verride:notthenet:*:*:*:*:*:python:*:*
 
 [tool.setuptools]
-py-modules = ["notthenet", "config", "service_manager", "version"]
+py-modules = ["notthenet", "config", "service_manager", "version", "headless"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["services*", "network*", "utils*", "gui*", "domain*", "application*", "infrastructure*"]
+include = ["services*", "network*", "utils*", "gui*"]
 
 # ── Linting / formatting ──────────────────────────────────────────────────────
 
@@ -109,12 +109,12 @@ ignore_missing_imports = true
 warn_return_any = false
 warn_unused_ignores = false
 
-# ── Strict mode for Clean Architecture layers ───────────────────────────────────
-# New code written to Clean Architecture standards must pass --strict.
-# Existing service/GUI code is exempt to avoid blocking CI.
+# ── Strict modules ──────────────────────────────────────────────────────────────
+# Fully annotated modules must pass --strict (list mirrors STRICT_MYPY_FILES in
+# scripts/checks.py). Older service/GUI code is exempt until it is annotated.
 
 [[tool.mypy.overrides]]
-module = ["domain.*", "application.*", "infrastructure.*"]
+module = ["notthenet", "headless", "version", "utils.health_server"]
 strict = true
 warn_return_any = true
 warn_unused_ignores = true
@@ -125,11 +125,10 @@ module = ["utils.privilege", "network.iptables_manager"]
 ignore_errors = true
 
 [[tool.mypy.overrides]]
-# Legacy code outside Clean Architecture layers — un-annotated, exempt from strict checking.
+# Not yet annotated: exempt from strict checking.
 module = [
     "config",
     "service_manager",
-    "notthenet",
     "services.*",
     "network.*",
     "utils.*",
@@ -163,6 +162,7 @@ skips = [
 [tool.coverage.run]
 source = [
     "config",
+    "headless",
     "service_manager",
     "services",
     "network",

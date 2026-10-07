@@ -9,20 +9,16 @@ repos:
       - id: ruff-format
         types_or: [python, pyi]
 
-  # ── mypy: strict for new layers only ────────────────────────────────────────
+  # ── mypy: strict modules (mirror STRICT_MYPY_FILES in scripts/checks.py) ────
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.11.2
     hooks:
       - id: mypy
-        name: mypy (domain / application / infrastructure)
+        name: mypy (strict modules)
         args:
           - --strict
           - --ignore-missing-imports
-          - --explicit-package-bases
-        files: ^(domain|application|infrastructure)/
-        additional_dependencies:
-          - pydantic>=2.0
-          - pydantic-settings>=2.0
+        files: ^(notthenet|headless|version|utils/health_server)\.py$
 
   # ── Bandit: security SAST ────────────────────────────────────────────────────
   - repo: https://github.com/PyCQA/bandit

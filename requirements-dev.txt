@@ -25,9 +25,5 @@ pip-audit>=2.7
 # ── Pre-commit ───────────────────────────────────────────────────────────────
 pre-commit>=3.8
 
-# ── Settings / validation (new layer dependency) ─────────────────────────────
-pydantic>=2.0
-pydantic-settings>=2.0
-
 # ── OpenAPI validation ───────────────────────────────────────────────────────
 openapi-spec-validator>=0.7

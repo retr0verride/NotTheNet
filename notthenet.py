@@ -8,6 +8,9 @@ Modes:
   --preflight  Print the stealth-readiness report and exit.
 
 Only the GUI mode imports tkinter.
+
+Environment: NTN_HEADLESS, NTN_LOG_LEVEL, NTN_JSON_LOGS, and the
+NTN_HEALTH_* / NTN_ADMIN_TOKEN settings read by utils/health_server.py.
 """
 
 from __future__ import annotations
@@ -75,8 +78,10 @@ def _run(args: argparse.Namespace) -> int:
     cfg = Config(args.config)
     setup_logging(
         log_dir=cfg.get("general", "log_dir") or os.path.join(PROJECT_ROOT, "logs"),
-        log_level=args.loglevel or cfg.get("general", "log_level") or "INFO",
+        log_level=(args.loglevel or os.environ.get("NTN_LOG_LEVEL")
+                   or cfg.get("general", "log_level") or "INFO"),
         log_to_file=bool(cfg.get("general", "log_to_file")),
+        json_console=os.environ.get("NTN_JSON_LOGS", "").strip().lower() in _TRUTHY,
     )
     logging.getLogger(__name__).info("NotTheNet %s", APP_VERSION)
 

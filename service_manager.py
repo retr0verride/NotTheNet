@@ -128,6 +128,7 @@ class ServiceManager:
         self._lock = threading.Lock()
         self._iptables: IPTablesManager | None = None
         self._running = False
+        self._failed: set[str] = set()
 
     def validate(self) -> list:
         """Validate configuration; return list of error strings."""
@@ -474,6 +475,7 @@ class ServiceManager:
 
         with self._lock:
             self._services.update(started_svcs)
+            self._failed = set(failed)
 
         return started, failed
 
@@ -616,13 +618,17 @@ class ServiceManager:
             else:
                 logger.debug("TCP fingerprint skipped for %s (no server socket)", name)
 
+    def _configured_port(self, spec: ServiceSpec) -> int:
+        """Port from the service's config section, else the registry default."""
+        return int(self.config.get(spec.config_section, "port") or spec.default_port)
+
     def _build_service_ports(self) -> dict[str, list[int]]:
         """Build {tcp: [...], udp: [...]} dynamically from the service registry."""
         ports: dict[str, list[int]] = {"tcp": [], "udp": []}
         for spec in _SERVICE_REGISTRY:
             if spec.name not in self._services or spec.default_port == 0:
                 continue
-            port = int(self.config.get(spec.config_section, "port") or spec.default_port)
+            port = self._configured_port(spec)
             if spec.protocol == "both":
                 ports["tcp"].append(port)
                 ports["udp"].append(port)
@@ -654,6 +660,7 @@ class ServiceManager:
         with self._lock:
             items = list(self._services.items())
             self._services.clear()
+            self._failed.clear()
             iptables = self._iptables
             self._iptables = None
 
@@ -683,6 +690,31 @@ class ServiceManager:
         with self._lock:
             return {name: getattr(svc, "running", False)
                     for name, svc in self._services.items()}
+
+    def service_report(self) -> list[dict[str, str | int]]:
+        """Per-service ``name``, ``state``, ``port`` and ``protocol`` for every registered service.
+
+        ``state`` is ``running``, ``failed`` (enabled but did not start) or ``stopped``.
+        ``port`` 0 means the service has no fixed port (catch-all, ICMP).
+        """
+        with self._lock:
+            running = {n for n, svc in self._services.items() if getattr(svc, "running", False)}
+            failed = set(self._failed)
+        report: list[dict[str, str | int]] = []
+        for spec in _SERVICE_REGISTRY:
+            if spec.name in running:
+                state = "running"
+            elif spec.name in failed:
+                state = "failed"
+            else:
+                state = "stopped"
+            report.append({
+                "name": spec.name,
+                "state": state,
+                "port": self._configured_port(spec),
+                "protocol": spec.protocol,
+            })
+        return report
 
     @property
     def running(self) -> bool:
