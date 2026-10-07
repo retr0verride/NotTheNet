@@ -14,7 +14,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Extract version from source — hard-fail if the constant is missing or renamed.
-VERSION=$(grep -oP 'APP_VERSION\s*=\s*"\K[^"]+' "${SCRIPT_DIR}/version.py" 2>/dev/null) || {
+VERSION=$(grep -oP '^APP_VERSION = "\K[^"]+' "${SCRIPT_DIR}/version.py" 2>/dev/null) || {
     echo "[!] Could not extract APP_VERSION from version.py — aborting."
     exit 1
 }
