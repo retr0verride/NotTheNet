@@ -293,7 +293,7 @@ This section is for security auditors and contributors. It lists the security en
 | Dependency monitoring | Dependabot enabled for pip + GitHub Actions (`.github/dependabot.yml`) |
 | CI / SAST on every commit | GitHub Actions runs ruff + mypy + bandit + pytest on every push & PR |
 | Static analysis config | `pyproject.toml` configures Ruff (linting) + Bandit (security scanning) |
-| No shell injection | All `subprocess` calls use lists, `shell=False` enforced in `iptables_manager.py` |
+| No shell injection | All `subprocess` calls use lists, `shell=False` enforced in `network/host_state.py:_run` |
 | Input validation | `utils/validators.py` validates all external inputs at the boundary |
 | Least privilege | Runs as root only for port binding and iptables; isolated to the analysis network interface via `bind_ip` |
 | Secure defaults | TLS 1.2+, 4096-bit keys, ECDHE ciphers by default |

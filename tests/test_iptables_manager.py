@@ -1,5 +1,6 @@
 """
-Tests for network/iptables_manager.py — validation, rule building, snapshot paths.
+Tests for network/iptables_manager.py and network/host_state.py:
+validation, rule building, snapshot paths.
 
 All tests mock subprocess and /proc so they run without root on any OS.
 """
@@ -9,13 +10,8 @@ from unittest.mock import mock_open, patch
 
 import pytest
 
-from network.iptables_manager import (
-    _IPTABLES_SAVE_FILE,
-    _MANGLE_SAVE_FILE,
-    _RULE_COMMENT,
-    _SNAPSHOT_DIR,
-    IPTablesManager,
-)
+from network.host_state import _IPTABLES_SAVE_FILE, _MANGLE_SAVE_FILE, _SNAPSHOT_DIR
+from network.iptables_manager import _RULE_COMMENT, IPTablesManager
 
 
 @pytest.fixture(autouse=True)
@@ -26,7 +22,11 @@ def _no_real_commands(monkeypatch):
     discovery is deterministic. Tests that need specific output patch
     ``_run`` themselves; that patch is applied after this one and wins.
     """
-    monkeypatch.setattr("network.iptables_manager._run", lambda args: (1, "", "stubbed in tests"))
+    def _stub(args):
+        return 1, "", "stubbed in tests"
+
+    monkeypatch.setattr("network.iptables_manager._run", _stub)
+    monkeypatch.setattr("network.host_state._run", _stub)
 
 
 # ── Snapshot path safety ─────────────────────────────────────────────────────
