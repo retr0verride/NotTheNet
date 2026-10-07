@@ -26,6 +26,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 - `NTN_BIND_IP`, `NTN_REDIRECT_IP`, `NTN_SPOOF_PUBLIC_IP`, `NTN_INTERFACE`, `NTN_PROCESS_MASQ`, `NTN_DROP_PRIVS`, `NTN_LOG_DIR`, `NTN_CERT_PATH`, `NTN_KEY_PATH`, `NTN_CONFIG_PATH` and `NTN_OTEL_*` overrides. Set these in `config.json` (or pass `--config`).
 - OpenTelemetry hooks (the SDK was never a dependency, and no code recorded spans).
 - `pydantic` / `pydantic-settings` dev dependencies.
+- Automatic loading of `./.env` outside Docker (pydantic-settings did this). Docker Compose still loads it via `env_file:`; elsewhere, export the variables.
 
 ### Fixed
 - **Headless/Docker mode failed at import on a clean `requirements.txt` install** (`No module named 'pydantic'`).
