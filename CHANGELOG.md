@@ -7,6 +7,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ## [Unreleased]
 
+## [2026.10.08-rc1] - 2026-10-08 (test build)
+
 ### Security
 - **iptables snapshots moved from `logs/` to a root-owned `state/` dir (0700).** `logs/` is chowned to the drop user, so a post-drop compromise could rewrite the snapshot that `ExecStopPost` restores as root.
 - **Startup aborts if the privilege drop fails while running as root.** Previously it logged a warning and kept serving malware traffic as root.
