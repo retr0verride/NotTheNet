@@ -20,6 +20,7 @@ import ssl
 import threading
 import uuid
 from collections.abc import Callable
+from typing import Any
 
 from services.mail_common import (
     _DEFAULT_CERT,
@@ -44,13 +45,14 @@ class _SMTPClientThread(threading.Thread):
     """Handles a single SMTP client connection in its own thread."""
 
     def __init__(
-        self, conn, addr, hostname: str, banner: str, save_dir: str | None,
+        self, conn: socket.socket, addr: tuple[str, int],
+        hostname: str, banner: str, save_dir: str | None,
         cert_path: str = "", key_path: str = "",
         conn_timeout: float = 30.0,
         max_email_size_bytes: int = MAX_EMAIL_SIZE_BYTES,
         max_disk_usage_bytes: int = MAX_DISK_USAGE_BYTES,
         on_exit: Callable[[], None] | None = None,
-    ):
+    ) -> None:
         super().__init__(daemon=True)
         self._on_exit = on_exit  # runs after the socket closes, even on error
         self.conn = conn
@@ -64,14 +66,14 @@ class _SMTPClientThread(threading.Thread):
         self.max_email_size_bytes = max_email_size_bytes
         self.max_disk_usage_bytes = max_disk_usage_bytes
         self.data_mode = False
-        self.mail_data: list = []
+        self.mail_data: list[str] = []
         self.current_size = 0
         # AUTH LOGIN is a two-step challenge; track which step we're on.
         # None = not in auth, 'login_user' = waiting for username,
         # 'login_pass' = waiting for password.
         self._auth_state: str | None = None
 
-    def _send(self, msg: str):
+    def _send(self, msg: str) -> None:
         try:
             self.conn.sendall((msg + "\r\n").encode("utf-8", errors="replace"))
         except OSError:
@@ -112,7 +114,7 @@ class _SMTPClientThread(threading.Thread):
             except OSError:
                 logger.debug("SMTP socket close failed", exc_info=True)
 
-    def _handle_line(self, line: str, safe_addr: str):
+    def _handle_line(self, line: str, safe_addr: str) -> None:
         if self.data_mode:
             if line.strip() == ".":
                 self.data_mode = False
@@ -156,7 +158,7 @@ class _SMTPClientThread(threading.Thread):
 
     # -- Per-verb SMTP handlers ------------------------------------------------
 
-    def _smtp_ehlo(self, _line: str, _safe_addr: str):
+    def _smtp_ehlo(self, _line: str, _safe_addr: str) -> None:
         starttls_line = ""
         if (
             self.cert_path
@@ -179,7 +181,7 @@ class _SMTPClientThread(threading.Thread):
             f"250 DSN"
         )
 
-    def _smtp_auth(self, line: str, _safe_addr: str):
+    def _smtp_auth(self, line: str, _safe_addr: str) -> None:
         parts = line.split(None, 2)
         mech = parts[1].upper() if len(parts) > 1 else ""
         if mech == "PLAIN":
@@ -190,32 +192,32 @@ class _SMTPClientThread(threading.Thread):
         else:
             self._send("535 5.7.8 Authentication credentials invalid")
 
-    def _smtp_mail(self, _line: str, _sa: str):
+    def _smtp_mail(self, _line: str, _sa: str) -> None:
         self._send(_SMTP_OK)
 
-    def _smtp_rcpt(self, _line: str, _sa: str):
+    def _smtp_rcpt(self, _line: str, _sa: str) -> None:
         self._send(_SMTP_OK)
 
-    def _smtp_data(self, _line: str, _sa: str):
+    def _smtp_data(self, _line: str, _sa: str) -> None:
         self.data_mode = True
         self._send("354 End data with <CR><LF>.<CR><LF>")
 
-    def _smtp_rset(self, _line: str, _sa: str):
+    def _smtp_rset(self, _line: str, _sa: str) -> None:
         self.mail_data = []
         self.current_size = 0
         self._send(_SMTP_OK)
 
-    def _smtp_vrfy(self, _line: str, _sa: str):
+    def _smtp_vrfy(self, _line: str, _sa: str) -> None:
         self._send("252 Cannot VRFY user, but will accept message and attempt delivery")
 
-    def _smtp_quit(self, _line: str, _sa: str):
+    def _smtp_quit(self, _line: str, _sa: str) -> None:
         self._send("221 Bye")
         self.conn.close()
 
-    def _smtp_noop(self, _line: str, _sa: str):
+    def _smtp_noop(self, _line: str, _sa: str) -> None:
         self._send(_SMTP_OK)
 
-    def _smtp_starttls(self, _line: str, safe_addr: str):
+    def _smtp_starttls(self, _line: str, safe_addr: str) -> None:
         if self.data_mode:
             self._send("503 Bad sequence of commands")
             return
@@ -253,7 +255,7 @@ class _SMTPClientThread(threading.Thread):
         "STARTTLS": _smtp_starttls,
     }
 
-    def _save_email(self):
+    def _save_email(self) -> None:
         if not self.save_dir or not self.mail_data:
             return
         # Check total disk usage before writing
@@ -283,12 +285,12 @@ class _SMTPServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
 
-    def __init__(self, address, hostname, banner, save_dir,
+    def __init__(self, address: tuple[str, int], hostname: str, banner: str, save_dir: str | None,
                  cert_path: str = "", key_path: str = "",
                  conn_timeout: float = 30.0,
                  max_email_size_bytes: int = MAX_EMAIL_SIZE_BYTES,
                  max_disk_usage_bytes: int = MAX_DISK_USAGE_BYTES,
-                 max_connections: int | None = None):
+                 max_connections: int | None = None) -> None:
         self.smtp_hostname = hostname
         self.smtp_banner = banner
         self.smtp_save_dir = save_dir
@@ -304,11 +306,11 @@ class _SMTPServer(socketserver.ThreadingTCPServer):
         # no handler class is ever instantiated; None makes accidental use fail loudly.
         super().__init__(address, None)  # type: ignore[arg-type]
 
-    def server_bind(self):
+    def server_bind(self) -> None:
         self._sem = threading.BoundedSemaphore(self.smtp_max_connections)
         super().server_bind()
 
-    def process_request(self, request, client_address):
+    def process_request(self, request: socket.socket, client_address: tuple[str, int]) -> None:  # type: ignore[override]  # TCP-only server: request is always a socket
         """Spawn a session thread that fully owns the socket lifetime.
 
         Overriding process_request (instead of finish_request) avoids the
@@ -338,16 +340,16 @@ class _SMTPSServer(_SMTPServer):
 
     def __init__(
         self,
-        address,
-        hostname,
-        banner,
-        save_dir,
+        address: tuple[str, int],
+        hostname: str,
+        banner: str,
+        save_dir: str | None,
         ssl_ctx: ssl.SSLContext,
         conn_timeout: float = 30.0,
         max_email_size_bytes: int = MAX_EMAIL_SIZE_BYTES,
         max_disk_usage_bytes: int = MAX_DISK_USAGE_BYTES,
         max_connections: int | None = None,
-    ):
+    ) -> None:
         self._ssl_ctx = ssl_ctx
         super().__init__(
             address,
@@ -360,7 +362,7 @@ class _SMTPSServer(_SMTPServer):
             max_connections=max_connections,
         )
 
-    def get_request(self):
+    def get_request(self) -> tuple[socket.socket, tuple[str, int]]:
         conn, addr = self.socket.accept()
         try:
             conn = self._ssl_ctx.wrap_socket(conn, server_side=True)
@@ -372,7 +374,7 @@ class _SMTPSServer(_SMTPServer):
 
 
 class SMTPService:
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 25))
         self.bind_ip = bind_ip
@@ -439,7 +441,7 @@ class SMTPSService:
     other stealers that exfiltrate via email use port 465 exclusively.
     """
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 465))
         self.bind_ip = bind_ip

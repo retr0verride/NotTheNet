@@ -6,6 +6,7 @@ protocols share.
 """
 
 import logging
+import socket
 import socketserver
 import ssl
 import threading
@@ -48,12 +49,13 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
         self._mail_key_path = key_path
         self._conn_timeout = conn_timeout
 
-    def __init__(self, server_address, request_handler_class,
-                 max_connections: int = _MAX_CONNECTIONS):
+    def __init__(self, server_address: tuple[str, int],
+                 request_handler_class: type[socketserver.BaseRequestHandler],
+                 max_connections: int = _MAX_CONNECTIONS) -> None:
         self._sem = threading.BoundedSemaphore(max_connections)
         super().__init__(server_address, request_handler_class)
 
-    def process_request(self, request, client_address):
+    def process_request(self, request: socket.socket, client_address: tuple[str, int]) -> None:  # type: ignore[override]  # TCP-only server: request is always a socket
         """Drop connection immediately if the session limit is reached."""
         if not self._sem.acquire(blocking=False):
             try:
@@ -63,7 +65,7 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
             return
         sem = self._sem
 
-        def _run():
+        def _run() -> None:
             try:
                 self.finish_request(request, client_address)
             except Exception:  # noqa: BLE001  # mirrors socketserver: report via handle_error, keep serving
@@ -79,12 +81,13 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
 class _SSLReuseServer(_ReuseServer):
     """ThreadingTCPServer that wraps accepted sockets in TLS."""
 
-    def __init__(self, address, handler, ssl_ctx: ssl.SSLContext,
-                 max_connections: int = _MAX_CONNECTIONS):
+    def __init__(self, address: tuple[str, int],
+                 handler: type[socketserver.BaseRequestHandler], ssl_ctx: ssl.SSLContext,
+                 max_connections: int = _MAX_CONNECTIONS) -> None:
         self._ssl_ctx = ssl_ctx
         super().__init__(address, handler, max_connections)
 
-    def get_request(self):
+    def get_request(self) -> tuple[socket.socket, tuple[str, int]]:
         conn, addr = self.socket.accept()
         try:
             conn = self._ssl_ctx.wrap_socket(conn, server_side=True)

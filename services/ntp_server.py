@@ -24,6 +24,7 @@ import socket
 import struct
 import threading
 import time
+from typing import Any
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip
@@ -97,7 +98,7 @@ def _build_response(request: bytes) -> bytes | None:
 class NTPService:
     """Fake NTP server — responds to all NTP queries with system time."""
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 123))
         self.bind_ip = bind_ip

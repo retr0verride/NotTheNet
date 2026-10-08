@@ -43,6 +43,7 @@ import socket
 import ssl
 import struct
 import threading
+from typing import Any
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -97,11 +98,11 @@ class _Socks5Session(threading.Thread):
     def __init__(
         self,
         conn: socket.socket,
-        addr: tuple,
+        addr: tuple[str, int],
         cert_path: str,
         key_path: str,
         sem: threading.BoundedSemaphore | None = None,
-    ):
+    ) -> None:
         super().__init__(daemon=True)
         self.conn      = conn
         self.addr      = addr
@@ -124,7 +125,7 @@ class _Socks5Session(threading.Thread):
             buf += chunk
         return buf
 
-    def _send(self, data: bytes):
+    def _send(self, data: bytes) -> None:
         with contextlib.suppress(OSError):
             self.conn.sendall(data)
 
@@ -212,7 +213,7 @@ class _Socks5Session(threading.Thread):
             logger.debug("SOCKS5 TLS wrap failed %s: %s", safe_addr, e)
             raise  # socket unrecoverable after partial handshake
 
-    def _snoop_tunnel(self, destination: str, dest_port: int, safe_addr: str):
+    def _snoop_tunnel(self, destination: str, dest_port: int, safe_addr: str) -> None:
         """
         After sending CONNECT OK, snoop the tunnelled connection.
         Detect the protocol (TLS / HTTP / unknown) and respond accordingly,
@@ -320,7 +321,7 @@ class _Socks5Session(threading.Thread):
 class Socks5Service:
     """Fake SOCKS5 proxy server — captures tunnelled C2 destinations."""
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled   = config.get("enabled", True)
         self.port      = int(config.get("port", 1080))
         self.bind_ip   = bind_ip

@@ -153,3 +153,13 @@ def test_smb1_error_response_echoes_request_ids() -> None:
     assert struct.unpack("<HHHH", packet[28:36]) == (0x1111, 0x2222, 0x3333, 0x4444)
     # Body: WordCount=0, ByteCount=0.
     assert packet[36:39] == b"\x00\x00\x00"
+
+
+def test_parse_smb2_negotiate_message_id() -> None:
+    header = bytearray(64)
+    header[28:36] = (0x1122334455).to_bytes(8, "little")
+    assert smb_server._SMBSession._parse_smb2_negotiate(bytes(header)) == 0x1122334455
+
+
+def test_parse_smb2_negotiate_short_packet_returns_zero() -> None:
+    assert smb_server._SMBSession._parse_smb2_negotiate(b"\xfeSMB") == 0

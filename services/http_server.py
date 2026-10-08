@@ -24,9 +24,11 @@ import socketserver
 import ssl
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from services.cloud_exfil_routes import (
     route_aws_s3,
@@ -36,7 +38,11 @@ from services.cloud_exfil_routes import (
     route_graph_onedrive,
 )
 from services.doh_websocket import is_doh_request, is_websocket_upgrade
-from services.dynamic_response import compile_custom_rules, resolve_dynamic_response
+from services.dynamic_response import (
+    CompiledRule,
+    compile_custom_rules,
+    resolve_dynamic_response,
+)
 from services.http_catalog import (
     _AWS_S3_RE,
     _AZURE_BLOB_RE,
@@ -150,7 +156,7 @@ def _validate_spoof_ip(raw: str, context: str = "") -> str:
     return raw
 
 
-def _load_response_body(config: dict) -> str:
+def _load_response_body(config: dict[str, Any]) -> str:
     """
     Resolve the HTTP response body from config.
     If 'response_body_file' is set, load the file contents (relative to the
@@ -168,7 +174,7 @@ def _load_response_body(config: dict) -> str:
                 "falling back to response_body string.",
                 file_path,
             )
-            return config.get("response_body", _DEFAULT_BODY)
+            return str(config.get("response_body", _DEFAULT_BODY))
         try:
             size = os.path.getsize(abs_path)
             if size > _MAX_BODY_FILE_SIZE:
@@ -183,7 +189,7 @@ def _load_response_body(config: dict) -> str:
         except OSError as exc:
             logger.warning("response_body_file '%s' could not be read: %s; "
                            "falling back to response_body string.", abs_path, exc)
-    return config.get("response_body", _DEFAULT_BODY)
+    return str(config.get("response_body", _DEFAULT_BODY))
 
 
 @dataclass(frozen=True)
@@ -197,11 +203,11 @@ class _HandlerConfig:
     delay_ms: int = 0
     delay_jitter_ms: int = 0
     dynamic_responses: bool = False
-    custom_rules: list = field(default_factory=list)
+    custom_rules: list[CompiledRule] = field(default_factory=list)
     doh_enabled: bool = False
     doh_redirect_ip: str = "127.0.0.1"
     websocket_intercept: bool = False
-    pool_ips: frozenset = field(default_factory=frozenset)
+    pool_ips: frozenset[str] = field(default_factory=frozenset)
     exfil_log_dir: str = "logs/exfil"
 
 
@@ -209,7 +215,7 @@ def _build_handler_config(
     response_code: int, response_body: str, server_header: str,
     log_requests: bool, spoof_ip: str = "", delay_ms: int = 0,
     delay_jitter_ms: int = 0,
-    dynamic_responses: bool = False, custom_rules: list | None = None,
+    dynamic_responses: bool = False, custom_rules: list[dict[str, Any]] | None = None,
     doh_enabled: bool = False, doh_redirect_ip: str = "127.0.0.1",
     websocket_intercept: bool = False,
     pool_ips: frozenset[str] = frozenset(),
@@ -234,6 +240,9 @@ def _build_handler_config(
     )
 
 
+# (handler, host) -> bool. Predicates decide; route handlers return True if they responded.
+_RouteFn = Callable[["FakeHTTPHandler", str], bool]
+
 class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
     """HTTP request handler — reads config from the owning server instance."""
 
@@ -244,7 +253,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = ""
 
-    def send_response(self, code, message=None):
+    def send_response(self, code: int, message: str | None = None) -> None:
         """Override to suppress Python's auto-injected Server header."""
         if message is None:
             message = self.responses[code][0] if code in self.responses else ""
@@ -258,10 +267,10 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         self.log_request(code)
         self.send_header("Date", self.date_time_string())
 
-    def log_message(self, _format, *_args):
+    def log_message(self, _format: str, *_args: Any) -> None:
         pass  # suppress default stderr logging
 
-    def _send_ip_check_response(self, host: str):
+    def _send_ip_check_response(self, host: str) -> None:
         """Return the spoofed public IP for known IP-check services."""
         path = self.path or "/"
         ip = self._cfg.spoof_ip or "203.0.113.1"
@@ -356,7 +365,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
             return self._handle_apple_captive(path)
 
         return False
-    def _send_ncsi_response(self, host: str):
+    def _send_ncsi_response(self, host: str) -> None:
         """Return the exact response Windows NCSI expects.
 
         Windows polls these hosts to determine whether to show the
@@ -407,7 +416,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         except OSError:
             pass
 
-    def _send_pki_response(self, host: str):
+    def _send_pki_response(self, host: str) -> None:
         """Return stub CRL/OCSP/CTL binary responses for Windows PKI hosts."""
         path = self.path or "/"
         if self._cfg.log_requests:
@@ -432,13 +441,13 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         except OSError:
             pass
 
-    def _handle_doh_request(self):
+    def _handle_doh_request(self) -> None:
         """Handle a DNS-over-HTTPS (DoH) request and return a DNS response."""
         if not route_doh(self, _MAX_BODY_FILE_SIZE):
             # Couldn't parse DoH — fall through to normal response
             self._send_normal_response()
 
-    def _handle_websocket_upgrade(self):
+    def _handle_websocket_upgrade(self) -> None:
         """Complete a WebSocket handshake then send a close frame."""
         if not route_websocket_upgrade(self):
             self._send_normal_response()
@@ -447,50 +456,50 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
     # Each entry: (predicate(self, host) -> bool, handler(self, host) -> bool|None).
     # Handler returns True (or None) if it consumed the request, False to
     # fall through. Evaluated in priority order; first match wins.
-    _ROUTES: list[tuple] = []  # populated after class body
+    _ROUTES: list[tuple[_RouteFn, _RouteFn]] = []  # populated after class body
 
-    def _route_doh(self, _host: str):
+    def _route_doh(self, _host: str) -> bool:
         ct = self.headers.get("Content-Type", "")
         if is_doh_request(ct, self.path):
             self._handle_doh_request()
             return True
         return False
 
-    def _route_websocket(self, _host: str):
+    def _route_websocket(self, _host: str) -> bool:
         hdrs = {k: self.headers.get(k, "") for k in ("Connection", "Upgrade", "Sec-WebSocket-Key")}
         if is_websocket_upgrade(hdrs):
             self._handle_websocket_upgrade()
             return True
         return False
 
-    def _route_ncsi(self, host: str):
+    def _route_ncsi(self, host: str) -> bool:
         self._send_ncsi_response(host)
         return True
 
-    def _route_captive(self, host: str):
+    def _route_captive(self, host: str) -> bool:
         return self._send_captive_portal_response(host)
 
-    def _route_pki(self, host: str):
+    def _route_pki(self, host: str) -> bool:
         self._send_pki_response(host)
         return True
 
-    def _route_ip_check(self, host: str):
+    def _route_ip_check(self, host: str) -> bool:
         self._send_ip_check_response(host)
         return True
 
-    def _route_telegram(self, _host: str):
+    def _route_telegram(self, _host: str) -> bool:
         return route_telegram(self, _MAX_BODY_FILE_SIZE, _CT_JSON)
 
     # ── Discord webhook route ─────────────────────────────────────────────
-    def _route_discord(self, _host: str):
+    def _route_discord(self, _host: str) -> bool:
         return route_discord(self, _MAX_BODY_FILE_SIZE, _CT_JSON)
 
     # ── Pastebin / paste dead-drop route ──────────────────────────────────
-    def _route_paste(self, host: str):
+    def _route_paste(self, host: str) -> bool:
         return route_dead_drop_ip(self, "paste_dead_drop", host, "nginx")
 
     # ── Slack webhook route ───────────────────────────────────────────────
-    def _route_slack(self, _host: str):
+    def _route_slack(self, _host: str) -> bool:
         return route_simple_text(
             self,
             event_name="slack_c2",
@@ -501,7 +510,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         )
 
     # ── Teams webhook route ───────────────────────────────────────────────
-    def _route_teams(self, _host: str):
+    def _route_teams(self, _host: str) -> bool:
         return route_simple_text(
             self,
             event_name="teams_c2",
@@ -512,34 +521,34 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         )
 
     # ── GitHub raw content route ──────────────────────────────────────────
-    def _route_github_raw(self, host: str):
+    def _route_github_raw(self, host: str) -> bool:
         return route_dead_drop_ip(self, "github_dead_drop", host, "github.com")
 
     # ── File-hosting / payload-staging route ───────────────────────────────
-    def _route_file_hosting(self, host: str):
+    def _route_file_hosting(self, host: str) -> bool:
         return route_file_hosting(self, host)
 
     # ── Google Docs/Drive route ───────────────────────────────────────────
-    def _route_google_content(self, host: str):
+    def _route_google_content(self, host: str) -> bool:
         return route_google_content(self, host)
 
     # ── Cloud exfiltration routes ─────────────────────────────────────────
-    def _route_aws_s3(self, host: str):
+    def _route_aws_s3(self, host: str) -> bool:
         return route_aws_s3(self, host)
 
-    def _route_azure_blob(self, host: str):
+    def _route_azure_blob(self, host: str) -> bool:
         return route_azure_blob(self, host)
 
-    def _route_graph_onedrive(self, _host: str):
+    def _route_graph_onedrive(self, _host: str) -> bool:
         return route_graph_onedrive(self)
 
-    def _route_dropbox(self, _host: str):
+    def _route_dropbox(self, _host: str) -> bool:
         return route_dropbox(self)
 
-    def _route_gdrive_upload(self, host: str):
+    def _route_gdrive_upload(self, host: str) -> bool:
         return route_gdrive_upload(self)
 
-    def _send_fake_response(self):
+    def _send_fake_response(self) -> None:
         host = self.headers.get("Host", "").split(":")[0].strip().lower()
 
         # Skip artificial delay for OS connectivity probes.
@@ -559,7 +568,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
                 return
         self._send_normal_response()
 
-    def _send_normal_response(self):
+    def _send_normal_response(self) -> None:
         if self._cfg.log_requests:
             safe_path = sanitize_log_string(self.path, max_length=256)
             safe_addr = sanitize_ip(self.client_address[0])
@@ -613,7 +622,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         except OSError:
             pass  # Client disconnected — normal for malware scanners
 
-    def _send_connect_response(self):
+    def _send_connect_response(self) -> None:
         """Handle HTTP CONNECT tunnel request.
 
         Malware configured to route traffic via an HTTP proxy sends
@@ -653,7 +662,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
     # First line of the HTTP/2 client connection preface (RFC 7540 §3.5).
     _HTTP2_PREFACE_LINE = b"PRI * HTTP/2.0"
 
-    def _handle_http2_goaway(self):
+    def _handle_http2_goaway(self) -> None:
         """
         Respond to an HTTP/2 connection preface with a server SETTINGS
         frame followed by GOAWAY(HTTP_1_1_REQUIRED).
@@ -694,7 +703,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         except OSError:
             pass
 
-    def handle_one_request(self):
+    def handle_one_request(self) -> None:
         try:
             # Read the request line ourselves so we can inspect it before
             # parse_request() sees it — needed for HTTP/2 preface detection.
@@ -752,7 +761,7 @@ FakeHTTPHandler._ROUTES = [  # noqa: SLF001
     (lambda s, h: h in _DISCORD_HOSTS,                          FakeHTTPHandler._route_discord),        # noqa: SLF001
     (lambda s, h: h in _PASTE_HOSTS,                            FakeHTTPHandler._route_paste),          # noqa: SLF001
     (lambda s, h: h == _SLACK_HOST,                             FakeHTTPHandler._route_slack),          # noqa: SLF001
-    (lambda s, h: h in _TEAMS_HOSTS or _TEAMS_WEBHOOK_RE.search(h),
+    (lambda s, h: h in _TEAMS_HOSTS or bool(_TEAMS_WEBHOOK_RE.search(h)),
                                                                 FakeHTTPHandler._route_teams),          # noqa: SLF001
     (lambda s, h: h in _GITHUB_RAW_HOSTS,                       FakeHTTPHandler._route_github_raw),     # noqa: SLF001
     (lambda s, h: h in _FILE_HOSTING_HOSTS,                     FakeHTTPHandler._route_file_hosting),   # noqa: SLF001
@@ -773,14 +782,19 @@ class _ThreadedServer(socketserver.ThreadingTCPServer):
     daemon_threads = True
     _handler_cfg: _HandlerConfig = _HandlerConfig()
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         self._pool = ThreadPoolExecutor(max_workers=_MAX_WORKER_THREADS)
         super().__init__(*args, **kwargs)
 
-    def process_request(self, request, client_address):
+    # TCP-only server: request is always a socket, narrower than the stdlib stub.
+    def process_request(  # type: ignore[override]
+        self, request: socket.socket, client_address: tuple[str, int],
+    ) -> None:
         self._pool.submit(self.process_request_thread, request, client_address)
 
-    def process_request_thread(self, request, client_address):
+    def process_request_thread(  # type: ignore[override]
+        self, request: socket.socket, client_address: tuple[str, int],
+    ) -> None:
         # Set a read timeout before handing the socket to the handler.
         # Without this, a client that negotiates h2 via ALPN but never sends
         # the connection preface holds a pool worker indefinitely.
@@ -788,7 +802,7 @@ class _ThreadedServer(socketserver.ThreadingTCPServer):
             request.settimeout(30)
         super().process_request_thread(request, client_address)
 
-    def server_close(self):
+    def server_close(self) -> None:
         self._pool.shutdown(wait=False)
         super().server_close()
 
@@ -796,7 +810,7 @@ class _ThreadedServer(socketserver.ThreadingTCPServer):
 class HTTPService:
     """Fake HTTP server that returns a canned response to everything."""
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 80))
         self.bind_ip = bind_ip
@@ -864,7 +878,7 @@ class HTTPService:
 class HTTPSService:
     """Fake HTTPS server with hardened TLS configuration."""
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 443))
         self.bind_ip = bind_ip

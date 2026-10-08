@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import socket
 from pathlib import Path
+from typing import cast
 
 from services import ftp_server
 
@@ -38,11 +40,16 @@ class _FakeDataConn:
 
 def _session(upload_dir: str | None = None) -> ftp_server._FTPSession:
     return ftp_server._FTPSession(
-        conn=_FakeControlConn(),
+        conn=cast(socket.socket, _FakeControlConn()),
         addr=("127.0.0.1", 12345),
         banner="220 test",
         upload_dir=upload_dir,
     )
+
+
+def _sent(sess: ftp_server._FTPSession) -> list[bytes]:
+    """Bytes the session wrote to its fake control connection."""
+    return cast(_FakeControlConn, sess.conn).sent
 
 
 def test_get_disk_usage_sums_files(tmp_path: Path) -> None:
@@ -59,7 +66,7 @@ def test_recv_file_discards_when_uploads_disabled(monkeypatch) -> None:
 
     sess._recv_file("sample.bin", "127.0.0.1")
 
-    sent_text = b"".join(sess.conn.sent).decode("utf-8", errors="replace")
+    sent_text = b"".join(_sent(sess)).decode("utf-8", errors="replace")
     assert "150 Ok to send data" in sent_text
     assert "226 Transfer complete (discarded)" in sent_text
     assert data_conn.closed
@@ -72,7 +79,7 @@ def test_write_upload_enforces_size_cap(tmp_path: Path) -> None:
     save_path = tmp_path / "saved.bin"
 
     received = sess._write_upload(
-        data_conn=data_conn,
+        data_conn=cast(socket.socket, data_conn),
         save_path=str(save_path),
         safe_addr="127.0.0.1",
         safe_fname="saved.bin",

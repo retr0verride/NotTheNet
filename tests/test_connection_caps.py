@@ -196,11 +196,11 @@ class TestMailReuseServerConnectionCap(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestSMTPConnectionCap(unittest.TestCase):
-    """_SMTPServer must enforce _MAX_CONNECTIONS independently."""
+    """_SMTPServer must enforce its connection cap independently."""
+
+    CAP = 3
 
     def setUp(self):
-        self._orig_max = smtp_mod._MAX_CONNECTIONS
-        smtp_mod._MAX_CONNECTIONS = 3
         self.port = _free_port()
 
         # _SMTPServer needs hostname / banner / save_dir but no actual handler.
@@ -209,13 +209,13 @@ class TestSMTPConnectionCap(unittest.TestCase):
             hostname="test.host",
             banner="220 test",
             save_dir=None,
+            max_connections=self.CAP,
         )
         t = threading.Thread(target=self._server.serve_forever, daemon=True)
         t.start()
 
     def tearDown(self):
         self._server.shutdown()
-        smtp_mod._MAX_CONNECTIONS = self._orig_max
 
     def test_smtp_banner_received(self):
         """A normal connection must receive the 220 banner."""
@@ -231,7 +231,7 @@ class TestSMTPConnectionCap(unittest.TestCase):
     def test_smtp_connection_beyond_cap_is_dropped(self):
         socks = []
         try:
-            for _ in range(smtp_mod._MAX_CONNECTIONS):
+            for _ in range(self.CAP):
                 s = _connect(self.port)
                 socks.append(s)
                 s.settimeout(1.0)

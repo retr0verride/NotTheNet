@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import socket
 from pathlib import Path
+from typing import cast
 
 from services import imap_server, pop3_server, smtp_server
 
@@ -21,7 +23,7 @@ class _FakeConn:
 
 def _smtp(save_dir: str | None = None) -> smtp_server._SMTPClientThread:
     return smtp_server._SMTPClientThread(
-        conn=_FakeConn(),
+        conn=cast(socket.socket, _FakeConn()),
         addr=("127.0.0.1", 2525),
         hostname="mail.example.com",
         banner="220 test",
@@ -29,23 +31,28 @@ def _smtp(save_dir: str | None = None) -> smtp_server._SMTPClientThread:
     )
 
 
+def _sent(smtp: smtp_server._SMTPClientThread) -> list[bytes]:
+    """Bytes the session wrote to its fake connection."""
+    return cast(_FakeConn, smtp.conn).sent
+
+
 def test_auth_login_state_machine() -> None:
     smtp = _smtp()
 
     smtp._handle_line("ignored", "127.0.0.1")
     # No auth state by default; unrecognized command path.
-    assert b"500 Unrecognized command" in b"".join(smtp.conn.sent)
+    assert b"500 Unrecognized command" in b"".join(_sent(smtp))
 
-    smtp.conn.sent.clear()
+    _sent(smtp).clear()
     smtp._auth_state = "login_user"
     smtp._handle_line("dXNlcg==", "127.0.0.1")
     assert smtp._auth_state == "login_pass"
-    assert b"334 UGFzc3dvcmQ6" in b"".join(smtp.conn.sent)
+    assert b"334 UGFzc3dvcmQ6" in b"".join(_sent(smtp))
 
-    smtp.conn.sent.clear()
+    _sent(smtp).clear()
     smtp._handle_line("cGFzcw==", "127.0.0.1")
     assert smtp._auth_state is None
-    assert b"235 2.7.0 Authentication successful" in b"".join(smtp.conn.sent)
+    assert b"235 2.7.0 Authentication successful" in b"".join(_sent(smtp))
 
 
 def test_data_mode_enforces_message_size() -> None:

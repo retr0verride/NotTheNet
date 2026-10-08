@@ -20,6 +20,7 @@ import socket
 import socketserver
 import threading
 import uuid
+from typing import Any
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -40,12 +41,13 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
 
-    def __init__(self, server_address, request_handler_class,
-                 max_connections: int = _MAX_CONNECTIONS):
+    def __init__(self, server_address: tuple[str, int],
+                 request_handler_class: type[socketserver.BaseRequestHandler],
+                 max_connections: int = _MAX_CONNECTIONS) -> None:
         self._sem = threading.BoundedSemaphore(max_connections)
         super().__init__(server_address, request_handler_class)
 
-    def process_request(self, request, client_address):
+    def process_request(self, request: socket.socket, client_address: tuple[str, int]) -> None:  # type: ignore[override]  # TCP-only server: request is always a socket
         """Drop connection immediately if the session limit is reached."""
         if not self._sem.acquire(blocking=False):
             try:
@@ -55,7 +57,7 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
             return
         sem = self._sem
 
-        def _run():
+        def _run() -> None:
             try:
                 self.finish_request(request, client_address)
             except Exception:  # noqa: BLE001  # mirrors socketserver: report via handle_error, keep serving
@@ -85,8 +87,8 @@ class _FTPSession(threading.Thread):
 
     def __init__(
         self,
-        conn,
-        addr,
+        conn: socket.socket,
+        addr: tuple[str, int],
         banner: str,
         upload_dir: str | None,
         bind_ip: str = "0.0.0.0",
@@ -98,7 +100,7 @@ class _FTPSession(threading.Thread):
         max_disk_usage_bytes: int = MAX_DISK_USAGE_BYTES,
         pasv_port_low: int = PASV_PORT_LOW,
         pasv_port_high: int = PASV_PORT_HIGH,
-    ):
+    ) -> None:
         super().__init__(daemon=True)
         self.conn = conn
         self.addr = addr
@@ -116,7 +118,7 @@ class _FTPSession(threading.Thread):
         self._data_conn = None
         self._pasv_server: socket.socket | None = None
 
-    def _send(self, msg: str):
+    def _send(self, msg: str) -> None:
         try:
             self.conn.sendall((msg + "\r\n").encode("utf-8", errors="replace"))
         except OSError:
@@ -213,7 +215,7 @@ class _FTPSession(threading.Thread):
         "SIZE": "213 0",
     }
 
-    def _handle_cmd(self, line: str, safe_addr: str):
+    def _handle_cmd(self, line: str, safe_addr: str) -> None:
         parts = line.split(None, 1)
         if not parts:
             return
@@ -250,7 +252,7 @@ class _FTPSession(threading.Thread):
         else:
             self._send("502 Command not implemented")
 
-    def _recv_file(self, remote_name: str, safe_addr: str):
+    def _recv_file(self, remote_name: str, safe_addr: str) -> None:
         """Accept a file upload over the data connection."""
         self._send("150 Ok to send data")
         data_conn = self._accept_data()
@@ -289,7 +291,7 @@ class _FTPSession(threading.Thread):
             except OSError:
                 logger.debug("FTP data connection close failed", exc_info=True)
 
-    def _drain_and_close(self, data_conn, reason: str):
+    def _drain_and_close(self, data_conn: socket.socket, reason: str) -> None:
         """Drain and close a data connection, discarding all data."""
         try:
             while data_conn.recv(65536):
@@ -298,7 +300,7 @@ class _FTPSession(threading.Thread):
             logger.debug("FTP STOR drain failed (%s)", reason, exc_info=True)
         data_conn.close()
 
-    def _write_upload(self, data_conn, save_path: str, safe_addr: str,
+    def _write_upload(self, data_conn: socket.socket, save_path: str, safe_addr: str,
                       safe_fname: str, remote_name: str) -> int:
         """Write uploaded data to disk; return bytes received."""
         received = 0
@@ -327,7 +329,7 @@ class _FTPSession(threading.Thread):
 
 
 class FTPService:
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 21))
         self.bind_ip = bind_ip
@@ -366,7 +368,7 @@ class FTPService:
         pasv_port_high = self.pasv_port_high
 
         class _Handler(socketserver.BaseRequestHandler):
-            def handle(self):
+            def handle(self) -> None:
                 sess = _FTPSession(
                     self.request,
                     self.client_address,

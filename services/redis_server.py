@@ -28,11 +28,14 @@ Security notes (OpenSSF):
 - Sessions are bounded to SESSION_TIMEOUT seconds
 """
 
+from __future__ import annotations
+
 import contextlib
 import logging
 import socket
 import threading
 from collections.abc import Callable
+from typing import Any
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -61,7 +64,7 @@ _HIGH_INTEREST_CMDS = frozenset(["SLAVEOF", "REPLICAOF", "CONFIG", "DEBUG", "SAV
 class _RedisSession(threading.Thread):
     """Handles one Redis client session using RESP protocol."""
 
-    def __init__(self, conn: socket.socket, addr: tuple, sem: threading.BoundedSemaphore | None = None):
+    def __init__(self, conn: socket.socket, addr: tuple[str, int], sem: threading.BoundedSemaphore | None = None) -> None:
         super().__init__(daemon=True)
         self.conn = conn
         self.addr = addr
@@ -82,7 +85,7 @@ class _RedisSession(threading.Thread):
             if buf.endswith(b"\r\n"):
                 return buf[:-2]
 
-    def _read_bulk_string(self) -> "str | None":
+    def _read_bulk_string(self) -> str | None:
         """Read one RESP bulk-string ($<len>\r\n<data>\r\n). Returns str or None."""
         hdr = self._readline()
         if hdr is None or not hdr.startswith(b"$"):
@@ -101,7 +104,7 @@ class _RedisSession(threading.Thread):
             data += chunk
         return data[:slen].decode("utf-8", errors="replace")
 
-    def _read_resp_array(self, n: int) -> "list[str] | None":
+    def _read_resp_array(self, n: int) -> list[str] | None:
         """Read *n* RESP bulk-string elements. Returns list or None on error."""
         parts: list[str] = []
         total_bytes = 0
@@ -139,20 +142,20 @@ class _RedisSession(threading.Thread):
 
     # ── RESP response helpers ─────────────────────────────────────────────────
 
-    def _send(self, data: bytes):
+    def _send(self, data: bytes) -> None:
         with contextlib.suppress(OSError):
             self.conn.sendall(data)
 
-    def _ok(self):       self._send(b"+OK\r\n")
-    def _pong(self):     self._send(b"+PONG\r\n")
-    def _nil(self):      self._send(b"$-1\r\n")
-    def _empty_array(self): self._send(b"*0\r\n")
+    def _ok(self) -> None:       self._send(b"+OK\r\n")
+    def _pong(self) -> None:     self._send(b"+PONG\r\n")
+    def _nil(self) -> None:      self._send(b"$-1\r\n")
+    def _empty_array(self) -> None: self._send(b"*0\r\n")
 
-    def _bulk(self, s: str):
+    def _bulk(self, s: str) -> None:
         enc = s.encode()
         self._send(f"${len(enc)}\r\n".encode() + enc + b"\r\n")
 
-    def _error(self, msg: str):
+    def _error(self, msg: str) -> None:
         self._send(f"-ERR {msg}\r\n".encode())
 
     def _cmd_ping(self, args: list[str]) -> bool:
@@ -188,7 +191,7 @@ class _RedisSession(threading.Thread):
     # Commands that return *0 (empty array)
     _ARRAY_CMDS = frozenset(["COMMAND"])
 
-    _CMD_DISPATCH: "dict[str, Callable]" = {
+    _CMD_DISPATCH: dict[str, Callable[[_RedisSession, list[str]], bool]] = {
         "PING": _cmd_ping,
         "INFO": _cmd_info,
         "CONFIG": _cmd_config,
@@ -260,7 +263,7 @@ class _RedisSession(threading.Thread):
 class RedisService:
     """Fake Redis server on TCP port 6379."""
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 6379))
         self.bind_ip = bind_ip

@@ -31,6 +31,7 @@ import contextlib
 import logging
 import socket
 import threading
+from typing import Any
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -102,11 +103,11 @@ class _TelnetSession(threading.Thread):
     def __init__(
         self,
         conn: socket.socket,
-        addr: tuple,
+        addr: tuple[str, int],
         banner: str,
         prompt: str,
         sem: threading.BoundedSemaphore | None = None,
-    ):
+    ) -> None:
         super().__init__(daemon=True)
         self.conn = conn
         self.addr = addr
@@ -256,7 +257,7 @@ class _TelnetSession(threading.Thread):
 class TelnetService:
     """Fake Telnet server on port 23."""
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled  = config.get("enabled", True)
         self.port     = int(config.get("port", 23))
         self.bind_ip  = bind_ip

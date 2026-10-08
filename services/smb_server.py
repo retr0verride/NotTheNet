@@ -36,6 +36,7 @@ import logging
 import socket
 import struct
 import threading
+from typing import Any
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip
@@ -91,11 +92,11 @@ class _SMBSession(threading.Thread):
     def __init__(
         self,
         conn: socket.socket,
-        addr: tuple,
+        addr: tuple[str, int],
         sem: threading.BoundedSemaphore | None = None,
         session_timeout: float = SESSION_TIMEOUT,
         mode: str = "sniff_and_drop",
-    ):
+    ) -> None:
         super().__init__(daemon=True)
         self.conn = conn
         self.addr = addr
@@ -156,10 +157,13 @@ class _SMBSession(threading.Thread):
     def _parse_smb2_negotiate(data: bytes) -> int:
         """Extract message ID from SMBv2 negotiate header."""
         if len(data) >= 36:
-            return struct.unpack("<Q", data[28:36])[0]
+            message_id: int = struct.unpack("<Q", data[28:36])[0]
+            return message_id
         return 0
 
-    def _parse_negotiate(self, data: bytes) -> tuple:
+    def _parse_negotiate(
+        self, data: bytes,
+    ) -> tuple[str, list[str], bool, int, int, tuple[int, int, int, int]]:
         """Parse SMB negotiate data.
 
         Returns (version, dialects, eternalblue, message_id, dialect_index, smb1_hdr)
@@ -355,7 +359,7 @@ def _smb1_error_response(request: bytes) -> bytes:
 class SMBService:
     """Fake SMB server on TCP port 445."""
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 445))
         self.mode = config.get("mode", "sniff_and_drop")

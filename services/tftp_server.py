@@ -34,6 +34,7 @@ import socket
 import struct
 import threading
 import uuid
+from typing import Any
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -109,13 +110,13 @@ class _TFTPTransferThread(threading.Thread):
     def __init__(
         self,
         opcode: int,
-        client_addr: tuple,
+        client_addr: tuple[str, int],
         filename: str,
         allow_uploads: bool,
         upload_dir: str,
         bind_ip: str = "0.0.0.0",
         sem: threading.BoundedSemaphore | None = None,
-    ):
+    ) -> None:
         super().__init__(daemon=True, name=f"tftp-{client_addr[0]}")
         self.opcode = opcode
         self.client_addr = client_addr
@@ -148,7 +149,7 @@ class _TFTPTransferThread(threading.Thread):
 
     # ── RRQ (client reads a file from us) ────────────────────────────────────
 
-    def _handle_rrq(self, sock: socket.socket, safe_addr: str, safe_file: str):
+    def _handle_rrq(self, sock: socket.socket, safe_addr: str, safe_file: str) -> None:
         """
         Serve the static stub to any RRQ.  Sending a single DATA block
         smaller than 512 bytes signals end-of-file per RFC 1350 §6.
@@ -174,7 +175,7 @@ class _TFTPTransferThread(threading.Thread):
 
     # ── WRQ (client writes a file to us) ─────────────────────────────────────
 
-    def _handle_wrq(self, sock: socket.socket, safe_addr: str, safe_file: str):
+    def _handle_wrq(self, sock: socket.socket, safe_addr: str, safe_file: str) -> None:
         """
         Accept a WRQ upload: ACK block 0, then receive DATA blocks until
         a short block signals end-of-file or the size cap is reached.
@@ -237,7 +238,7 @@ class _TFTPTransferThread(threading.Thread):
 class TFTPService:
     """Fake TFTP server — handles RRQ (read) and WRQ (write) on UDP."""
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 69))
         self.bind_ip = bind_ip

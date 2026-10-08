@@ -27,6 +27,7 @@ import socketserver
 import ssl
 import threading
 from collections import defaultdict
+from typing import Any
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -119,18 +120,18 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
 
     def __init__(
         self,
-        server_address,
-        request_handler_class,
+        server_address: tuple[str, int],
+        request_handler_class: type[socketserver.BaseRequestHandler],
         max_connections: int = MAX_CONNECTIONS,
         max_per_ip: int = MAX_PER_IP,
-    ):
+    ) -> None:
         self._sem = threading.BoundedSemaphore(max_connections)
         self._max_per_ip = max_per_ip
-        self._per_ip: defaultdict = defaultdict(int)
+        self._per_ip: defaultdict[str, int] = defaultdict(int)
         self._per_ip_lock = threading.Lock()
         super().__init__(server_address, request_handler_class)
 
-    def process_request(self, request, client_address):
+    def process_request(self, request: socket.socket, client_address: tuple[str, int]) -> None:  # type: ignore[override]  # TCP-only server: request is always a socket
         """Drop the connection when global or per-IP limits are exceeded."""
         ip = client_address[0]
 
@@ -157,7 +158,7 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
 
         super().process_request(request, client_address)
 
-    def process_request_thread(self, request, client_address):
+    def process_request_thread(self, request: socket.socket, client_address: tuple[str, int]) -> None:  # type: ignore[override]  # TCP-only server: request is always a socket
         """Release the semaphore slot and per-IP counter after the handler finishes."""
         try:
             super().process_request_thread(request, client_address)
@@ -217,7 +218,7 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
         )
         return None
 
-    def handle(self):
+    def handle(self) -> None:
         safe_addr = sanitize_ip(self.client_address[0])
         src_port  = self.client_address[1]
         sock      = self.request
@@ -314,7 +315,7 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
 class CatchAllTCPService:
     """Listens on a TCP port. iptables redirects unknown ports here."""
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled  = config.get("redirect_tcp", True)
         self.port     = int(config.get("tcp_port", 9999))
         self.bind_ip  = bind_ip
@@ -381,7 +382,7 @@ class CatchAllTCPService:
 class CatchAllUDPService:
     """Listens on a UDP port, echoes a short acknowledgement."""
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled = config.get("redirect_udp", False)
         self.port = int(config.get("udp_port", 9998))
         self.bind_ip = bind_ip

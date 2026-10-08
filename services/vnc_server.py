@@ -33,6 +33,7 @@ import logging
 import os
 import socket
 import threading
+from typing import Any
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -51,13 +52,13 @@ _SECURITY_OK    = b"\x00\x00\x00\x00"
 class _VNCSession(threading.Thread):
     """Handles one VNC client session."""
 
-    def __init__(self, conn: socket.socket, addr: tuple, sem: threading.BoundedSemaphore | None = None):
+    def __init__(self, conn: socket.socket, addr: tuple[str, int], sem: threading.BoundedSemaphore | None = None) -> None:
         super().__init__(daemon=True)
         self.conn = conn
         self.addr = addr
         self._sem = sem
 
-    def _do_handshake(self):
+    def _do_handshake(self) -> tuple[str, int] | None:
         """Exchange RFB version and security type. Returns (client_ver, sec_choice) or None."""
         self.conn.sendall(_VNC_VERSION)
         ver_bytes = self.conn.recv(12)
@@ -148,7 +149,7 @@ class _VNCSession(threading.Thread):
 class VNCService:
     """Fake VNC server on TCP port 5900."""
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 5900))
         self.bind_ip = bind_ip

@@ -12,6 +12,7 @@ import socketserver
 import ssl
 import threading
 from collections.abc import Callable
+from typing import Any
 
 from services.mail_common import (
     _DEFAULT_CERT,
@@ -108,10 +109,10 @@ class IMAPHandler(socketserver.BaseRequestHandler):
             self._send(f"{self._tag} NO TLS not available")
         return None
 
-    def _imap_login(self, _sa: str):
+    def _imap_login(self, _sa: str) -> None:
         self._send(f"{self._tag} OK LOGIN completed")
 
-    def _imap_capability(self, _sa: str):
+    def _imap_capability(self, _sa: str) -> None:
         cap = (
             "* CAPABILITY IMAP4rev1 STARTTLS"
             if self._tls_ready else
@@ -119,38 +120,38 @@ class IMAPHandler(socketserver.BaseRequestHandler):
         )
         self._send(f"{cap}\r\n{self._tag} OK")
 
-    def _imap_list(self, _sa: str):
+    def _imap_list(self, _sa: str) -> None:
         self._send(f'* LIST () "/" INBOX\r\n{self._tag} OK LIST completed')
 
-    def _imap_select(self, _sa: str):
+    def _imap_select(self, _sa: str) -> None:
         self._send(
             f"* 0 EXISTS\r\n* 0 RECENT\r\n"
             f"* FLAGS (\\Answered \\Flagged \\Deleted \\Seen)\r\n"
             f"{self._tag} OK [READ-WRITE] SELECT completed"
         )
 
-    def _imap_examine(self, _sa: str):
+    def _imap_examine(self, _sa: str) -> None:
         self._send(
             f"* 0 EXISTS\r\n* 0 RECENT\r\n"
             f"* FLAGS (\\Answered \\Flagged \\Deleted \\Seen)\r\n"
             f"{self._tag} OK [READ-ONLY] EXAMINE completed"
         )
 
-    def _imap_status(self, _sa: str):
+    def _imap_status(self, _sa: str) -> None:
         mailbox = self._parts[2].split()[0].strip('"') if len(self._parts) > 2 else "INBOX"
         self._send(
             f"* STATUS {mailbox} (MESSAGES 0 RECENT 0 UNSEEN 0)\r\n"
             f"{self._tag} OK STATUS completed"
         )
 
-    def _imap_lsub(self, _sa: str):
+    def _imap_lsub(self, _sa: str) -> None:
         self._send(f'* LSUB () "/" INBOX\r\n{self._tag} OK LSUB completed')
 
-    def _imap_logout(self, _sa: str):
+    def _imap_logout(self, _sa: str) -> bool:
         self._send(f"* BYE\r\n{self._tag} OK LOGOUT completed")
         return False  # signal to close connection
 
-    def _imap_noop(self, _sa: str):
+    def _imap_noop(self, _sa: str) -> None:
         self._send(f"{self._tag} OK NOOP completed")
 
     _IMAP_DISPATCH: dict[str, Callable[[IMAPHandler, str], bool | None]] = {
@@ -166,7 +167,7 @@ class IMAPHandler(socketserver.BaseRequestHandler):
         "NOOP":       _imap_noop,
     }
 
-    def _send(self, msg: str):
+    def _send(self, msg: str) -> None:
         try:
             self.request.sendall((msg + "\r\n").encode("utf-8", errors="replace"))
         except OSError:
@@ -174,7 +175,7 @@ class IMAPHandler(socketserver.BaseRequestHandler):
 
 
 class IMAPService:
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 143))
         self.bind_ip = bind_ip
@@ -227,7 +228,7 @@ class IMAPService:
 class IMAPSService:
     """Fake IMAPS server (implicit TLS on port 993)."""
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 993))
         self.bind_ip = bind_ip

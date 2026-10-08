@@ -12,6 +12,7 @@ import socketserver
 import ssl
 import threading
 from collections.abc import Callable
+from typing import Any
 
 from services.mail_common import (
     _DEFAULT_CERT,
@@ -76,26 +77,26 @@ class POP3Handler(socketserver.BaseRequestHandler):
         self._send("-ERR Unknown command")
         return None
 
-    def _pop3_user(self, _sa: str):
+    def _pop3_user(self, _sa: str) -> None:
         self._send("+OK")
 
-    def _pop3_pass(self, _sa: str):
+    def _pop3_pass(self, _sa: str) -> None:
         self._send("+OK Logged in")
 
-    def _pop3_stat(self, _sa: str):
+    def _pop3_stat(self, _sa: str) -> None:
         self._send("+OK 0 0")
 
-    def _pop3_list(self, _sa: str):
+    def _pop3_list(self, _sa: str) -> None:
         self._send("+OK 0 messages\r\n.")
 
-    def _pop3_uidl(self, _sa: str):
+    def _pop3_uidl(self, _sa: str) -> None:
         self._send("+OK\r\n.")
 
-    def _pop3_quit(self, _sa: str):
+    def _pop3_quit(self, _sa: str) -> bool:
         self._send("+OK Bye")
         return False  # signal to close connection
 
-    def _pop3_capa(self, _sa: str):
+    def _pop3_capa(self, _sa: str) -> None:
         capa = "+OK\r\nUSER\r\nUIDL\r\nSTLS\r\n." if self._tls_ready else "+OK\r\nUSER\r\nUIDL\r\n."
         self._send(capa)
 
@@ -135,7 +136,7 @@ class POP3Handler(socketserver.BaseRequestHandler):
         "STLS": _pop3_stls,
     }
 
-    def _send(self, msg: str):
+    def _send(self, msg: str) -> None:
         try:
             self.request.sendall((msg + "\r\n").encode("utf-8", errors="replace"))
         except OSError:
@@ -143,7 +144,7 @@ class POP3Handler(socketserver.BaseRequestHandler):
 
 
 class POP3Service:
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 110))
         self.bind_ip = bind_ip
@@ -196,7 +197,7 @@ class POP3Service:
 class POP3SService:
     """Fake POP3S server (implicit TLS on port 995)."""
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 995))
         self.bind_ip = bind_ip

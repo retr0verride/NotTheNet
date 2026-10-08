@@ -21,6 +21,7 @@ import logging
 import re
 import struct
 import threading
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -394,17 +395,17 @@ def _build_extension_map() -> dict[str, tuple[str, bytes]]:
 
 # ─── Custom rules (regex → MIME + body) ──────────────────────────────────────
 
-class _CompiledRule:
+class CompiledRule:
     """A user-defined path-matching rule."""
     __slots__ = ("pattern", "mime", "body")
 
-    def __init__(self, pattern: re.Pattern, mime: str, body: bytes):
+    def __init__(self, pattern: re.Pattern[str], mime: str, body: bytes) -> None:
         self.pattern = pattern
         self.mime = mime
         self.body = body
 
 
-def compile_custom_rules(rules: list[dict]) -> list[_CompiledRule]:
+def compile_custom_rules(rules: list[dict[str, Any]]) -> list[CompiledRule]:
     """
     Compile user-defined rules from config.
 
@@ -419,7 +420,7 @@ def compile_custom_rules(rules: list[dict]) -> list[_CompiledRule]:
         try:
             pat = re.compile(raw, re.IGNORECASE)
             body = body_str.encode("utf-8", errors="replace") if body_str else b""
-            compiled.append(_CompiledRule(pat, mime, body))
+            compiled.append(CompiledRule(pat, mime, body))
         except re.error as exc:
             logger.warning("Invalid dynamic_response rule regex '%s': %s", raw, exc)
     return compiled
@@ -427,7 +428,7 @@ def compile_custom_rules(rules: list[dict]) -> list[_CompiledRule]:
 
 def resolve_dynamic_response(
     path: str,
-    custom_rules: list[_CompiledRule] | None = None,
+    custom_rules: list[CompiledRule] | None = None,
     fallback_body: bytes | None = None,
     fallback_mime: str = _MIME_HTML,
 ) -> tuple[str, bytes]:

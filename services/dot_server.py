@@ -19,6 +19,7 @@ import ssl
 import struct
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 
 from utils.logging_utils import sanitize_ip
 
@@ -37,7 +38,7 @@ except ImportError:
 class _FakeClientHandler:
     """Minimal handler shim — provides attributes _FakeResolver.resolve() accesses."""
 
-    def __init__(self, addr: tuple):
+    def __init__(self, addr: tuple[str, int]) -> None:
         self.client_address = addr
         self.tcp = True  # DoT is always TCP
 
@@ -52,7 +53,7 @@ class DoTService:
     VM trust store to make DoT lookups appear fully validated.
     """
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict[str, Any]) -> None:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 853))
         self.bind_ip = config.get("bind_ip", "0.0.0.0")
@@ -62,7 +63,7 @@ class DoTService:
         self.redirect_ip = config.get("resolve_to", "127.0.0.1")
         self.ttl = int(config.get("ttl", 300))
         self.handle_ptr = bool(config.get("handle_ptr", True))
-        self.custom_records: dict = config.get("custom_records", {})
+        self.custom_records: dict[str, str] = config.get("custom_records", {})
         self.nxdomain_entropy_threshold = float(
             config.get("nxdomain_entropy_threshold", 0.0) or 0.0
         )
@@ -136,7 +137,7 @@ class DoTService:
         )
         return True
 
-    def _wrap_tls(self, client_sock: socket.socket, addr: tuple) -> ssl.SSLSocket | None:
+    def _wrap_tls(self, client_sock: socket.socket, addr: tuple[str, int]) -> ssl.SSLSocket | None:
         """TLS-wrap a newly accepted socket. Returns wrapped socket or None on failure."""
         try:
             if self._ssl_ctx is None:
@@ -150,7 +151,7 @@ class DoTService:
                 client_sock.close()
             return None
 
-    def _accept_loop(self):
+    def _accept_loop(self) -> None:
         if self._server_sock is None:
             raise RuntimeError("Server socket not initialised")
         while self.running:
@@ -170,7 +171,7 @@ class DoTService:
                 with contextlib.suppress(OSError):
                     tls_sock.close()
 
-    def _handle_client(self, sock: ssl.SSLSocket, addr: tuple):
+    def _handle_client(self, sock: ssl.SSLSocket, addr: tuple[str, int]) -> None:
         handler = _FakeClientHandler(addr)
         try:
             sock.settimeout(10.0)

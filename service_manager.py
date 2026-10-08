@@ -10,8 +10,10 @@ import re
 import shutil
 import subprocess
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from typing import Any
 
 from config import Config
 from network.iptables_manager import IPTablesManager
@@ -63,7 +65,7 @@ def local_date(timestamp: float | None = None) -> date:
 class ServiceSpec:
     """Single source of truth for one fake-network service."""
     name: str
-    factory: type
+    factory: Callable[..., ServiceProtocol]
     config_section: str
     default_port: int          # 0 = no fixed port (catch-all / ICMP)
     protocol: str              # "tcp" | "udp" | "both"
@@ -127,7 +129,7 @@ class ServiceManager:
     Also manages iptables rule lifecycle.
     """
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config) -> None:
         self.config = config
         self._services: dict[str, ServiceProtocol] = {}
         self._lock = threading.Lock()
@@ -135,7 +137,7 @@ class ServiceManager:
         self._running = False
         self._failed: set[str] = set()
 
-    def validate(self) -> list:
+    def validate(self) -> list[str]:
         """Validate configuration; return list of error strings."""
         return validate_config(self.config.as_dict())
 
@@ -214,7 +216,7 @@ class ServiceManager:
         except OSError as exc:
             logger.warning("Could not run harden-lab.sh: %s", exc)
 
-    def _check_port_conflicts(self):
+    def _check_port_conflicts(self) -> None:
         """Warn about duplicate port/proto assignments across enabled services."""
         port_map: dict[tuple[str, int], str] = {}
         for spec in _SERVICE_REGISTRY:
@@ -343,7 +345,7 @@ class ServiceManager:
             logger.warning("Services FAILED to start: %s", ', '.join(failed))
         return self._running
 
-    def _tls_cfg(self, section: str) -> dict:
+    def _tls_cfg(self, section: str) -> dict[str, Any]:
         """Merge a config section with HTTPS cert/key paths."""
         https_cfg = self.config.get_section("https")
         return {
@@ -354,7 +356,7 @@ class ServiceManager:
 
     def _build_service(
         self, spec: ServiceSpec, bind_ip: str,
-        spoof_ip: str, redirect_ip: str, https_cfg: dict,
+        spoof_ip: str, redirect_ip: str, https_cfg: dict[str, Any],
     ) -> ServiceProtocol:
         """Build a service instance from its registry spec."""
         builder = self._special_builders(spec, bind_ip, spoof_ip, redirect_ip, https_cfg)
@@ -370,8 +372,8 @@ class ServiceManager:
 
     def _special_builders(
         self, spec: ServiceSpec, bind_ip: str,
-        spoof_ip: str, redirect_ip: str, https_cfg: dict,
-    ) -> tuple[dict, dict] | None:
+        spoof_ip: str, redirect_ip: str, https_cfg: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any]] | None:
         """Return (config, extra_kwargs) for services needing custom config, or None."""
         if spec.name in ("dns", "dot"):
             # In gateway mode, DNS must resolve names to the NTN host IP so that
@@ -641,7 +643,7 @@ class ServiceManager:
                 ports[spec.protocol].append(port)
         return ports
 
-    def _apply_iptables(self):
+    def _apply_iptables(self) -> None:
         """Build the iptables rule set from running services."""
         iptables = IPTablesManager(self.config.get_section("general"))
         service_ports = self._build_service_ports()
@@ -671,7 +673,7 @@ class ServiceManager:
 
         # Stop all services in parallel so total shutdown time is
         # max(individual stop times) rather than their sum.
-        def _stop_one(name_svc):
+        def _stop_one(name_svc: tuple[str, ServiceProtocol]) -> None:
             name, svc = name_svc
             try:
                 svc.stop()
