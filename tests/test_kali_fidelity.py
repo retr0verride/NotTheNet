@@ -263,7 +263,7 @@ def test_https(host: str, port: int, r: FidelityResults) -> None:
 
         # 1. TLS version
         tls_ver = s.version()
-        if tls_ver and "TLSv1.2" in tls_ver or "TLSv1.3" in tls_ver:
+        if tls_ver in ("TLSv1.2", "TLSv1.3"):
             r.ok(f"TLS version: {tls_ver}")
         else:
             r.warn(f"TLS version: {tls_ver}")
@@ -411,7 +411,7 @@ def test_telnet(host: str, port: int, r: FidelityResults) -> None:
             if "#" in text2 or "$" in text2 or ">" in text2:
                 r.ok("Shell prompt after login")
             else:
-                r.warn(f"No shell prompt detected: {resp2[:40]}")
+                r.warn(f"No shell prompt detected: {resp2[:40]!r}")
         else:
             r.warn("No password prompt after username")
 

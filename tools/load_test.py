@@ -11,6 +11,7 @@ import struct
 import threading
 import time
 from collections import defaultdict
+from dataclasses import dataclass, field
 
 # ── Default settings ──────────────────────────────────────────────────────────
 DEFAULT_HOST     = "127.0.0.1"
@@ -19,15 +20,22 @@ DEFAULT_WORKERS  = 10          # concurrent workers per service
 
 # ── Stats tracking ────────────────────────────────────────────────────────────
 stats_lock = threading.Lock()
-stats = defaultdict(lambda: {"ok": 0, "err": 0, "latency": []})
+@dataclass
+class _ServiceStats:
+    ok: int = 0
+    err: int = 0
+    latency: list[int] = field(default_factory=list)
+
+
+stats: defaultdict[str, _ServiceStats] = defaultdict(_ServiceStats)
 
 def record(name, ok, latency_ms):
     with stats_lock:
         if ok:
-            stats[name]["ok"] += 1
-            stats[name]["latency"].append(latency_ms)
+            stats[name].ok += 1
+            stats[name].latency.append(latency_ms)
         else:
-            stats[name]["err"] += 1
+            stats[name].err += 1
 
 # ── Generic TCP handshake helper ──────────────────────────────────────────────
 def tcp_connect(host, port, send=None, expect=None, tls=False, timeout=3):
@@ -428,8 +436,8 @@ def main():
     for elapsed in range(args.duration):
         time.sleep(1)
         with stats_lock:
-            total_ok  = sum(v["ok"]  for v in stats.values())
-            total_err = sum(v["err"] for v in stats.values())
+            total_ok  = sum(v.ok for v in stats.values())
+            total_err = sum(v.err for v in stats.values())
         bar = "#" * (elapsed + 1) + "-" * (args.duration - elapsed - 1)
         print(f"\r  [{bar}] {elapsed+1:3d}s  ok={total_ok:6d}  err={total_err:5d}", end="", flush=True)
 
@@ -444,9 +452,9 @@ def main():
     grand_ok = grand_err = 0
     for name in sorted(stats.keys()):
         s = stats[name]
-        ok  = s["ok"]
-        err = s["err"]
-        lats = s["latency"]
+        ok  = s.ok
+        err = s.err
+        lats = s.latency
         avg  = int(sum(lats) / len(lats)) if lats else 0
         mn   = min(lats) if lats else 0
         mx   = max(lats) if lats else 0

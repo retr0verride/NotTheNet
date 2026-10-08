@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import socket
 import struct
+from typing import cast
 
 from services import smb_server
 
@@ -10,7 +12,7 @@ from services import smb_server
 class _FakeSocket:
     def __init__(self, chunks: list[bytes]) -> None:
         self._chunks = list(chunks)
-        self.timeout = None
+        self.timeout: float | None = None
 
     def settimeout(self, timeout: float) -> None:
         self.timeout = timeout
@@ -22,6 +24,11 @@ class _FakeSocket:
 
     def close(self) -> None:
         return
+
+
+def _fake_sock(chunks: list[bytes]) -> socket.socket:
+    """A _FakeSocket typed as the real socket the session expects."""
+    return cast(socket.socket, _FakeSocket(chunks))
 
 
 def test_smb2_error_response_contains_status_and_message_id() -> None:
@@ -51,7 +58,7 @@ def test_parse_negotiate_detects_smb1_eternalblue_probe() -> None:
         + struct.pack("<H", len(dialect_bytes))       # ByteCount
         + dialect_bytes
     )
-    session = smb_server._SMBSession(_FakeSocket([]), ("127.0.0.1", 445))
+    session = smb_server._SMBSession(_fake_sock([]), ("127.0.0.1", 445))
 
     version, dialects, eternalblue, message_id, dialect_index, smb1_hdr = (
         session._parse_negotiate(data)
@@ -71,7 +78,7 @@ def test_parse_negotiate_extracts_smb2_message_id() -> None:
     data = bytearray(64)
     data[:4] = smb_server._SMB2_MAGIC
     struct.pack_into("<Q", data, 28, message_id)
-    session = smb_server._SMBSession(_FakeSocket([]), ("127.0.0.1", 445))
+    session = smb_server._SMBSession(_fake_sock([]), ("127.0.0.1", 445))
 
     version, dialects, eternalblue, parsed_message_id, dialect_index, smb1_hdr = (
         session._parse_negotiate(bytes(data))
@@ -87,8 +94,7 @@ def test_parse_negotiate_extracts_smb2_message_id() -> None:
 
 def test_read_smb_message_rejects_oversized_payload() -> None:
     # NetBIOS header with length > 65535 must be rejected.
-    sock = _FakeSocket([b"\x00\x01\x00\x00"])
-    session = smb_server._SMBSession(sock, ("127.0.0.1", 445))
+    session = smb_server._SMBSession(_fake_sock([b"\x00\x01\x00\x00"]), ("127.0.0.1", 445))
     assert session._read_smb_message() is None
 
 

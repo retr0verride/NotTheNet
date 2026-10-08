@@ -19,9 +19,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class _FakeManager:
-    def __init__(self, running: set[str], failed: set[str] = frozenset()) -> None:
+    def __init__(self, running: set[str], failed: set[str] | None = None) -> None:
         self.running = running
-        self.failed = failed
+        self.failed = failed or set()
 
     def service_report(self) -> list[dict[str, Any]]:
         names = [*CORE_SERVICES, "ftp", "smtp"]

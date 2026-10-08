@@ -18,6 +18,7 @@ Exit code: 0 on success, 1 on first failure (informational steps never fail).
 from __future__ import annotations
 
 import argparse
+import io
 import os
 import re
 import shutil
@@ -43,10 +44,10 @@ PINNED_TOOLS = [
 # Fully annotated modules held to mypy --strict. Keep in sync with the strict
 # override in pyproject.toml and the mypy hook in .pre-commit-config.yaml.
 STRICT_MYPY_FILES = ["notthenet.py", "headless.py", "version.py", "utils/health_server.py"]
-# Everything that ships; must pass mypy (check_untyped_defs) with zero errors.
-MYPY_APP_PATHS = [
+# All Python in the repo; must pass mypy (check_untyped_defs) with zero errors.
+MYPY_PATHS = [
     "notthenet.py", "headless.py", "version.py", "config.py", "service_manager.py",
-    "services/", "network/", "utils/", "gui/",
+    "services/", "network/", "utils/", "gui/", "tests/", "tools/", "scripts/",
 ]
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -57,11 +58,9 @@ USE_COLOR = sys.stdout.isatty() and not os.environ.get("NO_COLOR")
 # Force UTF-8 stdout/stderr on Windows so the box-drawing characters used in
 # step headers don't blow up under cp1252 when output is piped or redirected.
 if IS_WINDOWS:
-    try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-    except (AttributeError, OSError):
-        pass
+    for _stream in (sys.stdout, sys.stderr):
+        if isinstance(_stream, io.TextIOWrapper):
+            _stream.reconfigure(encoding="utf-8", errors="replace")
     # Subprocesses (bandit, mypy, etc.) also need UTF-8 stdout to avoid
     # charmap encoding errors when their output contains non-ASCII chars.
     os.environ.setdefault("PYTHONIOENCODING", "utf-8")
@@ -131,7 +130,7 @@ def step_ruff() -> None:
 
 
 def step_mypy() -> None:
-    run([PY, "-m", "mypy", *MYPY_APP_PATHS])
+    run([PY, "-m", "mypy", *MYPY_PATHS])
     passed("mypy")
 
 
@@ -309,7 +308,7 @@ def step_stale_certs() -> None:
 STEPS: list[tuple[str, str, Callable[[], None]]] = [
     ("secrets", "Secret scan (gitleaks)", step_secrets),
     ("ruff", "Lint (ruff)", step_ruff),
-    ("mypy", "Type check (mypy, all application code)", step_mypy),
+    ("mypy", "Type check (mypy, all code)", step_mypy),
     ("mypy-strict", "Type check — strict modules (mypy --strict)", step_mypy_strict),
     ("bandit", "Security scan (bandit — fail on HIGH severity)", step_bandit),
     ("vulture", "Dead code detection (vulture)", step_vulture),

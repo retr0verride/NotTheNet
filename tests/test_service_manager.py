@@ -230,8 +230,18 @@ class TestBuildServicePorts:
 # ── service_report ───────────────────────────────────────────────────────────
 
 class _FakeService:
+    """Minimal ServiceProtocol implementation."""
+
+    enabled = True
+
     def __init__(self, running: bool) -> None:
         self.running = running
+
+    def start(self) -> bool:
+        return self.running
+
+    def stop(self) -> None:
+        self.running = False
 
 
 class TestServiceReport:

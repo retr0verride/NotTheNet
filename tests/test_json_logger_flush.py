@@ -19,6 +19,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 import pytest
 
@@ -43,13 +44,17 @@ class TestPeriodicFlush(unittest.TestCase):
             logger = JsonEventLogger(path)
             flush_calls = []
 
-            _orig_flush = logger._file.flush
+            log_file = logger._file
+            assert log_file is not None
+            _orig_flush = log_file.flush
 
             def _counting_flush():
                 flush_calls.append(time.monotonic())
                 _orig_flush()
 
-            logger._file.flush = _counting_flush
+            patcher = patch.object(log_file, "flush", _counting_flush)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
             # Fire 50 writes in rapid succession (well within _FLUSH_INTERVAL).
             for i in range(50):
@@ -78,13 +83,17 @@ class TestPeriodicFlush(unittest.TestCase):
             logger = JsonEventLogger(path)
             flushed = threading.Event()
 
-            _orig_flush = logger._file.flush
+            log_file = logger._file
+            assert log_file is not None
+            _orig_flush = log_file.flush
 
             def _notify_flush():
                 flushed.set()
                 _orig_flush()
 
-            logger._file.flush = _notify_flush
+            patcher = patch.object(log_file, "flush", _notify_flush)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
             # Write one event, then poll until flush fires or we time out.
             logger.log("first_event", data="x")

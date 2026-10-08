@@ -37,6 +37,7 @@ class TestValidateIp:
     def test_invalid_string(self):
         ok, msg = validate_ip("not-an-ip")
         assert not ok
+        assert msg is not None
         assert "not-an-ip" in msg
 
     def test_empty_string(self):
@@ -319,7 +320,7 @@ class TestValidateConfig:
         assert any("http.response_body_file" in e for e in errors)
 
     def test_positive_fields_absent_no_error(self):
-        cfg = {"smtp": {}}
+        cfg: dict[str, dict[str, object]] = {"smtp": {}}
         errors = validate_config(cfg)
         assert not any("smtp." in e for e in errors)
 

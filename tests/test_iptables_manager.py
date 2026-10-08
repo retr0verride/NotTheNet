@@ -127,7 +127,7 @@ class TestRuleBuilding:
 
     def test_add_rule_rejects_non_string_args(self):
         mgr = self._mgr()
-        assert not mgr._add_rule(["-t", "nat", 42])
+        assert not mgr._add_rule(["-t", "nat", 42])  # type: ignore[list-item]  # deliberately wrong
 
     @patch("network.iptables_manager._run", return_value=(0, "", ""))
     def test_del_rule_converts_a_to_d(self, mock_run):

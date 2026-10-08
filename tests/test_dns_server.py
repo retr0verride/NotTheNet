@@ -6,6 +6,7 @@ Uses dnslib directly to build query packets and verify responses without
 needing a running server or network.
 """
 
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -49,8 +50,8 @@ def _query(resolver: _FakeResolver, qname: str, qtype: str = "A") -> DNSRecord:
     return resolver.resolve(request, handler)
 
 
-def _make_resolver(**kwargs) -> _FakeResolver:
-    defaults = dict(
+def _make_resolver(**kwargs: Any) -> _FakeResolver:
+    defaults: dict[str, Any] = dict(
         redirect_ip="10.0.0.1",
         custom_records={},
         ttl=60,

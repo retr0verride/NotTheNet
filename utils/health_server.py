@@ -25,13 +25,10 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import Any, Protocol
 from urllib.parse import urlsplit
 
 from utils.validators import validate_ip, validate_port
-
-if TYPE_CHECKING:
-    from service_manager import ServiceManager
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +91,12 @@ class _TokenBucket:
             return allowed
 
 
+class ServiceReporter(Protocol):
+    """What the health server needs from ServiceManager."""
+
+    def service_report(self) -> list[dict[str, str | int]]: ...
+
+
 class _Headers(Protocol):
     """Read-only header lookup: http.server's Message, or a plain dict in tests."""
 
@@ -154,9 +157,9 @@ _JSON = "application/json"
 
 
 class HealthServer:
-    """Serves the health endpoints for one ServiceManager on a daemon thread."""
+    """Serves the health endpoints for a ServiceManager on a daemon thread."""
 
-    def __init__(self, manager: ServiceManager, settings: HealthSettings) -> None:
+    def __init__(self, manager: ServiceReporter, settings: HealthSettings) -> None:
         self._manager = manager
         self._settings = settings
         self._loopback_bind = ipaddress.ip_address(settings.bind_ip).is_loopback
