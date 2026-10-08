@@ -28,7 +28,7 @@ class NotTheNetApp(DashboardMixin, ServiceControlMixin, tk.Tk):
     """Main application window combining layout (DashboardMixin) and
     runtime logic (ServiceControlMixin)."""
 
-    def __init__(self, config_path: str | None = None):
+    def __init__(self, config_path: str | None = None) -> None:
         super().__init__()
         self.title(APP_TITLE)
         self.configure(bg=C_BG)
@@ -43,11 +43,11 @@ class NotTheNetApp(DashboardMixin, ServiceControlMixin, tk.Tk):
             logger.debug("App icon load failed (cosmetic)", exc_info=True)
 
         self._cfg = Config(config_path or "config.json")
-        self._log_queue: queue.Queue = queue.Queue(maxsize=2000)
+        self._log_queue: queue.Queue[str] = queue.Queue(maxsize=2000)
         self._log_line_count: int = 0
         self._manager: ServiceManager | None = None
-        self._svc_vars: dict = {}
-        self._pages: dict = {}
+        self._svc_vars: dict[str, tk.Label] = {}
+        self._pages: dict[str, tk.Frame] = {}
         self._start_time = None
         self._timer_job = None
 

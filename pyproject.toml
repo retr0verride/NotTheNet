@@ -120,13 +120,18 @@ check_untyped_defs = true    # type-check function bodies even without annotatio
 ignore_missing_imports = true
 warn_return_any = false
 warn_unused_ignores = true
+# Some tkinter methods (curselection, panes, ...) are unannotated in typeshed itself.
+untyped_calls_exclude = ["tkinter"]
 
 # ── Strict modules ──────────────────────────────────────────────────────────────
 # All code (application, tests, tools, scripts) passes mypy with check_untyped_defs. Fully annotated
 # modules must also pass --strict (list mirrors STRICT_MYPY_FILES in scripts/checks.py).
 
 [[tool.mypy.overrides]]
-module = ["notthenet", "headless", "version", "config", "utils.*", "network.*", "service_manager", "services.*"]
+module = [
+    "notthenet", "headless", "version", "config", "service_manager",
+    "services.*", "network.*", "utils.*", "gui.*",
+]
 # The --strict flag set, spelled out: `strict = true` in an override is applied
 # globally by mypy, so it cannot be scoped to these modules.
 disallow_untyped_defs = true

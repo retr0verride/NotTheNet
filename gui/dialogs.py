@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import os
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from gui.service_pages import Spec
 from gui.widgets import (
@@ -49,16 +50,20 @@ logger = logging.getLogger(__name__)
 # General Settings page
 # ---------------------------------------------------------------------------
 
+# One parsed JSONL event: (ts, event, src_ip, detail) for the tree, plus the raw object.
+_RowValues = tuple[str, str, str, str]
+_EventRow = tuple[_RowValues, dict[str, Any]]
+
 class _GeneralPage(tk.Frame):
     """Global configuration page (bind IP, interface, logging, etc.)."""
 
-    def __init__(self, parent, cfg: Config):
+    def __init__(self, parent: tk.Misc, cfg: Config) -> None:
         super().__init__(parent, bg=C_SURFACE)
         self.cfg = cfg
-        self.vars: dict = {}
+        self.vars: dict[str, tk.Variable] = {}
         self._build()
 
-    def _build(self):
+    def _build(self) -> None:
         outer = tk.Frame(self, bg=C_SURFACE)
         outer.pack(fill="both", expand=True)
 
@@ -116,10 +121,10 @@ class _GeneralPage(tk.Frame):
             v = tk.StringVar(value=str(val))
             self.vars[key] = v
             if choices:
-                _row(f, label, lambda v=v, c=choices: _combo(f, v, c), row_idx,
+                _row(f, label, functools.partial(_combo, f, v, choices), row_idx,
                      tip=tip, info_panel=self._info_panel, default=default, var=v)
             else:
-                _row(f, label, lambda v=v: _entry(f, v), row_idx,
+                _row(f, label, functools.partial(_entry, f, v), row_idx,
                      tip=tip, info_panel=self._info_panel, default=default, var=v)
 
         check_fields: Spec = [
@@ -179,7 +184,7 @@ class _GeneralPage(tk.Frame):
         v_fp = tk.StringVar(value=str(fp_os_val))
         self.vars["tcp_fingerprint_os"] = v_fp
         _row(f, "Fingerprint OS",
-             lambda v=v_fp: _combo(f, v, ["windows", "linux", "macos", "solaris"]),
+             functools.partial(_combo, f, v_fp, ["windows", "linux", "macos", "solaris"]),
              fp_row,
              tip="OS profile for TCP/IP fingerprint spoofing.\n"
                  "windows \u2014 TTL=128, Window=65535 (Windows Server 2019+)\n"
@@ -193,14 +198,14 @@ class _GeneralPage(tk.Frame):
         v_jp = tk.StringVar(value=str(json_path_val))
         self.vars["json_log_file"] = v_jp
         _row(f, "JSON Log File",
-             lambda v=v_jp: _entry(f, v),
+             functools.partial(_entry, f, v_jp),
              fp_row + 1,
              tip="Path to the JSON Lines event log file.\n"
                  "Each intercepted request is written as one JSON object per line.\n"
                  "Relative to the NotTheNet project root.",
              info_panel=self._info_panel, default=_JSON_LOG_PATH, var=v_jp)
 
-    def apply_to_config(self):
+    def apply_to_config(self) -> None:
         """Validate, then write all field values back to the Config object."""
         errors: list[str] = []
         for key, var in self.vars.items():
@@ -234,22 +239,22 @@ class _JsonEventsPage(tk.Frame):
     _ALL_ROWS_CAP = 20000
     _COLUMNS = ("timestamp", "event", "src_ip", "detail")
 
-    def __init__(self, parent, cfg: Config):
+    def __init__(self, parent: tk.Misc, cfg: Config) -> None:
         super().__init__(parent, bg=C_SURFACE)
         self.cfg = cfg
         self._file_pos = 0
         self._last_path: str = ""
-        self._all_rows: list = []
+        self._all_rows: list[_EventRow] = []
         self._poll_job: str | None = None
         self._search_var = tk.StringVar()
         self._filter_var = tk.StringVar(value="ALL")
-        self._event_types: set = set()
+        self._event_types: set[str] = set()
         self._tree_count: int = 0
         self._auto_export_path: str | None = None
         self._auto_exported_count: int = 0
         self._build()
 
-    def _build(self):
+    def _build(self) -> None:
         bar = tk.Frame(self, bg=C_SURFACE)
         bar.pack(fill="x", padx=PAD, pady=(PAD, 4))
 
@@ -265,7 +270,7 @@ class _JsonEventsPage(tk.Frame):
         self._filter_combo.pack(side="left", padx=(4, 10))
         self._filter_var.trace_add("write", lambda *_: self._apply_filter())
 
-        btn_style = {"relief": "flat", "bd": 0, "padx": 10, "pady": 3,
+        btn_style: dict[str, Any] = {"relief": "flat", "bd": 0, "padx": 10, "pady": 3,
                      "font": _f(8), "cursor": "hand2"}
         refresh_btn = tk.Button(
             bar, text="\u27f3 Refresh", bg=C_HOVER, fg=C_TEXT,
@@ -368,8 +373,8 @@ class _JsonEventsPage(tk.Frame):
     def _get_log_path(self) -> str:
         return str(self.cfg.get("general", "json_log_file") or _JSON_LOG_PATH)
 
-    def _parse_new_lines(self, new_lines: list[str]) -> list:
-        new_parsed: list = []
+    def _parse_new_lines(self, new_lines: list[str]) -> list[_EventRow]:
+        new_parsed: list[_EventRow] = []
         for line in new_lines:
             line = line.strip()
             if not line:
@@ -389,7 +394,7 @@ class _JsonEventsPage(tk.Frame):
                 self._filter_combo.configure(values=choices)
         return new_parsed
 
-    def _poll_file(self):
+    def _poll_file(self) -> None:
         """Incrementally read new lines appended since last poll."""
         path = self._get_log_path()
         # Reset when the session log file changes (new Start cycle).
@@ -422,7 +427,7 @@ class _JsonEventsPage(tk.Frame):
 
         self._poll_job = self.after(self._POLL_MS, self._poll_file)
 
-    def _full_reload(self):
+    def _full_reload(self) -> None:
         """Re-read the entire file from offset 0."""
         self._file_pos = 0
         self._all_rows.clear()
@@ -434,7 +439,7 @@ class _JsonEventsPage(tk.Frame):
         self._tree_count = 0
         self._poll_file()
 
-    def _auto_export_rows(self, rows: list):
+    def _auto_export_rows(self, rows: list[_EventRow]) -> None:
         """Append overflow rows to the session auto-export file."""
         if not rows:
             return
@@ -453,7 +458,7 @@ class _JsonEventsPage(tk.Frame):
         path = self._auto_export_path
         _log = logger
 
-        def _write():
+        def _write() -> None:
             try:
                 with open(path, "a", encoding="utf-8") as fh:
                     for _row_data, obj in rows:
@@ -468,7 +473,7 @@ class _JsonEventsPage(tk.Frame):
         threading.Thread(target=_write, daemon=True, name="json-autoexport").start()
         self._auto_exported_count += len(rows)
 
-    def _clear_view(self):
+    def _clear_view(self) -> None:
         """Clear the table without deleting the file."""
         self._all_rows.clear()
         children = self._tree.get_children()
@@ -480,7 +485,7 @@ class _JsonEventsPage(tk.Frame):
         self._count_label.configure(text="0 events")
 
     @staticmethod
-    def _obj_to_row(obj: dict) -> tuple:
+    def _obj_to_row(obj: dict[str, Any]) -> _RowValues:
         ts = obj.get("timestamp", "")
         evt = obj.get("event", "")
         src = obj.get("src_ip", "")
@@ -491,7 +496,7 @@ class _JsonEventsPage(tk.Frame):
 
     # -- Filtering --
 
-    def _append_new_rows(self, new_rows: list):
+    def _append_new_rows(self, new_rows: list[_EventRow]) -> None:
         """Fast-path: append only newly received rows to the Treeview."""
         for row, _obj in new_rows:
             self._tree.insert("", "end", values=row)
@@ -512,7 +517,7 @@ class _JsonEventsPage(tk.Frame):
         )
         self._tree.see(self._tree.get_children()[-1] if self._tree_count else "")
 
-    def _apply_filter(self, *_args):
+    def _apply_filter(self, *_args: object) -> None:
         """Rebuild the Treeview to show only matching rows."""
         search = self._search_var.get().strip().lower()
         evt_filter = self._filter_var.get()
@@ -546,7 +551,7 @@ class _JsonEventsPage(tk.Frame):
 
     # -- Selection detail --
 
-    def _on_select(self, _event=None):
+    def _on_select(self, _event: tk.Event[tk.Misc] | None = None) -> None:
         sel = self._tree.selection()
         if not sel:
             return
@@ -570,7 +575,7 @@ class _JsonEventsPage(tk.Frame):
 
     # -- Export --
 
-    def _export_events(self):
+    def _export_events(self) -> None:
         """Save all loaded events to a user-chosen .jsonl file."""
         if not self._all_rows:
             messagebox.showinfo("No Events",
@@ -601,7 +606,7 @@ class _JsonEventsPage(tk.Frame):
         except OSError as e:
             messagebox.showerror("Export Failed", f"Could not write file:\n{e}")
 
-    def _open_file_external(self):
+    def _open_file_external(self) -> None:
         """Open the .jsonl file in the system file manager."""
         path = os.path.abspath(self._get_log_path())
         if not os.path.exists(path):
@@ -613,13 +618,13 @@ class _JsonEventsPage(tk.Frame):
         except OSError as e:
             messagebox.showerror("Error", f"Could not open file:\n{e}")
 
-    def destroy(self):
+    def destroy(self) -> None:
         if self._poll_job:
             self.after_cancel(self._poll_job)
             self._poll_job = None
         super().destroy()
 
-    def apply_to_config(self):
+    def apply_to_config(self) -> None:
         """Read-only page -- nothing to save."""
 
 
@@ -630,16 +635,18 @@ class _JsonEventsPage(tk.Frame):
 class _ServicePage(tk.Frame):
     """Generic service config page (HTTP, HTTPS, SMTP, FTP, etc.)."""
 
-    def __init__(self, parent, cfg: Config, section: str, fields: list, checks: list):
+    def __init__(
+        self, parent: tk.Misc, cfg: Config, section: str, fields: Spec, checks: Spec,
+    ) -> None:
         super().__init__(parent, bg=C_SURFACE)
         self.cfg = cfg
         self.section = section
         self.fields = fields
         self.checks = checks
-        self.vars: dict = {}
+        self.vars: dict[str, tk.Variable] = {}
         self._build()
 
-    def _build(self):
+    def _build(self) -> None:
         outer = tk.Frame(self, bg=C_SURFACE)
         outer.pack(fill="both", expand=True)
 
@@ -662,7 +669,7 @@ class _ServicePage(tk.Frame):
         for j, item in enumerate(self.checks):
             self._build_check(f, j, item)
 
-    def _build_field(self, f, row: int, item: tuple):
+    def _build_field(self, f: tk.Misc, row: int, item: tuple[Any, ...]) -> None:
         label, key, default = item[0], item[1], item[2]
         tip = item[3] if len(item) > 3 else ""
         choices = item[4] if len(item) > 4 else None
@@ -670,13 +677,13 @@ class _ServicePage(tk.Frame):
         v = tk.StringVar(value=str(val))
         self.vars[key] = v
         if choices:
-            _row(f, label, lambda v=v, c=choices: _combo(f, v, c), row,
+            _row(f, label, functools.partial(_combo, f, v, choices), row,
                  tip=tip, info_panel=self._info_panel, default=default, var=v)
         else:
-            _row(f, label, lambda v=v: _entry(f, v), row,
+            _row(f, label, functools.partial(_entry, f, v), row,
                  tip=tip, info_panel=self._info_panel, default=default, var=v)
 
-    def _build_check(self, f, j: int, item: tuple):
+    def _build_check(self, f: tk.Misc, j: int, item: tuple[Any, ...]) -> None:
         label, key, default = item[0], item[1], item[2]
         tip = item[3] if len(item) > 3 else ""
         val = self.cfg.get(self.section, key)
@@ -689,7 +696,7 @@ class _ServicePage(tk.Frame):
         if tip:
             tooltip(cb, tip)
 
-    def apply_to_config(self):
+    def apply_to_config(self) -> None:
         """Validate, then write all field values back to the Config object."""
         errors: list[str] = []
         for key, var in self.vars.items():
@@ -716,7 +723,7 @@ class _ServicePage(tk.Frame):
 class _DNSPage(_ServicePage):
     """DNS service config page with custom records popup editor."""
 
-    def __init__(self, parent, cfg: Config):
+    def __init__(self, parent: tk.Misc, cfg: Config) -> None:
         super().__init__(
             parent, cfg, "dns",
             fields=[
@@ -741,12 +748,12 @@ class _DNSPage(_ServicePage):
         self._custom_records_str: str = ""
         self._build_custom_records()
 
-    def _build_custom_records(self):
+    def _build_custom_records(self) -> None:
         records = self.cfg.get("dns", "custom_records") or {}
         self._custom_records_str = "\n".join(f"{k} = {v}" for k, v in records.items())
 
         btn_row = len(self.fields) + len(self.checks)
-        _btn_style = {"relief": "flat", "bd": 0, "padx": 10, "pady": 4,
+        _btn_style: dict[str, Any] = {"relief": "flat", "bd": 0, "padx": 10, "pady": 4,
                       "font": _f(9), "cursor": "hand2"}
         btn = tk.Button(
             self._form_frame,
@@ -759,7 +766,7 @@ class _DNSPage(_ServicePage):
         _hover_bind(btn, C_HOVER, C_SELECTED)
         tooltip(btn, "Edit per-hostname DNS overrides.\nFormat: hostname = IP  (one per line)")
 
-    def _open_records_popup(self):
+    def _open_records_popup(self) -> None:
         """Open the custom DNS records editor dialog."""
         dlg = tk.Toplevel()
         dlg.title("Custom DNS Records")
@@ -785,7 +792,7 @@ class _DNSPage(_ServicePage):
         bar = tk.Frame(dlg, bg=C_SURFACE)
         bar.pack(fill="x", padx=12, pady=(0, 12))
 
-        def _save():
+        def _save() -> None:
             self._custom_records_str = txt.get("1.0", "end").strip()
             dlg.destroy()
 
@@ -796,7 +803,7 @@ class _DNSPage(_ServicePage):
                   relief="flat", bd=0, padx=12, pady=4, font=_f(9, True),
                   cursor="hand2", command=_save).pack(side="right")
 
-    def apply_to_config(self):
+    def apply_to_config(self) -> None:
         """Validate then write DNS fields and custom records to the Config object."""
         super().apply_to_config()
         records = {}

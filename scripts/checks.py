@@ -45,7 +45,7 @@ PINNED_TOOLS = [
 # override in pyproject.toml and the mypy hook in .pre-commit-config.yaml.
 STRICT_MYPY_FILES = [
     "notthenet.py", "headless.py", "version.py", "config.py", "service_manager.py",
-    "services/", "utils/", "network/",
+    "services/", "utils/", "network/", "gui/",
 ]
 # All Python in the repo; must pass mypy (check_untyped_defs) with zero errors.
 MYPY_PATHS = [

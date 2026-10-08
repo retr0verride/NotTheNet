@@ -8,7 +8,7 @@ import os
 import tkinter as tk
 from tkinter import font as _tkfont
 from tkinter import scrolledtext, ttk
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from gui.dialogs import _DNSPage, _GeneralPage, _JsonEventsPage, _ServicePage
 from gui.preflight import _PreflightPage
@@ -65,7 +65,7 @@ class _GlobeCanvas(tk.Canvas):
 
     SIZE = 46
 
-    def __init__(self, parent):
+    def __init__(self, parent: tk.Misc) -> None:
         super().__init__(
             parent,
             width=self.SIZE, height=self.SIZE,
@@ -73,7 +73,7 @@ class _GlobeCanvas(tk.Canvas):
         )
         self._draw()
 
-    def _draw(self):
+    def _draw(self) -> None:
         cx, cy, r = 23, 23, 17
         pr = 21
         teal = "#00c8a0"
@@ -119,15 +119,15 @@ if TYPE_CHECKING:
 
         _zoom_factor: float
         _cfg: Config
-        _svc_vars: dict
-        _pages: dict
-        _log_queue: queue.Queue
+        _svc_vars: dict[str, tk.Label]
+        _pages: dict[str, tk.Frame]
+        _log_queue: queue.Queue[str]
         _log_line_count: int
         _manager: ServiceManager | None
         _start_time: float | None
         _timer_job: str | None
         _log_level_filter: set[str]
-        _log_filter_btns: dict
+        _log_filter_btns: dict[str, tk.Button]
         _log_widget: scrolledtext.ScrolledText
         _btn_start: tk.Button
         _btn_stop: tk.Button
@@ -161,7 +161,7 @@ class DashboardMixin(_DashboardHost):
 
     # -- Fonts / zoom -------------------------------------------------------
 
-    def _init_fonts(self):
+    def _init_fonts(self) -> None:
         """Create (or reconfigure) all named Font objects for the current zoom."""
         scale = self._zoom_factor
         for sz in (7, 8, 9, 10, 17):
@@ -177,7 +177,7 @@ class DashboardMixin(_DashboardHost):
                         weight="bold" if bold else "normal",
                     )
 
-    def _set_zoom(self, delta: float):
+    def _set_zoom(self, delta: float) -> None:
         """Step the UI font scale by *delta*, resize the window, and persist."""
         new = max(_ZOOM_MIN, min(_ZOOM_MAX, self._zoom_factor + delta))
         if new == self._zoom_factor:
@@ -210,7 +210,7 @@ class DashboardMixin(_DashboardHost):
 
     # -- Top-level build ----------------------------------------------------
 
-    def _build_ui(self):
+    def _build_ui(self) -> None:
         """Construct the full window layout (toolbar, body, log, statusbar)."""
         self._apply_ttk_styles()
         self._build_toolbar()
@@ -220,7 +220,7 @@ class DashboardMixin(_DashboardHost):
         self.bind_all("<Control-minus>",  lambda _e: self._set_zoom(-_ZOOM_STEP))
         self.bind_all("<Control-0>",      lambda _e: self._set_zoom(1.0 - self._zoom_factor))
 
-    def _apply_ttk_styles(self):
+    def _apply_ttk_styles(self) -> None:
         style = ttk.Style(self)
         style.theme_use("clam")
         style.configure("Sash",  sashthickness=5, background=C_BORDER)
@@ -247,7 +247,7 @@ class DashboardMixin(_DashboardHost):
 
     # -- Toolbar ------------------------------------------------------------
 
-    def _build_toolbar(self):
+    def _build_toolbar(self) -> None:
         bar = tk.Frame(self, bg=C_BG)
         bar.pack(fill="x")
 
@@ -272,7 +272,7 @@ class DashboardMixin(_DashboardHost):
 
         tk.Frame(inner, bg=C_BORDER, width=1).pack(side="left", fill="y", padx=8)
 
-        btn_style = {"relief": "flat", "bd": 0, "padx": 14, "pady": 5,
+        btn_style: dict[str, Any] = {"relief": "flat", "bd": 0, "padx": 14, "pady": 5,
                      "font": _f(9, True), "cursor": "hand2"}
 
         self._btn_start = tk.Button(
@@ -298,7 +298,7 @@ class DashboardMixin(_DashboardHost):
 
         tk.Frame(inner, bg=C_BORDER, width=1).pack(side="left", fill="y", padx=6)
 
-        sec_btn = {"relief": "flat", "bd": 0, "padx": 10, "pady": 5,
+        sec_btn: dict[str, Any] = {"relief": "flat", "bd": 0, "padx": 10, "pady": 5,
                    "font": _f(9), "cursor": "hand2"}
         self._btn_save = tk.Button(
             inner, text="\U0001f4be  Save", bg=C_HOVER, fg=C_TEXT,
@@ -380,7 +380,7 @@ class DashboardMixin(_DashboardHost):
 
     # -- Main pane (vertical split: body | log) -----------------------------
 
-    def _build_main_pane(self):
+    def _build_main_pane(self) -> None:
         """Vertical split: top = body (sidebar + config), bottom = log panel."""
         self._main_pane = tk.PanedWindow(
             self, orient="vertical", bg=C_BG,
@@ -399,7 +399,7 @@ class DashboardMixin(_DashboardHost):
 
     # -- Body (horizontal split: sidebar | config pages) --------------------
 
-    def _build_body(self, parent):
+    def _build_body(self, parent: tk.Misc) -> None:
         self._body_pane = tk.PanedWindow(parent, orient="horizontal", bg=C_BG,
                               sashwidth=5, sashpad=0, sashrelief="flat")
         self._body_pane.pack(fill="both", expand=True)
@@ -430,7 +430,7 @@ class DashboardMixin(_DashboardHost):
             lambda e: self._sb_canvas.itemconfig(_sb_win, width=e.width),
         )
 
-        def _sb_scroll(event):
+        def _sb_scroll(event: tk.Event[tk.Misc]) -> None:
             if event.num == 4 or getattr(event, "delta", 0) > 0:
                 self._sb_canvas.yview_scroll(-1, "units")
             elif event.num == 5 or getattr(event, "delta", 0) < 0:
@@ -442,7 +442,7 @@ class DashboardMixin(_DashboardHost):
             _w.bind(_EVT_BUTTON4,   _sb_scroll)
             _w.bind(_EVT_BUTTON5,   _sb_scroll)
 
-        self._service_btns: dict = {}
+        self._service_btns: dict[str, tuple[tk.Frame, tk.Label]] = {}
 
         # Sidebar sections and items
         self._add_sidebar_section(sb_inner, "CONFIG")
@@ -572,7 +572,7 @@ class DashboardMixin(_DashboardHost):
         self._build_pages()
         self._show_page("general")
 
-    def _add_sidebar_section(self, parent, title: str):
+    def _add_sidebar_section(self, parent: tk.Misc, title: str) -> None:
         """Small muted category header in the sidebar."""
         f = tk.Frame(parent, bg=C_PANEL, pady=0)
         f.pack(fill="x", pady=(6, 0))
@@ -585,8 +585,8 @@ class DashboardMixin(_DashboardHost):
                 _w.bind(_EVT_BUTTON4,   self._sb_scroll)
                 _w.bind(_EVT_BUTTON5,   self._sb_scroll)
 
-    def _add_sidebar_btn(self, parent, key: str, label: str, tip: str = "",
-                         show_dot: bool = True):
+    def _add_sidebar_btn(self, parent: tk.Misc, key: str, label: str, tip: str = "",
+                         show_dot: bool = True) -> None:
         """Add one sidebar service button with an optional status dot."""
         row = tk.Frame(parent, bg=C_PANEL, cursor="hand2")
         row.pack(fill="x", pady=1)
@@ -624,7 +624,7 @@ class DashboardMixin(_DashboardHost):
 
     # -- Config pages -------------------------------------------------------
 
-    def _build_pages(self):
+    def _build_pages(self) -> None:
         """Create the special pages, then one generic page per SERVICE_PAGES entry."""
         self._pages["general"] = _GeneralPage(self._page_container, self._cfg)
         self._pages["preflight"] = _PreflightPage(
@@ -632,13 +632,14 @@ class DashboardMixin(_DashboardHost):
             manager_ref=lambda: self._manager,
         )
         self._pages["dns"] = _DNSPage(self._page_container, self._cfg)
-        self._pages["json_events"] = _JsonEventsPage(self._page_container, self._cfg)
+        self._json_events_page = _JsonEventsPage(self._page_container, self._cfg)
+        self._pages["json_events"] = self._json_events_page
         for section, fields, checks in SERVICE_PAGES:
             self._pages[section] = _ServicePage(
                 self._page_container, self._cfg, section, fields, checks
             )
 
-    def _show_page(self, key: str):
+    def _show_page(self, key: str) -> None:
         """Display a config page and highlight the active sidebar button."""
         for page in self._pages.values():
             page.pack_forget()
@@ -661,7 +662,7 @@ class DashboardMixin(_DashboardHost):
 
     # -- Log panel ----------------------------------------------------------
 
-    def _build_log_panel(self, parent):
+    def _build_log_panel(self, parent: tk.Misc) -> None:
         """Build the live log panel at the bottom of the window."""
         hdr = tk.Frame(parent, bg=C_BG, pady=4)
         hdr.pack(fill="x")
@@ -672,7 +673,7 @@ class DashboardMixin(_DashboardHost):
 
         filter_frame = tk.Frame(hdr, bg=C_BG)
         filter_frame.pack(side="left", padx=12)
-        self._log_filter_btns: dict = {}
+        self._log_filter_btns: dict[str, tk.Button] = {}
         _pill_tips = {
             "DEBUG":   "Toggle DEBUG messages on/off.\nAny combination of levels can be active simultaneously.",
             "INFO":    "Toggle INFO messages on/off.\nAny combination of levels can be active simultaneously.",
@@ -697,7 +698,7 @@ class DashboardMixin(_DashboardHost):
             hdr, text="\U0001f4be Export...",
             bg=C_BG, fg=C_DIM, relief="flat",
             font=_f(8), cursor="hand2",
-            command=lambda: self._pages["json_events"]._export_events(),
+            command=lambda: self._json_events_page._export_events(),
         )
         export_log_btn.pack(side="right", padx=(0, 2))
         _hover_bind(export_log_btn, C_BG, C_HOVER)
@@ -739,7 +740,7 @@ class DashboardMixin(_DashboardHost):
 
     # -- Status bar ---------------------------------------------------------
 
-    def _build_statusbar(self):
+    def _build_statusbar(self) -> None:
         """Build the thin status bar at the window bottom."""
         tk.Frame(self, bg=C_BORDER, height=1).pack(fill="x", side="bottom")
         bar = tk.Frame(self, bg=C_BG, height=24)

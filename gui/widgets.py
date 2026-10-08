@@ -9,7 +9,10 @@ import queue
 import subprocess
 import sys
 import tkinter as tk
+from collections.abc import Callable
+from tkinter import font as tkfont
 from tkinter import ttk
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -107,10 +110,13 @@ _APP_ICON_B64 = (
 )
 
 # Populated by NotTheNetApp._init_fonts(); keyed by (base_size, bold: bool)
-_F: dict = {}
+_F: dict[tuple[int, bool], tkfont.Font] = {}
+
+# What Tk accepts for font=: a named Font, or a (family, size[, style]) tuple.
+FontSpec = tkfont.Font | tuple[str, int] | tuple[str, int, str]
 
 
-def _f(size: int, bold: bool = False):
+def _f(size: int, bold: bool = False) -> FontSpec:
     """Return the named Font for *size* / *bold*, or a fallback tuple."""
     key = (size, bold)
     if key in _F:
@@ -123,7 +129,7 @@ def _f(size: int, bold: bool = False):
 # ---------------------------------------------------------------------------
 
 
-def _hover_bind(widget, normal_bg: str, hover_bg: str):
+def _hover_bind(widget: tk.Button | tk.Frame | tk.Label, normal_bg: str, hover_bg: str) -> None:
     """Simulate button hover by swapping background colour on Enter/Leave."""
     widget.bind("<Enter>", lambda _e: widget.configure(bg=hover_bg))
     widget.bind("<Leave>", lambda _e: widget.configure(bg=normal_bg))
@@ -140,7 +146,7 @@ class _Tooltip:
     _DELAY_MS = 500
     _WRAP = 280
 
-    def __init__(self, widget: tk.Widget, text: str):
+    def __init__(self, widget: tk.Widget, text: str) -> None:
         self._widget = widget
         self._text = text
         self._tw: tk.Toplevel | None = None
@@ -150,20 +156,20 @@ class _Tooltip:
         widget.bind("<Button>", self._on_leave, add="+")
         widget.bind("<Destroy>", self._on_leave, add="+")
 
-    def _on_enter(self, _event=None):
+    def _on_enter(self, _event: tk.Event[tk.Misc] | None = None) -> None:
         self._cancel()
         self._job = self._widget.after(self._DELAY_MS, self._show)
 
-    def _on_leave(self, _event=None):
+    def _on_leave(self, _event: tk.Event[tk.Misc] | None = None) -> None:
         self._cancel()
         self._hide()
 
-    def _cancel(self):
+    def _cancel(self) -> None:
         if self._job:
             self._widget.after_cancel(self._job)
             self._job = None
 
-    def _show(self):
+    def _show(self) -> None:
         if self._tw:
             return
         x = self._widget.winfo_rootx() + 16
@@ -197,7 +203,7 @@ class _Tooltip:
             justify="left",
         ).pack()
 
-    def _hide(self):
+    def _hide(self) -> None:
         if self._tw:
             self._tw.destroy()
             self._tw = None
@@ -219,7 +225,7 @@ class _InfoPanel(tk.Frame):
 
     _IDLE = "Click inside a field to see help."
 
-    def __init__(self, parent):
+    def __init__(self, parent: tk.Misc) -> None:
         super().__init__(
             parent,
             bg="#0d0d1c",
@@ -257,7 +263,7 @@ class _InfoPanel(tk.Frame):
             text="",
         )
         self._default_lbl.pack(fill="x", pady=(2, 0))
-        self._restore_fn = None
+        self._restore_fn: Callable[[], None] | None = None
         self._restore_btn = tk.Button(
             self,
             text="\u21ba",
@@ -276,14 +282,17 @@ class _InfoPanel(tk.Frame):
         tooltip(self._restore_btn, "Restore suggested default")
         self.bind(_EVT_CONFIGURE, self._on_resize)
 
-    def _on_resize(self, event):
+    def _on_resize(self, event: tk.Event[tk.Misc]) -> None:
         self._desc.configure(wraplength=max(100, event.width - 24))
 
-    def _do_restore(self):
+    def _do_restore(self) -> None:
         if self._restore_fn:
             self._restore_fn()
 
-    def show(self, title: str, tip: str, default: str = "", restore_fn=None):
+    def show(
+        self, title: str, tip: str, default: str = "",
+        restore_fn: Callable[[], None] | None = None,
+    ) -> None:
         """Display field help in the panel."""
         self._title.configure(text=title)
         self._desc.configure(text=tip or "")
@@ -291,7 +300,7 @@ class _InfoPanel(tk.Frame):
         self._restore_fn = restore_fn
         self._restore_btn.configure(state="normal" if restore_fn else "disabled")
 
-    def clear(self):
+    def clear(self) -> None:
         """Reset the panel to its idle state."""
         self._title.configure(text="")
         self._desc.configure(text=self._IDLE)
@@ -308,11 +317,11 @@ class _InfoPanel(tk.Frame):
 class _QueueHandler(logging.Handler):
     """Non-blocking log handler that feeds formatted records into a queue."""
 
-    def __init__(self, log_queue: queue.Queue):
+    def __init__(self, log_queue: queue.Queue[str]) -> None:
         super().__init__()
         self.log_queue = log_queue
 
-    def emit(self, record: logging.LogRecord):
+    def emit(self, record: logging.LogRecord) -> None:
         try:
             try:
                 self.log_queue.put_nowait(self.format(record))
@@ -329,12 +338,12 @@ class _QueueHandler(logging.Handler):
 # ---------------------------------------------------------------------------
 
 
-def _label(parent, text, **kw):
+def _label(parent: tk.Misc, text: str, **kw: Any) -> tk.Label:
     bg = kw.pop("bg", C_SURFACE)
     return tk.Label(parent, text=text, bg=bg, fg=C_TEXT, font=_f(9), **kw)
 
 
-def _entry(parent, textvariable, width=FIELD_WIDTH):
+def _entry(parent: tk.Misc, textvariable: tk.StringVar, width: int = FIELD_WIDTH) -> tk.Entry:
     return tk.Entry(
         parent,
         textvariable=textvariable,
@@ -351,7 +360,9 @@ def _entry(parent, textvariable, width=FIELD_WIDTH):
     )
 
 
-def _combo(parent, textvariable, choices: list, width=FIELD_WIDTH):
+def _combo(
+    parent: tk.Misc, textvariable: tk.StringVar, choices: list[str], width: int = FIELD_WIDTH,
+) -> ttk.Combobox:
     """Dark-styled read-only Combobox for fixed-choice fields."""
     return ttk.Combobox(
         parent,
@@ -364,7 +375,7 @@ def _combo(parent, textvariable, choices: list, width=FIELD_WIDTH):
     )
 
 
-def _check(parent, text, variable):
+def _check(parent: tk.Misc, text: str, variable: tk.Variable) -> tk.Checkbutton:
     return tk.Checkbutton(
         parent,
         text=text,
@@ -378,7 +389,7 @@ def _check(parent, text, variable):
     )
 
 
-def _section_frame(parent, title: str):
+def _section_frame(parent: tk.Misc, title: str) -> tk.LabelFrame:
     """Labelled frame for a config group."""
     return tk.LabelFrame(
         parent,
@@ -396,16 +407,16 @@ def _section_frame(parent, title: str):
 
 
 def _row(
-    parent,
+    parent: tk.Misc,
     label: str,
-    widget_factory,
+    widget_factory: Callable[[], tk.Widget],
     row: int,
     col_offset: int = 0,
     tip: str = "",
-    info_panel=None,
+    info_panel: _InfoPanel | None = None,
     default: str = "",
-    var=None,
-):
+    var: tk.Variable | None = None,
+) -> tk.Widget:
     """Lay out a label + widget pair; update info_panel on click/focus."""
     lbl = tk.Label(parent, text=label, bg=C_SURFACE, fg=C_SUBTLE, font=_f(9), anchor="e")
     lbl.grid(row=row, column=col_offset, sticky="e", padx=(0, 6), pady=4)
@@ -413,9 +424,11 @@ def _row(
     w.grid(row=row, column=col_offset + 1, sticky="w", pady=4)
     if info_panel and tip:
 
-        def _show(_e=None, _t=label, _d=tip, _def=default, _v=var):
-            restore_fn = (lambda: _v.set(_def)) if _v is not None and _def != "" else None
-            info_panel.show(_t, _d, str(_def), restore_fn=restore_fn)
+        panel = info_panel
+
+        def _show(_event: tk.Event[tk.Misc] | None = None) -> None:
+            restore_fn = (lambda: var.set(default)) if var is not None and default != "" else None
+            panel.show(label, tip, str(default), restore_fn=restore_fn)
 
         w.bind("<FocusIn>", _show)
         w.bind(_EVT_BUTTON1, _show)
