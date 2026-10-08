@@ -105,7 +105,7 @@ Then run the gate: `bash predeploy.sh`.
 
 `scripts/checks.py` is the single source of truth for checks, locally and in CI: gitleaks, ruff, mypy, bandit, vulture, pip-audit, OpenAPI validation, shellcheck, placeholder audit, pytest with coverage, and version consistency. `--only ruff,pytest` runs named steps; `--help` lists them.
 
-mypy is strict for the modules in `STRICT_MYPY_FILES` (mirrored in `pyproject.toml` and `.pre-commit-config.yaml`). Add a module there once it is fully annotated.
+All application code must pass mypy with `check_untyped_defs` (zero errors). The modules in `STRICT_MYPY_FILES` must also meet strict rules, set per module in `pyproject.toml`. Add a module to both once it is fully annotated.
 
 ## Releasing
 

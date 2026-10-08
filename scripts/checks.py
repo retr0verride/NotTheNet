@@ -43,6 +43,11 @@ PINNED_TOOLS = [
 # Fully annotated modules held to mypy --strict. Keep in sync with the strict
 # override in pyproject.toml and the mypy hook in .pre-commit-config.yaml.
 STRICT_MYPY_FILES = ["notthenet.py", "headless.py", "version.py", "utils/health_server.py"]
+# Everything that ships; must pass mypy (check_untyped_defs) with zero errors.
+MYPY_APP_PATHS = [
+    "notthenet.py", "headless.py", "version.py", "config.py", "service_manager.py",
+    "services/", "network/", "utils/", "gui/",
+]
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PY = sys.executable
@@ -125,13 +130,15 @@ def step_ruff() -> None:
     passed("ruff")
 
 
-def step_mypy_legacy() -> None:
-    subprocess.call([PY, "-m", "mypy", "notthenet.py", "services/", "network/", "utils/"])
-    info("(informational — legacy code lacks strict annotations)")
+def step_mypy() -> None:
+    run([PY, "-m", "mypy", *MYPY_APP_PATHS])
+    passed("mypy")
 
 
 def step_mypy_strict() -> None:
-    run([PY, "-m", "mypy", *STRICT_MYPY_FILES, "--strict", "--ignore-missing-imports"])
+    # Strictness comes from the per-module override in pyproject.toml; a CLI
+    # --strict would also apply to every module these files import.
+    run([PY, "-m", "mypy", *STRICT_MYPY_FILES])
     passed("mypy strict")
 
 
@@ -302,7 +309,7 @@ def step_stale_certs() -> None:
 STEPS: list[tuple[str, str, Callable[[], None]]] = [
     ("secrets", "Secret scan (gitleaks)", step_secrets),
     ("ruff", "Lint (ruff)", step_ruff),
-    ("mypy-legacy", "Type check — legacy (mypy, informational)", step_mypy_legacy),
+    ("mypy", "Type check (mypy, all application code)", step_mypy),
     ("mypy-strict", "Type check — strict modules (mypy --strict)", step_mypy_strict),
     ("bandit", "Security scan (bandit — fail on HIGH severity)", step_bandit),
     ("vulture", "Dead code detection (vulture)", step_vulture),

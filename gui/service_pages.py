@@ -8,7 +8,12 @@ gui.dialogs._ServicePage in this order:
 To expose a new config option in the GUI, add a row here.
 """
 
+from typing import Any
+
 from gui.widgets import _MAIL_HOST_DEFAULT
+
+# Rows are heterogeneous tuples (see the module docstring); _ServicePage unpacks them.
+Spec = list[tuple[Any, ...]]
 
 _PORT_ROOT = "Requires root (or iptables redirect from standard port)."
 _ENABLED = "Enable or disable this service entirely."
@@ -25,7 +30,7 @@ _SIMPLE_TCP_SERVICES = [
     ("ldap",  "389",  "Fake LDAP server"),
 ]
 
-SERVICE_PAGES = (
+SERVICE_PAGES: tuple[tuple[str, Spec, Spec], ...] = (
     (
         "http",
         [

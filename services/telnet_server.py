@@ -164,7 +164,7 @@ class _TelnetSession(threading.Thread):
         return buf
     # ── Session main ─────────────────────────────────────────────────────────
 
-    def _do_login(self, safe_addr: str) -> tuple[str, str | None]:
+    def _do_login(self, safe_addr: str) -> tuple[str, str] | None:
         """Run login: / Password: sequence. Returns (username, password) or None."""
         self._send(b"\r\nlogin: ")
         raw_user = self._recv_line()

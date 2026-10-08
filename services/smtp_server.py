@@ -10,6 +10,8 @@ Security notes (OpenSSF):
 - Banner string is config-supplied but sanitized before sending
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import socket
@@ -17,6 +19,7 @@ import socketserver
 import ssl
 import threading
 import uuid
+from collections.abc import Callable
 
 from services.mail_common import (
     _DEFAULT_CERT,
@@ -46,8 +49,10 @@ class _SMTPClientThread(threading.Thread):
         conn_timeout: float = 30.0,
         max_email_size_bytes: int = MAX_EMAIL_SIZE_BYTES,
         max_disk_usage_bytes: int = MAX_DISK_USAGE_BYTES,
+        on_exit: Callable[[], None] | None = None,
     ):
         super().__init__(daemon=True)
+        self._on_exit = on_exit  # runs after the socket closes, even on error
         self.conn = conn
         self.addr = addr
         self.hostname = hostname
@@ -73,6 +78,13 @@ class _SMTPClientThread(threading.Thread):
             logger.debug("SMTP control send failed", exc_info=True)
 
     def run(self) -> None:
+        try:
+            self._session()
+        finally:
+            if self._on_exit is not None:
+                self._on_exit()
+
+    def _session(self) -> None:
         safe_addr = sanitize_ip(self.addr[0])
         logger.info("SMTP connection from %s", safe_addr)
         jl = get_json_logger()
@@ -227,7 +239,7 @@ class _SMTPClientThread(threading.Thread):
             self._send("454 TLS not available due to temporary reason")
 
     # Dispatch table: verb → handler (O(1) dict lookup).
-    _SMTP_DISPATCH: dict[str, object] = {
+    _SMTP_DISPATCH: dict[str, Callable[[_SMTPClientThread, str, str], None]] = {
         "EHLO":     _smtp_ehlo,
         "HELO":     _smtp_ehlo,
         "AUTH":     _smtp_auth,
@@ -288,7 +300,9 @@ class _SMTPServer(socketserver.ThreadingTCPServer):
         self.smtp_max_connections = int(
             _MAX_CONNECTIONS if max_connections is None else max_connections
         )
-        super().__init__(address, None)
+        # process_request() is overridden and spawns _SMTPClientThread itself, so
+        # no handler class is ever instantiated; None makes accidental use fail loudly.
+        super().__init__(address, None)  # type: ignore[arg-type]
 
     def server_bind(self):
         self._sem = threading.BoundedSemaphore(self.smtp_max_connections)
@@ -308,32 +322,15 @@ class _SMTPServer(socketserver.ThreadingTCPServer):
             except OSError:
                 logger.debug("SMTP request close failed at connection-cap limit", exc_info=True)
             return
-        sem = self._sem
-        t = _SMTPClientThread(
+        _SMTPClientThread(
             request, client_address,
             self.smtp_hostname, self.smtp_banner, self.smtp_save_dir,
             cert_path=self.smtp_cert_path, key_path=self.smtp_key_path,
             conn_timeout=self.smtp_conn_timeout,
             max_email_size_bytes=self.smtp_max_email_size_bytes,
             max_disk_usage_bytes=self.smtp_max_disk_usage_bytes,
-        )
-        # Wrap run() so the semaphore is released and the socket is closed
-        # when the session ends — the server lifecycle never touches it.
-        _orig_run = t.run
-
-        def _guarded_run():
-            try:
-                _orig_run()
-            finally:
-                sem.release()
-                try:
-                    request.close()
-                except OSError:
-                    logger.debug("SMTP request close failed after session", exc_info=True)
-
-        t.run = _guarded_run
-        t.daemon = True
-        t.start()
+            on_exit=self._sem.release,  # the session thread owns the socket and the slot
+        ).start()
 
 
 class _SMTPSServer(_SMTPServer):

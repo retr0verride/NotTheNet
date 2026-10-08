@@ -53,8 +53,15 @@ if TYPE_CHECKING:
         _svc_vars: dict
         _log_queue: queue.Queue
         _log_line_count: int
+
+        # Provided by DashboardMixin (gui/views.py).
+        def _build_pages(self) -> None: ...
+        def _show_page(self, key: str) -> None: ...
 else:
     _ControlHost = object
+
+
+_RELEASES_PAGE = "https://github.com/retr0verride/NotTheNet/releases"
 
 
 class ServiceControlMixin(_ControlHost):
@@ -195,10 +202,11 @@ class ServiceControlMixin(_ControlHost):
             log_level=self._cfg.get("general", "log_level") or "INFO",
             log_to_file=bool(self._cfg.get("general", "log_to_file")),
         )
-        self._manager = ServiceManager(self._cfg)
+        manager = ServiceManager(self._cfg)
+        self._manager = manager
 
         def _start_thread():
-            ok = self._manager.start()
+            ok = manager.start()
             self.after(0, self._update_ui_after_start, ok)
 
         threading.Thread(target=_start_thread, daemon=True).start()
@@ -242,14 +250,15 @@ class ServiceControlMixin(_ControlHost):
         self._start_time = None
 
     def _on_stop(self):
-        if not self._manager:
+        manager = self._manager
+        if manager is None:
             return
         self._btn_start.configure(state="disabled")
         self._btn_stop.configure(state="disabled")
         self._status_label.configure(text="\u25cf  Stopping...", fg=C_ORANGE)
 
         def _stop_thread():
-            self._manager.stop()
+            manager.stop()
             self.after(0, self._update_ui_after_stop)
 
         threading.Thread(target=_stop_thread, daemon=True).start()
@@ -312,10 +321,7 @@ class ServiceControlMixin(_ControlHost):
             with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
                 data = json.loads(resp.read())
             tag = data.get("tag_name", "").lstrip("v")
-            url = data.get(
-                "html_url",
-                "https://github.com/retr0verride/NotTheNet/releases",
-            )
+            url = data.get("html_url", _RELEASES_PAGE)
             self.after(0, self._show_update_result, tag, url, None)
         except Exception as exc:  # noqa: BLE001
             logger.debug("Update check failed", exc_info=True)
@@ -355,16 +361,19 @@ class ServiceControlMixin(_ControlHost):
                 f"You are running: v{APP_VERSION}\n\n"
                 f"Open the releases page?",
             ):
-                webbrowser.open(url)
+                # Only ever open the project's own releases pages, whatever the API returned.
+                safe = url if url and url.startswith(_RELEASES_PAGE) else _RELEASES_PAGE
+                webbrowser.open(safe)
 
     def _on_close(self):
-        if self._manager and self._manager.running:
+        manager = self._manager
+        if manager is not None and manager.running:
             if messagebox.askyesno(
                 "Confirm Exit",
                 "NotTheNet is still running.\nStop all services and exit?",
             ):
                 def _stop_and_destroy():
-                    self._manager.stop()
+                    manager.stop()
                     self.after(0, self.destroy)
                 threading.Thread(target=_stop_and_destroy, daemon=True).start()
         else:

@@ -114,39 +114,34 @@ max-complexity = 12
 
 [tool.mypy]
 python_version = "3.10"
+platform = "linux"           # NotTheNet only runs on Linux; check it as Linux everywhere
 strict = false
+check_untyped_defs = true    # type-check function bodies even without annotations
 ignore_missing_imports = true
 warn_return_any = false
-warn_unused_ignores = false
+warn_unused_ignores = true
 
 # ── Strict modules ──────────────────────────────────────────────────────────────
-# Fully annotated modules must pass --strict (list mirrors STRICT_MYPY_FILES in
-# scripts/checks.py). Older service/GUI code is exempt until it is annotated.
+# Every application module passes mypy with check_untyped_defs. Fully annotated
+# modules must also pass --strict (list mirrors STRICT_MYPY_FILES in scripts/checks.py).
 
 [[tool.mypy.overrides]]
 module = ["notthenet", "headless", "version", "utils.health_server"]
-strict = true
-ignore_errors = false  # override the utils.* exemption below
+# The --strict flag set, spelled out: `strict = true` in an override is applied
+# globally by mypy, so it cannot be scoped to these modules.
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_calls = true
+disallow_untyped_decorators = true
+disallow_any_generics = true
+disallow_subclassing_any = true
+no_implicit_reexport = true
+strict_equality = true
 warn_return_any = true
-warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
-module = ["utils.privilege", "network.iptables_manager"]
-# Linux-only modules (os.geteuid, os.setuid, grp, pwd) — false positives on Windows
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-# Not yet annotated: exempt from strict checking.
-module = [
-    "config",
-    "service_manager",
-    "services.*",
-    "network.*",
-    "utils.*",
-    "gui.*",
-    "tools.*",
-    "tests.*",
-]
+# Not yet type-clean; tracked separately.
+module = ["tools.*", "tests.*"]
 ignore_errors = true
 
 # ── Security scanning (Bandit) ────────────────────────────────────────────────

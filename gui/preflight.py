@@ -223,12 +223,12 @@ class _PreflightPage(tk.Frame):
         redirect = (self.cfg.get("general", "redirect_ip") or "").strip()
         if redirect and redirect not in ("auto", "0.0.0.0", "127.0.0.1"):
             ok, norm = validate_ip(redirect)
-            if ok:
+            if ok and norm:
                 return norm
         bind = (self.cfg.get("general", "bind_ip") or "").strip()
         if bind and bind not in ("0.0.0.0", "::"):
             ok, norm = validate_ip(bind)
-            if ok:
+            if ok and norm:
                 return norm
         logger.warning(
             "cert server: no concrete lab IP configured (bind_ip/redirect_ip); "
@@ -317,11 +317,12 @@ class _PreflightPage(tk.Frame):
         f = _section_frame(self._inner, "Local Checks (Kali)")
         f.pack(fill="x", padx=PAD + 4, pady=(0, PAD + 4))
         self._local_frame = f
-        self._local_placeholder = tk.Label(
+        placeholder = tk.Label(
             f, text="Click 'Run Local Checks' or 'Run All Checks' to start.",
             bg=C_SURFACE, fg=C_DIM, font=_f(9),
         )
-        self._local_placeholder.pack(anchor="w", pady=4)
+        placeholder.pack(anchor="w", pady=4)
+        self._local_placeholder: tk.Label | None = placeholder
 
     def _populate_local_results(self, results):
         """Display local check results."""

@@ -128,7 +128,7 @@ class IPTablesManager:
         # Final boundary check: redirect_ip is interpolated into iptables
         # --to-destination, so revalidate it regardless of how it was derived.
         ok, norm = validate_ip(self.redirect_ip)
-        if ok:
+        if ok and norm is not None:
             self.redirect_ip = norm
         else:
             logger.warning(
@@ -315,7 +315,7 @@ class IPTablesManager:
             logger.info("Auto-iptables disabled in config; skipping.")
             return False
 
-        if os.geteuid() != 0:  # type: ignore[attr-defined]
+        if os.geteuid() != 0:
             logger.warning(
                 "Not running as root; iptables rules cannot be applied. "
                 "Run with sudo or set auto_iptables=false and configure routing manually."
@@ -745,7 +745,7 @@ class IPTablesManager:
             self._iface_watcher = None
 
         escalated = False
-        if os.geteuid() != 0:  # type: ignore[attr-defined]
+        if os.geteuid() != 0:
             from utils.privilege import restore_privileges
             escalated = restore_privileges()
             if not escalated:

@@ -162,7 +162,7 @@ class _Socks5Session(threading.Thread):
             return socket.inet_ntop(socket.AF_INET6, raw) if raw else None
         return None
 
-    def _read_connect(self) -> tuple[str, int | None]:
+    def _read_connect(self) -> tuple[str, int] | None:
         """
         Read a SOCKS5 CONNECT request (RFC 1928 §4).
         Returns (destination_host, destination_port) or None on error.

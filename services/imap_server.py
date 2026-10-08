@@ -3,12 +3,15 @@ NotTheNet - Fake IMAP / IMAPS server.
 Accepts any login and reports an empty mailbox.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import socket
 import socketserver
 import ssl
 import threading
+from collections.abc import Callable
 
 from services.mail_common import (
     _DEFAULT_CERT,
@@ -66,7 +69,7 @@ class IMAPHandler(socketserver.BaseRequestHandler):
                 if self._dispatch_line(line, safe_addr) is False:
                     return
 
-    def _dispatch_line(self, line: bytes, safe_addr: str) -> "bool | None":
+    def _dispatch_line(self, line: bytes, safe_addr: str) -> bool | None:
         text = line.decode("utf-8", errors="replace").strip()
         parts = text.split(None, 2)
         if len(parts) < 2:
@@ -150,7 +153,7 @@ class IMAPHandler(socketserver.BaseRequestHandler):
     def _imap_noop(self, _sa: str):
         self._send(f"{self._tag} OK NOOP completed")
 
-    _IMAP_DISPATCH: dict[str, object] = {
+    _IMAP_DISPATCH: dict[str, Callable[[IMAPHandler, str], bool | None]] = {
         "STARTTLS":   _imap_starttls,
         "LOGIN":      _imap_login,
         "CAPABILITY": _imap_capability,
@@ -180,8 +183,8 @@ class IMAPService:
         self.key_file  = config.get("key_file",  _DEFAULT_KEY)
         self.conn_timeout = float(config.get("conn_timeout_sec", 30))
         self.max_connections = int(config.get("max_connections", _MAX_CONNECTIONS))
-        self._server = None
-        self._thread = None
+        self._server: _ReuseServer | None = None
+        self._thread: threading.Thread | None = None
 
     def start(self) -> bool:
         if not self.enabled:
@@ -233,8 +236,8 @@ class IMAPSService:
         self.key_file = config.get("key_file", _DEFAULT_KEY)
         self.conn_timeout = float(config.get("conn_timeout_sec", 30))
         self.max_connections = int(config.get("max_connections", _MAX_CONNECTIONS))
-        self._server = None
-        self._thread = None
+        self._server: _ReuseServer | None = None
+        self._thread: threading.Thread | None = None
 
     def _build_ssl_context(self) -> ssl.SSLContext:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)

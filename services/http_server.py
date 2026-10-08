@@ -24,7 +24,7 @@ import socketserver
 import ssl
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor  # type: ignore[attr-defined]
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
@@ -250,7 +250,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
             message = self.responses[code][0] if code in self.responses else ""
         if self.request_version != "HTTP/0.9":
             if not hasattr(self, "_headers_buffer"):
-                self._headers_buffer = []  # type: ignore[misc]
+                self._headers_buffer = []
             self._headers_buffer.append(
                 f"{self.protocol_version} {code} {message}\r\n"
                 .encode("latin-1", "strict")
@@ -258,7 +258,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         self.log_request(code)
         self.send_header("Date", self.date_time_string())
 
-    def log_message(self, _format, *_args):  # type: ignore[override]
+    def log_message(self, _format, *_args):
         pass  # suppress default stderr logging
 
     def _send_ip_check_response(self, host: str):
@@ -698,16 +698,16 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         try:
             # Read the request line ourselves so we can inspect it before
             # parse_request() sees it — needed for HTTP/2 preface detection.
-            self.raw_requestline = self.rfile.readline(65537)  # type: ignore[misc]
+            self.raw_requestline = self.rfile.readline(65537)
             if not self.raw_requestline:
-                self.close_connection = True  # type: ignore[misc]
+                self.close_connection = True
                 return
             if len(self.raw_requestline) > 65536:
-                self.requestline = ""  # type: ignore[misc]
-                self.request_version = ""  # type: ignore[misc]
-                self.command = ""  # type: ignore[misc]
+                self.requestline = ""
+                self.request_version = ""
+                self.command = ""
                 self.send_error(414)
-                self.close_connection = True  # type: ignore[misc]
+                self.close_connection = True
                 return
             # HTTP/2 connection preface (RFC 7540 §3.5): respond with
             # SETTINGS + GOAWAY(HTTP_1_1_REQUIRED) and close.
@@ -715,7 +715,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
                 safe_addr = sanitize_ip(self.client_address[0])
                 logger.debug("HTTP2 preface from %s -> GOAWAY(HTTP_1_1_REQUIRED)", safe_addr)
                 self._handle_http2_goaway()
-                self.close_connection = True  # type: ignore[misc]
+                self.close_connection = True
                 return
             if not self.parse_request():
                 return
@@ -736,7 +736,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.flush()
         except Exception as e:  # noqa: BLE001
             logger.debug("HTTP handler error (benign): %s", e)
-            self.close_connection = True  # type: ignore[misc]
+            self.close_connection = True
 
 
 # Populate route registry after class body so method refs are valid.
@@ -946,7 +946,7 @@ class HTTPSService:
             ssl_ctx = self._build_ssl_context()
             if self.dynamic_certs:
                 from utils.cert_utils import DynamicCertCache
-                self._cert_cache = DynamicCertCache(  # type: ignore[misc]
+                self._cert_cache = DynamicCertCache(
                     self.cert_file, self.key_file
                 )
                 ssl_ctx.sni_callback = self._cert_cache.sni_callback

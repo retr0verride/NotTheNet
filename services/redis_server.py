@@ -114,7 +114,7 @@ class _RedisSession(threading.Thread):
                 return None
             parts.append(elem)
         return parts
-    def _read_command(self) -> list[str | None]:
+    def _read_command(self) -> list[str] | None:
         """
         Parse one RESP command.  Returns a list of strings (the command and
         its arguments) or None on connection close / parse error.
@@ -199,7 +199,7 @@ class _RedisSession(threading.Thread):
         """Handle one Redis command. Returns False to close the connection."""
         handler = self._CMD_DISPATCH.get(cmd)
         if handler:
-            return handler(self, args)  # type: ignore[operator]
+            return handler(self, args)
         if cmd in self._OK_CMDS:
             self._ok()
         elif cmd in self._NIL_CMDS:

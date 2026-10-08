@@ -15,7 +15,7 @@ Fixes # (issue)
 ## Checklist
 
 ### Code quality
-- [ ] `python scripts/checks.py` passes (ruff, strict mypy, bandit, pip-audit, tests, version)
+- [ ] `python scripts/checks.py` passes (ruff, mypy, bandit, pip-audit, tests, version)
 - [ ] New fully annotated modules are added to `STRICT_MYPY_FILES` in `scripts/checks.py`
 - [ ] `bandit` reports no new HIGH/MEDIUM findings
 - [ ] New logic is covered by unit tests

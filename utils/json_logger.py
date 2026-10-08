@@ -32,7 +32,7 @@ import os
 import threading
 import time
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, TextIO
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +104,7 @@ class JsonEventLogger:
         self._path = output_path
         self._max_bytes = max_bytes
         self._lock = threading.Lock()
-        self._file = None
+        self._file: TextIO | None = None
         self._bytes_written = 0
         self._cap_warned = False
         self._last_flush: float = 0.0

@@ -520,7 +520,7 @@ class DynamicCertCache:
 
     def sni_callback(
         self,
-        ssl_socket: ssl.SSLSocket,
+        ssl_socket: ssl.SSLSocket | ssl.SSLObject,
         server_name: str | None,
         _ssl_context: ssl.SSLContext,
     ) -> int | None:

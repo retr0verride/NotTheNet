@@ -62,7 +62,7 @@ pip install ruff mypy bandit pytest
 bash predeploy.sh
 ```
 
-The wrapper invokes `scripts/checks.py`, the same script CI runs. It runs: secret scan, ruff, mypy (informational + strict on the modules in `STRICT_MYPY_FILES`), bandit, pip-audit, OpenAPI validation, shellcheck, placeholder audit, pytest with coverage gate, version consistency, CHANGELOG check, Python floor check, and stale `_dyn_*` cert sweep. Use `--skip-tests` for a fast pass or `--only ruff,pytest` for a subset (`--help` lists step names).
+The wrapper invokes `scripts/checks.py`, the same script CI runs. It runs: secret scan, ruff, mypy (enforced on all application code, strict on the modules in `STRICT_MYPY_FILES`), bandit, pip-audit, OpenAPI validation, shellcheck, placeholder audit, pytest with coverage gate, version consistency, CHANGELOG check, Python floor check, and stale `_dyn_*` cert sweep. Use `--skip-tests` for a fast pass or `--only ruff,pytest` for a subset (`--help` lists step names).
 
 All steps must pass before submitting a PR.
 

@@ -199,7 +199,7 @@ class ServiceManager:
                 # the iptables lock after we give up waiting.
                 import signal
                 try:
-                    os.killpg(proc.pid, signal.SIGTERM)  # type: ignore[attr-defined]
+                    os.killpg(proc.pid, signal.SIGTERM)
                 except OSError:
                     proc.kill()
                 proc.wait(timeout=5)
@@ -430,6 +430,7 @@ class ServiceManager:
             iface = self.config.get("general", "interface") or ""
             if not iface:
                 iface = IPTablesManager._detect_default_interface() or ""
+            derived: str | None
             if bind_ip and bind_ip not in ("0.0.0.0", "127.0.0.1"):
                 derived = bind_ip
             else:
@@ -524,9 +525,9 @@ class ServiceManager:
         if os.path.isdir(certs_dir):
             try:
                 for dirpath, _dirnames, filenames in os.walk(certs_dir):
-                    os.chown(dirpath, uid, gid)  # type: ignore[attr-defined]
+                    os.chown(dirpath, uid, gid)
                     for fname in filenames:
-                        os.chown(os.path.join(dirpath, fname), uid, gid)  # type: ignore[attr-defined]
+                        os.chown(os.path.join(dirpath, fname), uid, gid)
             except OSError as exc:
                 logger.warning("Could not chown certs/: %s", exc)
 
@@ -544,9 +545,9 @@ class ServiceManager:
                 continue
             try:
                 for dirpath, _dirnames, filenames in os.walk(d):
-                    os.chown(dirpath, uid, gid)  # type: ignore[attr-defined]
+                    os.chown(dirpath, uid, gid)
                     for fname in filenames:
-                        os.chown(os.path.join(dirpath, fname), uid, gid)  # type: ignore[attr-defined]
+                        os.chown(os.path.join(dirpath, fname), uid, gid)
             except OSError as exc:
                 logger.warning("Could not chown %s: %s", d, exc)
 

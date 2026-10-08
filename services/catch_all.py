@@ -324,8 +324,8 @@ class CatchAllTCPService:
         self.max_per_ip = int(config.get("max_per_ip", MAX_PER_IP))
         self.session_timeout = float(config.get("session_timeout_sec", SESSION_TIMEOUT))
         self.peek_timeout = float(config.get("peek_timeout_sec", PEEK_TIMEOUT))
-        self._server  = None
-        self._thread  = None
+        self._server: _ReuseServer | None = None
+        self._thread: threading.Thread | None = None
 
     def start(self) -> bool:
         if not self.enabled:
@@ -387,7 +387,7 @@ class CatchAllUDPService:
         self.bind_ip = bind_ip
         self._sock: socket.socket | None = None
         self._stop_event = threading.Event()
-        self._thread = None
+        self._thread: threading.Thread | None = None
 
     def start(self) -> bool:
         if not self.enabled:

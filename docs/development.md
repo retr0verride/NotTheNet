@@ -45,7 +45,7 @@ VS Code will detect the `.venv` automatically. If prompted, select it as the Pyt
 bash predeploy.sh
 ```
 
-Thin wrapper around `scripts/checks.py` (the same script CI runs). Executes ruff, mypy (strict on the modules in `STRICT_MYPY_FILES`, informational elsewhere), bandit, pip-audit, OpenAPI validation, shellcheck, placeholder audit, pytest with coverage, version/changelog/python-floor/cert-freshness checks. **All checks must pass before pushing.** Use `--skip-tests` for a fast lint-only pass, or `--only ruff,pytest` to run named steps (`--help` lists them).
+Thin wrapper around `scripts/checks.py` (the same script CI runs). Executes ruff, mypy (enforced on all application code, strict on the modules in `STRICT_MYPY_FILES`), bandit, pip-audit, OpenAPI validation, shellcheck, placeholder audit, pytest with coverage, version/changelog/python-floor/cert-freshness checks. **All checks must pass before pushing.** Use `--skip-tests` for a fast lint-only pass, or `--only ruff,pytest` to run named steps (`--help` lists them).
 
 ---
 
@@ -124,4 +124,4 @@ See [architecture.md](architecture.md) for the code map, startup sequence, and h
 
 - The GUI uses **Tkinter** only — no extra GUI dependencies beyond the Python standard library.
 - Services require **root** to bind to ports below 1024 (like 53, 80, 443). Run with `sudo` when testing services end-to-end; the GUI itself can be developed as a normal user with services disabled.
-- `network/iptables_manager.py` and `utils/privilege.py` are Linux-only. On Windows, mypy skips those modules (see `pyproject.toml`). They're fully exercised on Kali at deploy time.
+- mypy checks the code as Linux on every OS (`platform = "linux"` in `pyproject.toml`), so Linux-only calls like `os.geteuid` type-check on a Windows dev box too.

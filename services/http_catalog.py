@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import threading
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse
 
@@ -324,7 +325,7 @@ def _fmt_checkip_aws(ip: str, _path: str) -> _IpCheckResult:
     return body, _CT_HTML, None
 
 
-_IP_CHECK_FORMATTERS: dict[str, object] = {
+_IP_CHECK_FORMATTERS: dict[str, Callable[[str, str], _IpCheckResult]] = {
     "ipinfo.io": _fmt_ipinfo,
     "ip-api.com": _fmt_ip_api,
     "httpbin.org": _fmt_httpbin,

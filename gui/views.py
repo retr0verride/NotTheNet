@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import math
 import os
 import tkinter as tk
@@ -132,6 +133,16 @@ if TYPE_CHECKING:
         _btn_stop: tk.Button
         _btn_check_updates: tk.Button
         _status_label: tk.Label
+
+        # Provided by ServiceControlMixin (gui/logic.py).
+        def _on_start(self) -> None: ...
+        def _on_stop(self) -> None: ...
+        def _on_save(self) -> None: ...
+        def _on_load(self) -> None: ...
+        def _on_check_updates(self) -> None: ...
+        def _toggle_log_filter(self, level: str) -> None: ...
+        def _open_log_folder(self) -> None: ...
+        def _clear_log_widget(self) -> None: ...
 else:
     _DashboardHost = object
 
@@ -357,7 +368,7 @@ class DashboardMixin(_DashboardHost):
                 "Opens the releases page if an update is available.")
 
         # Root warning (POSIX only)
-        if os.name != "nt" and os.geteuid() != 0:  # type: ignore[attr-defined]
+        if os.name != "nt" and os.geteuid() != 0:
             warn = tk.Label(
                 inner,
                 text="\u26a0  Not root \u2014 ports <1024 may fail",
@@ -675,7 +686,7 @@ class DashboardMixin(_DashboardHost):
                 bg=C_HOVER, fg=colour,
                 relief="flat", bd=0, padx=6, pady=2,
                 font=_f(7, True), cursor="hand2",
-                command=lambda lvl_=lvl: self._toggle_log_filter(lvl_),
+                command=functools.partial(self._toggle_log_filter, lvl),
             )
             b.pack(side="left", padx=2)
             _hover_bind(b, C_HOVER, C_SELECTED)

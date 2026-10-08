@@ -190,8 +190,10 @@ def _bool_check(value: object, ok_msg: str, warn_msg: str) -> CheckResult:
 
 def _check_response_delay(delay: object) -> CheckResult:
     """Return a check result for the http.response_delay_ms config value."""
+    if not isinstance(delay, (int, float, str)) and delay is not None:
+        return CheckResult(WARN, f"response_delay_ms: invalid value {delay!r}")
     try:
-        d = int(delay or 0)  # type: ignore[arg-type]
+        d = int(delay or 0)
         if 50 <= d <= 500:
             return CheckResult(OK, f"response_delay_ms: {d} (realistic)")
         if d == 0:

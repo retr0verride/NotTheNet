@@ -10,6 +10,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from typing import TYPE_CHECKING
 
+from gui.service_pages import Spec
 from gui.widgets import (
     _JSON_LOG_PATH,
     _STY_JSONLOG_TV,
@@ -73,7 +74,7 @@ class _GeneralPage(tk.Frame):
         f = _section_frame(self._left_frame, "General Settings")
         f.pack(fill="x", padx=PAD + 4, pady=PAD + 4)
 
-        fields = [
+        fields: Spec = [
             ("Bind IP",       "bind_ip",      "0.0.0.0",
              "IP address that all services bind to.\n"
              "Use 0.0.0.0 to listen on every interface,\n"
@@ -121,7 +122,7 @@ class _GeneralPage(tk.Frame):
                 _row(f, label, lambda v=v: _entry(f, v), row_idx,
                      tip=tip, info_panel=self._info_panel, default=default, var=v)
 
-        check_fields = [
+        check_fields: Spec = [
             ("Enable auto-iptables rules", "auto_iptables", True,
              "Add NAT REDIRECT rules via iptables when services start,\n"
              "and remove them cleanly on stop. Requires root."),
@@ -165,9 +166,9 @@ class _GeneralPage(tk.Frame):
             val = self.cfg.get("general", key)
             if val is None:
                 val = default
-            v = tk.BooleanVar(value=bool(val))
-            self.vars[key] = v
-            cb = _check(f, label, v)
+            bv = tk.BooleanVar(value=bool(val))
+            self.vars[key] = bv
+            cb = _check(f, label, bv)
             cb.grid(row=len(fields) + i, column=0, columnspan=2, sticky="w", pady=4)
             if tip:
                 tooltip(cb, tip)
@@ -239,7 +240,7 @@ class _JsonEventsPage(tk.Frame):
         self._file_pos = 0
         self._last_path: str = ""
         self._all_rows: list = []
-        self._poll_job = None
+        self._poll_job: str | None = None
         self._search_var = tk.StringVar()
         self._filter_var = tk.StringVar(value="ALL")
         self._event_types: set = set()

@@ -206,7 +206,7 @@ def validate_config(config_data: dict) -> list:  # noqa: C901 — one function v
             errors.append(f"ftp.pasv_port_low is invalid: {pasv_low!r}")
         if not ok_high:
             errors.append(f"ftp.pasv_port_high is invalid: {pasv_high!r}")
-        if ok_low and ok_high and low >= high:
+        if low is not None and high is not None and low >= high:
             errors.append(
                 f"ftp.pasv_port_low ({low}) must be less than pasv_port_high ({high})"
             )

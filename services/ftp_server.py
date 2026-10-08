@@ -114,7 +114,7 @@ class _FTPSession(threading.Thread):
         self.pasv_port_low = pasv_port_low
         self.pasv_port_high = pasv_port_high
         self._data_conn = None
-        self._pasv_server = None
+        self._pasv_server: socket.socket | None = None
 
     def _send(self, msg: str):
         try:
@@ -344,8 +344,8 @@ class FTPService:
         self.pasv_port_low = int(config.get("pasv_port_low", PASV_PORT_LOW))
         self.pasv_port_high = int(config.get("pasv_port_high", PASV_PORT_HIGH))
         self._upload_lock = threading.Lock()
-        self._server = None
-        self._thread = None
+        self._server: _ReuseServer | None = None
+        self._thread: threading.Thread | None = None
 
     def start(self) -> bool:
         if not self.enabled:
