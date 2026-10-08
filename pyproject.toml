@@ -67,6 +67,7 @@ select = [
     "RET",  # flake8-return
     "SIM",  # flake8-simplify
     "BLE",  # flake8-blind-except
+    "TRY",  # tryceratops
 ]
 ignore = [
     "S101",  # assert statements (OK in tests)
@@ -74,6 +75,11 @@ ignore = [
     "S607",  # partial path for subprocess — we use full paths where possible
     "S104",  # binding to 0.0.0.0 — intentional (fake internet by design)
     "S110",  # try/except/pass — intentional in I/O handlers and log queue
+    # TRY policy:
+    "TRY003",  # operator-facing ValueError messages are the point; no class per message
+    "TRY300",  # `return <constant>` at the end of a try cannot raise; else: adds nothing
+    "TRY400",  # expected operational failures (bind, write) log the cause, not a traceback;
+               # unexpected ones at untrusted-input boundaries already log exc_info
 ]
 
 [tool.ruff.lint.mccabe]

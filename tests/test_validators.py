@@ -323,6 +323,10 @@ class TestValidateConfig:
         errors = validate_config(cfg)
         assert not any("smtp." in e for e in errors)
 
+    def test_positive_field_nan_invalid(self):
+        errors = validate_config({"smtp": {"conn_timeout_sec": float("nan")}})
+        assert any("smtp.conn_timeout_sec" in e for e in errors)
+
     def test_smb_session_timeout_zero_invalid(self):
         cfg = {"smb": {"session_timeout_sec": 0}}
         errors = validate_config(cfg)

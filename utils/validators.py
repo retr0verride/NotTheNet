@@ -86,9 +86,10 @@ def _check_positive_number(section_name: str, section: dict, key: str, errors: l
     if val is None:
         return
     try:
-        if float(val) <= 0:
-            raise ValueError
+        positive = float(val) > 0  # NaN compares False, so it is rejected too
     except (TypeError, ValueError):
+        positive = False
+    if not positive:
         errors.append(f"{section_name}.{key} must be a positive number, got {val!r}")
 
 
@@ -166,9 +167,9 @@ def validate_config(config_data: dict) -> list:  # noqa: C901 — one function v
         delay = section.get("response_delay_ms", 0)
         try:
             d = int(delay)
-            if not (0 <= d <= 30_000):
-                raise ValueError
         except (TypeError, ValueError):
+            d = -1
+        if not 0 <= d <= 30_000:
             errors.append(f"{service}.response_delay_ms must be an integer 0–30000, got {delay!r}")
 
     for service in _PORT_SERVICES:
