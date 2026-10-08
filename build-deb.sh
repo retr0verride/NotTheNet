@@ -41,44 +41,18 @@ install -dm755 "$STAGING/usr/share/doc/${PKG}"
 install -dm755 "$STAGING/usr/share/icons/hicolor/scalable/apps"
 
 # ── Copy project files ────────────────────────────────────────────────────────
+# One exclude list, applied by tar so excluded paths are never opened. That
+# matters because a sudo run leaves root-only files (certs/*.key, state/) in a
+# dev checkout. "./x" excludes a top-level path; a bare name matches anywhere.
 info "Copying project files to /opt/notthenet..."
-if command -v rsync &>/dev/null; then
-    rsync -a \
-        --exclude='.git' \
-        --exclude='__pycache__' \
-        --exclude='*.pyc' \
-        --exclude='.venv' \
-        --exclude='venv' \
-        --exclude='*.egg-info' \
-        --exclude='.vscode' \
-        --exclude='build-deb.sh' \
-        --exclude='ship.sh' \
-        --exclude='*.deb' \
-        --exclude='tests/' \
-        --exclude='certs/' \
-        --exclude='logs/' \
-        --exclude='state/' \
-        "${SCRIPT_DIR}/" "$STAGING/opt/notthenet/"
-else
-    warn "rsync not found — falling back to cp (installing rsync is recommended: sudo apt-get install rsync)"
-    cp -a "${SCRIPT_DIR}/." "$STAGING/opt/notthenet/"
-    # Remove excluded paths manually
-    rm -rf \
-        "$STAGING/opt/notthenet/.git" \
-        "$STAGING/opt/notthenet/__pycache__" \
-        "$STAGING/opt/notthenet/.venv" \
-        "$STAGING/opt/notthenet/venv" \
-        "$STAGING/opt/notthenet/.vscode" \
-        "$STAGING/opt/notthenet/build-deb.sh" \
-        "$STAGING/opt/notthenet/ship.sh" \
-        "$STAGING/opt/notthenet/tests" \
-        "$STAGING/opt/notthenet/certs" \
-        "$STAGING/opt/notthenet/logs" \
-        "$STAGING/opt/notthenet/state"
-    find "$STAGING/opt/notthenet" -name '*.pyc' -delete
-    find "$STAGING/opt/notthenet" -name '*.egg-info' -exec rm -rf {} + 2>/dev/null || true
-    find "$STAGING/opt/notthenet" -name '*.deb' -delete
-fi
+EXCLUDES=(
+    ./.git ./.venv ./venv ./.vscode ./.github ./dist ./tests
+    ./certs ./logs ./state ./.env ./build-deb.sh ./ship.sh
+    __pycache__ '*.pyc' '*.egg-info' '*.deb'
+    .mypy_cache .ruff_cache .pytest_cache ./.coverage ./coverage.xml ./htmlcov
+)
+tar -C "$SCRIPT_DIR" "${EXCLUDES[@]/#/--exclude=}" -cf - . \
+    | tar -C "$STAGING/opt/notthenet" -xf -
 
 # ── Vendored dependency wheels (offline install) ─────────────────────────────
 # postinst installs only from these (--no-index), so the .deb works on an
