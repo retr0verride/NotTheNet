@@ -63,6 +63,8 @@ select = [
     "UP",   # pyupgrade
     "C90",  # mccabe complexity
     "N",    # pep8-naming
+    "DTZ",  # flake8-datetimez: no naive datetimes
+    "RET",  # flake8-return
 ]
 ignore = [
     "S101",  # assert statements (OK in tests)

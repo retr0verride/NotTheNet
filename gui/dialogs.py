@@ -439,7 +439,7 @@ class _JsonEventsPage(tk.Frame):
             return
         if self._auto_export_path is None:
             from datetime import datetime as _dt
-            ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+            ts = _dt.now().astimezone().strftime("%Y%m%d_%H%M%S")
             log_dir = os.path.dirname(
                 os.path.abspath(self._get_log_path())
             )
@@ -576,7 +576,7 @@ class _JsonEventsPage(tk.Frame):
                                 "No events loaded yet -- start a capture session first.")
             return
         from datetime import datetime as _dt
-        ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+        ts = _dt.now().astimezone().strftime("%Y%m%d_%H%M%S")
         log_dir = os.path.dirname(os.path.abspath(self._get_log_path()))
         dest = filedialog.asksaveasfilename(
             title="Export Events Log",

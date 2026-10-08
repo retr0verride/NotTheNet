@@ -285,9 +285,8 @@ class IPTablesManager:
             if err.strip():
                 logger.debug("iptables rule applied with warning: %s", err.strip())
             return True
-        else:
-            logger.warning("iptables rule failed (%s): %s", err.strip(), ' '.join(cmd))
-            return False
+        logger.warning("iptables rule failed (%s): %s", err.strip(), ' '.join(cmd))
+        return False
 
     def _del_rule(self, rule: list[str]):
         """Remove a previously-added iptables rule."""

@@ -96,7 +96,7 @@ class POP3Handler(socketserver.BaseRequestHandler):
         capa = "+OK\r\nUSER\r\nUIDL\r\nSTLS\r\n." if self._tls_ready else "+OK\r\nUSER\r\nUIDL\r\n."
         self._send(capa)
 
-    def _pop3_stls(self, safe_addr: str):
+    def _pop3_stls(self, safe_addr: str) -> bool | None:
         if self._tls_ready:
             self._send("+OK Begin TLS negotiation")
             try:
@@ -119,6 +119,7 @@ class POP3Handler(socketserver.BaseRequestHandler):
                 return False
         else:
             self._send("-ERR TLS not available")
+        return None
 
     _POP3_DISPATCH: dict[str, object] = {
         "USER": _pop3_user,

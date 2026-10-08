@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import threading
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from config import Config
 from network.iptables_manager import IPTablesManager
@@ -47,6 +47,16 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_CERT = "certs/server.crt"
 _DEFAULT_KEY = "certs/server.key"
+
+
+def local_date(timestamp: float | None = None) -> date:
+    """Operator-local calendar date, now or of a POSIX timestamp.
+
+    Session log names follow the analyst's wall clock, not UTC.
+    """
+    if timestamp is None:
+        return datetime.now().astimezone().date()
+    return datetime.fromtimestamp(timestamp).astimezone().date()
 
 
 @dataclass(frozen=True)
@@ -127,8 +137,7 @@ class ServiceManager:
 
     def validate(self) -> list:
         """Validate configuration; return list of error strings."""
-        errors = validate_config(self.config.as_dict())
-        return errors
+        return validate_config(self.config.as_dict())
 
     def _evict_conflicting_services(self) -> None:
         """Stop system services that would prevent NotTheNet from binding its ports.
@@ -229,11 +238,11 @@ class ServiceManager:
     @staticmethod
     def _purge_old_logs(log_dir: str, max_age_days: int = 14) -> None:
         """Delete JSONL session logs older than *max_age_days*."""
-        cutoff = date.today() - timedelta(days=max_age_days)
+        cutoff = local_date() - timedelta(days=max_age_days)
         for path in glob.glob(os.path.join(log_dir, "events_*_s*.jsonl")):
             try:
                 mtime = os.path.getmtime(path)
-                if date.fromtimestamp(mtime) < cutoff:
+                if local_date(mtime) < cutoff:
                     os.remove(path)
                     logger.info("Purged old log: %s", path)
             except OSError as e:
@@ -246,7 +255,7 @@ class ServiceManager:
         Scans *log_dir* for existing session files dated today and picks the
         next available session number.
         """
-        today = date.today().isoformat()  # e.g. "2026-04-01"
+        today = local_date().isoformat()  # e.g. "2026-04-01"
         pattern = os.path.join(log_dir, f"events_{today}_s*.jsonl")
         existing = glob.glob(pattern)
 

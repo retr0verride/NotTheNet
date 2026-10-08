@@ -6,7 +6,6 @@ config validation, port-conflict detection, log purge, and session paths.
 import json
 import os
 import time
-from datetime import date
 from unittest.mock import patch
 
 import pytest
@@ -16,6 +15,7 @@ from service_manager import (
     _CONFLICTING_SYSTEM_SERVICES,
     _SERVICE_REGISTRY,
     ServiceManager,
+    local_date,
 )
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -78,10 +78,10 @@ class TestSessionLogPath:
         log_dir = str(tmp_path)
         path = ServiceManager._session_log_path(log_dir)
         assert path.endswith("_s1.jsonl")
-        assert date.today().isoformat() in path
+        assert local_date().isoformat() in path
 
     def test_increments_existing_sessions(self, tmp_path):
-        today = date.today().isoformat()
+        today = local_date().isoformat()
         for n in (1, 2, 3):
             (tmp_path / f"events_{today}_s{n}.jsonl").touch()
         path = ServiceManager._session_log_path(str(tmp_path))
@@ -106,7 +106,7 @@ class TestPurgeOldLogs:
         assert not old.exists()
 
     def test_keeps_recent_files(self, tmp_path):
-        recent = tmp_path / f"events_{date.today().isoformat()}_s1.jsonl"
+        recent = tmp_path / f"events_{local_date().isoformat()}_s1.jsonl"
         recent.touch()
         ServiceManager._purge_old_logs(str(tmp_path), max_age_days=14)
         assert recent.exists()

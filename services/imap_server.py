@@ -80,7 +80,7 @@ class IMAPHandler(socketserver.BaseRequestHandler):
         self._send(f"{self._tag} NO Command not implemented")
         return None
 
-    def _imap_starttls(self, safe_addr: str):
+    def _imap_starttls(self, safe_addr: str) -> bool | None:
         if self._tls_ready:
             self._send(f"{self._tag} OK Begin TLS negotiation")
             try:
@@ -103,6 +103,7 @@ class IMAPHandler(socketserver.BaseRequestHandler):
                 return False
         else:
             self._send(f"{self._tag} NO TLS not available")
+        return None
 
     def _imap_login(self, _sa: str):
         self._send(f"{self._tag} OK LOGIN completed")
