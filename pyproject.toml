@@ -126,7 +126,7 @@ warn_unused_ignores = true
 # modules must also pass --strict (list mirrors STRICT_MYPY_FILES in scripts/checks.py).
 
 [[tool.mypy.overrides]]
-module = ["notthenet", "headless", "version", "utils.health_server"]
+module = ["notthenet", "headless", "version", "config", "utils.*", "network.*"]
 # The --strict flag set, spelled out: `strict = true` in an override is applied
 # globally by mypy, so it cannot be scoped to these modules.
 disallow_untyped_defs = true

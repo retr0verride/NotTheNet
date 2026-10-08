@@ -9,6 +9,7 @@ the network, config files, or environment variables without checking.
 import ipaddress
 import os
 import re
+from typing import Any
 
 # RFC 1123 hostname pattern
 _HOSTNAME_RE = re.compile(
@@ -30,14 +31,16 @@ def validate_ip(ip: str) -> tuple[bool, str | None]:
         return False, f"Invalid IP address: {ip!r}"
 
 
-def validate_port(port) -> tuple[bool, int | None]:
+def validate_port(port: int | str | float | None) -> tuple[bool, int | None]:
     """Return (True, int_port) or (False, None)."""
+    if port is None:
+        return False, None
     try:
         p = int(port)
         if 1 <= p <= MAX_PORT:
             return True, p
         return False, None
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # OverflowError: int(float("inf"))
         return False, None
 
 
@@ -80,7 +83,9 @@ def validate_http_method(method: str) -> bool:
     }
 
 
-def _check_positive_number(section_name: str, section: dict, key: str, errors: list) -> None:
+def _check_positive_number(
+    section_name: str, section: dict[str, Any], key: str, errors: list[str],
+) -> None:
     """Append an error if section[key] is present but not a positive number."""
     val = section.get(key)
     if val is None:
@@ -93,7 +98,9 @@ def _check_positive_number(section_name: str, section: dict, key: str, errors: l
         errors.append(f"{section_name}.{key} must be a positive number, got {val!r}")
 
 
-def _check_no_traversal(section_name: str, section: dict, key: str, errors: list) -> None:
+def _check_no_traversal(
+    section_name: str, section: dict[str, Any], key: str, errors: list[str],
+) -> None:
     """Append an error if section[key] contains a path-traversal (..) component."""
     path = section.get(key)
     if not path:
@@ -136,7 +143,7 @@ _PATH_FIELDS: dict[str, list[str]] = {
 }
 
 
-def validate_config(config_data: dict) -> list:  # noqa: C901 — one function validates the full config schema
+def validate_config(config_data: dict[str, Any]) -> list[str]:  # noqa: C901 — one function validates the full config schema
     """
     Validate a full configuration dict.
     Returns a list of error strings (empty list = valid).

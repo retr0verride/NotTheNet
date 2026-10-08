@@ -85,6 +85,11 @@ class TestValidatePort:
         ok, val = validate_port(None)
         assert not ok
 
+    def test_infinite_float_rejected_not_crash(self):
+        ok, val = validate_port(float("inf"))
+        assert not ok
+        assert val is None
+
 
 # ── validate_hostname ────────────────────────
 

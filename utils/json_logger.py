@@ -110,14 +110,13 @@ class JsonEventLogger:
         self._last_flush: float = 0.0
         self._open()
 
-    def __enter__(self):
+    def __enter__(self) -> JsonEventLogger:
         return self
 
-    def __exit__(self, *exc):
-        self.close()
-        return False
+    def __exit__(self, *exc: object) -> None:
+        self.close()  # returning None lets any exception propagate
 
-    def _open(self):
+    def _open(self) -> None:
         try:
             os.makedirs(os.path.dirname(os.path.abspath(self._path)), exist_ok=True)
             # Held open for the logger's lifetime; close() releases it.
@@ -195,7 +194,7 @@ class JsonEventLogger:
                 except OSError as e:
                     logger.error("JSON event flush error: %s", e)
 
-    def close(self):
+    def close(self) -> None:
         """Flush and close the event log file."""
         with self._lock:
             if self._file:

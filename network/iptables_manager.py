@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Any
 
 from network.host_state import (
     _PROC_NET_DEV,
@@ -64,7 +65,7 @@ class IPTablesManager:
         (for use as a network gateway/transparent proxy).
     """
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict[str, Any]):
         self.enabled = config.get("auto_iptables", True)
         self.mode = config.get("iptables_mode", "loopback")
         self.promisc_mode: bool = bool(config.get("promisc_mode", False))
@@ -151,7 +152,7 @@ class IPTablesManager:
         # before service rules in PREROUTING/OUTPUT).  Enables victim-to-victim
         # spread in a lab where bridge-nf-call-iptables=1 routes intra-bridge
         # packets through iptables.
-        raw_subnets: list = config.get("passthrough_subnets", []) or []
+        raw_subnets: list[Any] = config.get("passthrough_subnets", []) or []
         self.passthrough_subnets: list[str] = [
             s for s in raw_subnets if isinstance(s, str) and self._valid_cidr(s)
         ]
@@ -288,7 +289,7 @@ class IPTablesManager:
         logger.warning("iptables rule failed (%s): %s", err.strip(), ' '.join(cmd))
         return False
 
-    def _del_rule(self, rule: list[str]):
+    def _del_rule(self, rule: list[str]) -> None:
         """Remove a previously-added iptables rule."""
         # Replace -A (append) with -D (delete) to construct removal command
         del_rule = ["-D" if a == "-A" else a for a in rule]
@@ -297,7 +298,7 @@ class IPTablesManager:
 
     def apply_rules(
         self,
-        service_ports: dict,
+        service_ports: dict[str, list[int]],
         catch_all_tcp_port: int = 9999,
         catch_all_udp_port: int = 0,
         excluded_ports: list[int] | None = None,
@@ -430,7 +431,7 @@ class IPTablesManager:
 
     def _apply_service_redirects(
         self,
-        service_ports: dict,
+        service_ports: dict[str, list[int]],
         chain: str,
         table_flag: list[str],
     ) -> int:
@@ -738,7 +739,7 @@ class IPTablesManager:
             else:
                 logger.warning("Failed to remove ICMP DROP rule: %s", err.strip())
 
-    def remove_rules(self):
+    def remove_rules(self) -> None:
         """Stop: restore the nat table to its pre-start state."""
         if self._iface_watcher is not None:
             self._iface_watcher.stop()
