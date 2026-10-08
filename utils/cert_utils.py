@@ -19,6 +19,7 @@ Security notes (OpenSSF):
 
 from __future__ import annotations
 
+import contextlib
 import ipaddress
 import logging
 import os
@@ -383,10 +384,8 @@ def forge_domain_cert(
         wildcard = "*." + ".".join(parts[1:])
         san_list.append(x509.DNSName(wildcard))
     # If hostname looks like an IP, add IPAddress SAN
-    try:
+    with contextlib.suppress(ValueError):
         san_list.append(x509.IPAddress(ipaddress.ip_address(hostname)))
-    except ValueError:
-        pass
 
     now = datetime.now(timezone.utc)
     cert = (
@@ -506,20 +505,16 @@ class DynamicCertCache:
         with open(key_file, "wb") as f:
             f.write(key_pem)
 
-        try:
+        with contextlib.suppress(OSError):
             os.chmod(key_file, stat.S_IRUSR | stat.S_IWUSR)
-        except OSError:
-            pass
 
         ctx.load_cert_chain(certfile=cert_file, keyfile=key_file)
         # SSLContext holds key material in memory once loaded — temp files are
         # no longer needed and would accumulate one file-pair per unique SNI.
         # Deleting them also avoids leaking domain names visited by malware.
         for _f in (cert_file, key_file):
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(_f)
-            except OSError:
-                pass
         logger.info("TLS  Forged certificate for: %s", hostname)
         return ctx
 

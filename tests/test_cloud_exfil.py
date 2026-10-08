@@ -104,7 +104,8 @@ class TestSaveExfilBody:
             path = _save_exfil_body("10.0.0.1", "s3", b"payload", d)
             assert path is not None
             assert os.path.exists(path)
-            assert open(path, "rb").read() == b"payload"
+            with open(path, "rb") as fh:
+                assert fh.read() == b"payload"
 
     def test_returns_none_on_empty_body(self):
         with tempfile.TemporaryDirectory() as d:

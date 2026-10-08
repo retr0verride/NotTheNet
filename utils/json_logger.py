@@ -120,7 +120,8 @@ class JsonEventLogger:
     def _open(self):
         try:
             os.makedirs(os.path.dirname(os.path.abspath(self._path)), exist_ok=True)
-            self._file = open(self._path, "a", encoding="utf-8")
+            # Held open for the logger's lifetime; close() releases it.
+            self._file = open(self._path, "a", encoding="utf-8")  # noqa: SIM115
             # Track existing file size
             try:
                 self._bytes_written = os.path.getsize(self._path)

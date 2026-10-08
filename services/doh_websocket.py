@@ -43,9 +43,7 @@ def is_doh_request(content_type: str | None, path: str | None) -> bool:
     if content_type and DOH_CONTENT_TYPE in content_type.lower():
         return True
     # GET-based DoH: /dns-query?dns=<base64url>
-    if path and "/dns-query" in path.lower():
-        return True
-    return False
+    return bool(path and "/dns-query" in path.lower())
 
 
 def handle_doh_get(path: str, redirect_ip: str) -> bytes | None:

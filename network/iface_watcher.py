@@ -7,6 +7,7 @@ address after startup (e.g. a DHCP lease on a second NIC).
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import select
@@ -73,10 +74,8 @@ class _NetlinkInterfaceWatcher:
         """Signal the watcher thread to exit and wait for it."""
         self._stop.set()
         if self._sock is not None:
-            try:
+            with contextlib.suppress(OSError):
                 self._sock.close()
-            except OSError:
-                pass
         if self._thread is not None:
             self._thread.join(timeout=2.0)
             self._thread = None

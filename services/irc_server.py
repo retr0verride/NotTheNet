@@ -17,6 +17,7 @@ Security notes (OpenSSF):
 - No data is forwarded to any external host; all traffic is intercepted
 """
 
+import contextlib
 import logging
 import os
 import socket
@@ -65,17 +66,13 @@ class _IRCClientThread(threading.Thread):
 
     def _send(self, line: str):
         """Send a server-originated message (prefixed with :hostname)."""
-        try:
+        with contextlib.suppress(OSError):
             self.conn.sendall(f":{self.hostname} {line}\r\n".encode())
-        except OSError:
-            pass
 
     def _send_raw(self, line: str):
         """Send a raw (already-prefixed) line."""
-        try:
+        with contextlib.suppress(OSError):
             self.conn.sendall(f"{line}\r\n".encode())
-        except OSError:
-            pass
 
     # ── Registration burst ───────────────────────────────────────────────────
 
@@ -162,10 +159,8 @@ class _IRCClientThread(threading.Thread):
         finally:
             if self._sem is not None:
                 self._sem.release()
-            try:
+            with contextlib.suppress(OSError):
                 self.conn.close()
-            except OSError:
-                pass
             logger.info("IRC  [%s] disconnected", safe_addr)
 
     def _recv_or_ping(self) -> "bytes | None":
@@ -357,10 +352,8 @@ class _IRCClientThread(threading.Thread):
         self._send(f"302 {self.nick} :")
 
     def _cmd_quit(self, _rest: str, _sa: str):
-        try:
+        with contextlib.suppress(OSError):
             self.conn.close()
-        except OSError:
-            pass
 
     _COMMAND_MAP: dict[str, Callable[["_IRCClientThread", str, str], None]] = {
         "CAP":     _cmd_cap,
@@ -451,10 +444,8 @@ class IRCService:
     def stop(self) -> None:
         self._stop_event.set()
         if self._sock:
-            try:
+            with contextlib.suppress(OSError):
                 self._sock.close()
-            except OSError:
-                pass
         if self._thread:
             self._thread.join(timeout=3.0)
         logger.info("IRC service stopped.")
@@ -540,10 +531,8 @@ class IRCSTLSService:
             except ssl.SSLError as e:
                 logger.debug("IRC/TLS handshake failed %s: %s", addr[0], e)
                 self._sem.release()   # release slot — session never started
-                try:
+                with contextlib.suppress(OSError):
                     raw_conn.close()
-                except OSError:
-                    pass
                 continue
             _IRCClientThread(
                 conn, addr,
@@ -557,10 +546,8 @@ class IRCSTLSService:
     def stop(self) -> None:
         self._stop.set()
         if self._sock:
-            try:
+            with contextlib.suppress(OSError):
                 self._sock.close()
-            except OSError:
-                pass
         if self._thread:
             self._thread.join(timeout=3.0)
         logger.info("IRC/TLS service stopped.")

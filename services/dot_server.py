@@ -12,6 +12,7 @@ exactly as specified for DNS-over-TCP (RFC 1035 §4.2.2).
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import socket
 import ssl
@@ -145,10 +146,8 @@ class DoTService:
             logger.debug(
                 "DoT TLS handshake failed from %s: %s", sanitize_ip(addr[0]), e
             )
-            try:
+            with contextlib.suppress(OSError):
                 client_sock.close()
-            except OSError:
-                pass
             return None
 
     def _accept_loop(self):
@@ -168,10 +167,8 @@ class DoTService:
             if pool is not None:
                 pool.submit(self._handle_client, tls_sock, addr)
             else:
-                try:
+                with contextlib.suppress(OSError):
                     tls_sock.close()
-                except OSError:
-                    pass
 
     def _handle_client(self, sock: ssl.SSLSocket, addr: tuple):
         handler = _FakeClientHandler(addr)
@@ -199,10 +196,8 @@ class DoTService:
         except OSError:
             pass
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 sock.close()
-            except OSError:
-                pass
 
     @staticmethod
     def _recv_exact(sock: ssl.SSLSocket, n: int) -> bytes:
@@ -225,14 +220,10 @@ class DoTService:
         # Without SHUT_RDWR, close() alone may not immediately unblock
         # accept() on all Linux kernel versions.
         if self._server_sock:
-            try:
+            with contextlib.suppress(OSError):
                 self._server_sock.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
-            try:
+            with contextlib.suppress(OSError):
                 self._server_sock.close()
-            except OSError:
-                pass
             self._server_sock = None
         # Join the accept thread so we know no new pool.submit() calls can
         # happen before we shut down the pool (prevents RuntimeError on

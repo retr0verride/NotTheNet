@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import queue
@@ -316,10 +317,8 @@ class _QueueHandler(logging.Handler):
             try:
                 self.log_queue.put_nowait(self.format(record))
             except queue.Full:
-                try:
+                with contextlib.suppress(queue.Empty):
                     self.log_queue.get_nowait()
-                except queue.Empty:
-                    pass
                 self.log_queue.put_nowait(self.format(record))
         except (TypeError, ValueError, KeyError, AttributeError):
             logger.debug("Log record enqueue failed", exc_info=True)

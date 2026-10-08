@@ -12,6 +12,7 @@ Security notes (OpenSSF):
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import http.server
 import ipaddress
@@ -246,10 +247,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
     def send_response(self, code, message=None):
         """Override to suppress Python's auto-injected Server header."""
         if message is None:
-            if code in self.responses:
-                message = self.responses[code][0]
-            else:
-                message = ""
+            message = self.responses[code][0] if code in self.responses else ""
         if self.request_version != "HTTP/0.9":
             if not hasattr(self, "_headers_buffer"):
                 self._headers_buffer = []  # type: ignore[misc]
@@ -786,10 +784,8 @@ class _ThreadedServer(socketserver.ThreadingTCPServer):
         # Set a read timeout before handing the socket to the handler.
         # Without this, a client that negotiates h2 via ALPN but never sends
         # the connection preface holds a pool worker indefinitely.
-        try:
+        with contextlib.suppress(OSError):
             request.settimeout(30)
-        except OSError:
-            pass
         super().process_request_thread(request, client_address)
 
     def server_close(self):
@@ -853,10 +849,8 @@ class HTTPService:
 
     def stop(self) -> None:
         if self._server:
-            try:
+            with contextlib.suppress(OSError):
                 self._server.socket.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
             self._server.shutdown()
             self._server.server_close()
             self._server = None
@@ -979,10 +973,8 @@ class HTTPSService:
 
     def stop(self) -> None:
         if self._server:
-            try:
+            with contextlib.suppress(OSError):
                 self._server.socket.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
             self._server.shutdown()
             self._server.server_close()
             self._server = None

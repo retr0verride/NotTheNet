@@ -28,6 +28,7 @@ Security notes (OpenSSF):
 - Sessions are bounded to SESSION_TIMEOUT seconds
 """
 
+import contextlib
 import logging
 import socket
 import threading
@@ -139,10 +140,8 @@ class _RedisSession(threading.Thread):
     # ── RESP response helpers ─────────────────────────────────────────────────
 
     def _send(self, data: bytes):
-        try:
+        with contextlib.suppress(OSError):
             self.conn.sendall(data)
-        except OSError:
-            pass
 
     def _ok(self):       self._send(b"+OK\r\n")
     def _pong(self):     self._send(b"+PONG\r\n")
@@ -252,10 +251,8 @@ class _RedisSession(threading.Thread):
         except OSError:
             logger.debug("Redis session error", exc_info=True)
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 self.conn.close()
-            except OSError:
-                pass
             if self._sem:
                 self._sem.release()
 
@@ -310,10 +307,8 @@ class RedisService:
     def stop(self) -> None:
         self._stop.set()
         if self._sock:
-            try:
+            with contextlib.suppress(OSError):
                 self._sock.close()
-            except OSError:
-                pass
         if self._thread:
             self._thread.join(timeout=3.0)
         logger.info("Redis service stopped.")

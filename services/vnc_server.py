@@ -28,6 +28,7 @@ Security notes (OpenSSF):
 - Sessions are bounded to SESSION_TIMEOUT seconds
 """
 
+import contextlib
 import logging
 import os
 import socket
@@ -138,10 +139,8 @@ class _VNCSession(threading.Thread):
         except OSError:
             logger.debug("VNC session error", exc_info=True)
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 self.conn.close()
-            except OSError:
-                pass
             if self._sem:
                 self._sem.release()
 
@@ -196,10 +195,8 @@ class VNCService:
     def stop(self) -> None:
         self._stop.set()
         if self._sock:
-            try:
+            with contextlib.suppress(OSError):
                 self._sock.close()
-            except OSError:
-                pass
         if self._thread:
             self._thread.join(timeout=3.0)
         logger.info("VNC service stopped.")

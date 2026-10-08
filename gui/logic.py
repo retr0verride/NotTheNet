@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -130,10 +131,8 @@ class ServiceControlMixin(_ControlHost):
         log_dir = os.path.abspath(
             self._cfg.get("general", "log_dir") or "logs"
         )
-        try:
+        with contextlib.suppress(OSError):
             os.makedirs(log_dir, exist_ok=True)
-        except OSError:
-            pass
         try:
             _open_path_external(log_dir)
         except Exception as e:

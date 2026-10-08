@@ -9,6 +9,7 @@ All tests bind to 127.0.0.1 on an ephemeral port, verify the cap fires, and
 shut the server down cleanly.  No network traffic leaves the loopback.
 """
 
+import contextlib
 import socket
 import socketserver
 import threading
@@ -234,10 +235,8 @@ class TestSMTPConnectionCap(unittest.TestCase):
                 s = _connect(self.port)
                 socks.append(s)
                 s.settimeout(1.0)
-                try:
+                with contextlib.suppress(TimeoutError):
                     s.recv(256)   # consume banner so the slot stays open
-                except TimeoutError:
-                    pass
             time.sleep(0.1)
 
             extra = _connect(self.port, timeout=2.0)

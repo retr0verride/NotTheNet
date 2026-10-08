@@ -17,6 +17,7 @@ Security notes (OpenSSF):
 - Runs in a daemon thread; cannot block process exit.
 """
 
+import contextlib
 import logging
 import socket
 import threading
@@ -77,10 +78,8 @@ class ICMPResponder:
     def stop(self) -> None:
         self._stop.set()
         if self._sock:
-            try:
+            with contextlib.suppress(OSError):
                 self._sock.close()
-            except OSError:
-                pass
             self._sock = None
         if self._thread:
             self._thread.join(timeout=2)

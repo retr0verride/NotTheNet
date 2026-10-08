@@ -22,6 +22,7 @@ Security notes (OpenSSF):
 - Sessions are bounded to SESSION_TIMEOUT seconds
 """
 
+import contextlib
 import hashlib
 import logging
 import socket
@@ -137,11 +138,11 @@ class _MSSQLSession(threading.Thread):
                 user_off, user_len = struct.unpack("<HH", body[40:44])
                 pass_off, pass_len = struct.unpack("<HH", body[44:48])
 
-                if 0 < user_off and user_off + user_len * 2 <= len(body):
+                if user_off > 0 and user_off + user_len * 2 <= len(body):
                     username = body[user_off:user_off + user_len * 2].decode(
                         "utf-16-le", errors="replace"
                     )
-                if 0 < pass_off and pass_off + pass_len * 2 <= len(body):
+                if pass_off > 0 and pass_off + pass_len * 2 <= len(body):
                     password = _deobfuscate_tds_password(
                         body[pass_off:pass_off + pass_len * 2]
                     )
@@ -161,10 +162,8 @@ class _MSSQLSession(threading.Thread):
         except OSError:
             logger.debug("MSSQL session error", exc_info=True)
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 self.conn.close()
-            except OSError:
-                pass
             if self._sem:
                 self._sem.release()
 
@@ -219,10 +218,8 @@ class MSSQLService:
     def stop(self) -> None:
         self._stop.set()
         if self._sock:
-            try:
+            with contextlib.suppress(OSError):
                 self._sock.close()
-            except OSError:
-                pass
         if self._thread:
             self._thread.join(timeout=3.0)
         logger.info("MSSQL service stopped.")

@@ -27,6 +27,7 @@ Security notes (OpenSSF):
 - Each transfer runs in a daemon thread; cannot block process exit
 """
 
+import contextlib
 import logging
 import os
 import socket
@@ -302,10 +303,8 @@ class TFTPService:
     def stop(self) -> None:
         self._stop_event.set()
         if self._sock:
-            try:
+            with contextlib.suppress(OSError):
                 self._sock.close()
-            except OSError:
-                pass
         if self._thread:
             self._thread.join(timeout=3.0)
         logger.info("TFTP service stopped.")

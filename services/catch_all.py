@@ -18,6 +18,7 @@ Security notes (OpenSSF):
 - TLS wrap enforces TLSv1.2 minimum; no SSLv2/3/TLSv1/TLSv1.1
 """
 
+import contextlib
 import logging
 import os
 import select
@@ -366,10 +367,8 @@ class CatchAllTCPService:
 
     def stop(self) -> None:
         if self._server:
-            try:
+            with contextlib.suppress(OSError):
                 self._server.socket.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
             self._server.shutdown()
             self._server = None
         logger.info("Catch-all TCP service stopped.")

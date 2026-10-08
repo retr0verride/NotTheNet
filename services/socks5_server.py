@@ -36,6 +36,7 @@ Security notes (OpenSSF):
 - Sessions are bounded to SESSION_TIMEOUT
 """
 
+import contextlib
 import logging
 import os
 import socket
@@ -124,10 +125,8 @@ class _Socks5Session(threading.Thread):
         return buf
 
     def _send(self, data: bytes):
-        try:
+        with contextlib.suppress(OSError):
             self.conn.sendall(data)
-        except OSError:
-            pass
 
     # ── SOCKS5 handshake ──────────────────────────────────────────────────────
 
@@ -239,10 +238,8 @@ class _Socks5Session(threading.Thread):
         sock.settimeout(SESSION_TIMEOUT)
 
         first_data = b""
-        try:
+        with contextlib.suppress(OSError):
             first_data = sock.recv(4096)
-        except OSError:
-            pass
 
         if first_data:
             preview = sanitize_log_string(
@@ -315,10 +312,8 @@ class _Socks5Session(threading.Thread):
         finally:
             if self._sem is not None:
                 self._sem.release()
-            try:
+            with contextlib.suppress(OSError):
                 self.conn.close()
-            except OSError:
-                pass
             logger.debug("SOCKS5 [%s] session ended", safe_addr)
 
 
@@ -379,10 +374,8 @@ class Socks5Service:
     def stop(self) -> None:
         self._stop.set()
         if self._sock:
-            try:
+            with contextlib.suppress(OSError):
                 self._sock.close()
-            except OSError:
-                pass
         if self._thread:
             self._thread.join(timeout=3.0)
         logger.info("SOCKS5 proxy service stopped.")

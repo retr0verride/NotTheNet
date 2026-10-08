@@ -14,6 +14,7 @@ Security notes (OpenSSF):
 from __future__ import annotations
 
 import atexit
+import contextlib
 import logging
 import os
 import shutil
@@ -56,10 +57,8 @@ def _atexit_restore_snapshots() -> None:
             code, _, err = _run(["iptables-restore", path])
             if code == 0:
                 logger.info("atexit: %s table restored from snapshot.", table)
-                try:
+                with contextlib.suppress(OSError):
                     os.unlink(path)
-                except OSError:
-                    pass
             else:
                 logger.error("atexit: %s restore failed: %s", table, err)
 

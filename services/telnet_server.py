@@ -27,6 +27,7 @@ Security notes (OpenSSF):
 - Sessions are bounded to SESSION_TIMEOUT seconds
 """
 
+import contextlib
 import logging
 import socket
 import threading
@@ -247,10 +248,8 @@ class _TelnetSession(threading.Thread):
         finally:
             if self._sem is not None:
                 self._sem.release()
-            try:
+            with contextlib.suppress(OSError):
                 self.conn.close()
-            except OSError:
-                pass
             logger.info("Telnet [%s] disconnected", safe_addr)
 
 
@@ -306,10 +305,8 @@ class TelnetService:
     def stop(self) -> None:
         self._stop.set()
         if self._sock:
-            try:
+            with contextlib.suppress(OSError):
                 self._sock.close()
-            except OSError:
-                pass
         if self._thread:
             self._thread.join(timeout=3.0)
         logger.info("Telnet service stopped.")
