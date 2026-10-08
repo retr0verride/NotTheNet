@@ -39,7 +39,7 @@ class NotTheNetApp(DashboardMixin, ServiceControlMixin, tk.Tk):
             _icon = tk.PhotoImage(data=_APP_ICON_B64)
             self.iconphoto(True, _icon)
             self._icon = _icon  # prevent GC
-        except Exception:
+        except tk.TclError:
             logger.debug("App icon load failed (cosmetic)", exc_info=True)
 
         self._cfg = Config(config_path or "config.json")

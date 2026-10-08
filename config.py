@@ -66,7 +66,7 @@ class Config:
                 os.replace(tmp, target)  # atomic on POSIX; near-atomic on Windows
             logger.debug("Config saved to %s", target)
             return True
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
             logger.error("Failed to save config: %s", e)
             return False
 

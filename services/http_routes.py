@@ -105,7 +105,7 @@ def route_websocket_upgrade(handler) -> bool:
                 if data and handler._cfg.log_requests:
                     preview = sanitize_log_string(data[:64].hex(), 128)
                     handler.log_message("WS frame preview: %s", preview)
-            except Exception:
+            except OSError:
                 logger.debug("WebSocket frame recv failed", exc_info=True)
 
         close_frame = build_websocket_close_frame(1000, "intercepted")
@@ -142,7 +142,7 @@ def route_telegram(handler, max_body_size: int, json_content_type: str) -> bool:
             parsed_qs = parse_qs(raw_body.decode(errors="replace"))
             parsed = {k: v[0] for k, v in parsed_qs.items() if v}
         chat_id = str(parsed.get("chat_id", ""))
-    except Exception:
+    except (ValueError, AttributeError):
         logger.debug("Telegram body parse failed", exc_info=True)
 
     jl = get_json_logger()

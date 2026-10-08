@@ -27,7 +27,7 @@ def sanitize_log_string(value: str, max_length: int = 512) -> str:
     if not isinstance(value, str):
         try:
             value = str(value)
-        except Exception:
+        except Exception:  # noqa: BLE001  # sanitizer must never raise on an arbitrary __str__
             return "<non-representable>"
 
     # Strip ANSI escapes first

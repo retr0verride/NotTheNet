@@ -93,7 +93,7 @@ def _build_tls_context(cert_path: str, key_path: str) -> "ssl.SSLContext | None"
         )
         ctx.load_cert_chain(certfile=cert_path, keyfile=key_path)
         return ctx
-    except Exception as e:
+    except OSError as e:
         logger.error("Failed to build catch-all TLS context: %s", e)
         return None
 
@@ -262,7 +262,7 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
                         protocol.upper(), safe_addr, src_port,
                         min(len(first_data), LOG_PREVIEW), preview,
                     )
-            except Exception:
+            except OSError:
                 logger.debug("Catch-all TCP initial recv failed", exc_info=True)
 
             # ── 4. Send protocol-appropriate response ──────────────────────
@@ -271,7 +271,7 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
             )
             try:
                 sock.sendall(response)
-            except Exception as e:
+            except OSError as e:
                 logger.debug("Catch-all send failed for %s:%s: %s", safe_addr, src_port, e)
                 return
 
@@ -301,9 +301,9 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
                         protocol.upper(), safe_addr, src_port,
                         len(chunk), preview,
                     )
-            except Exception:
+            except OSError:
                 logger.debug("Catch-all TCP follow-on drain failed", exc_info=True)
-        except Exception:
+        except Exception:  # noqa: BLE001  # untrusted-input boundary: one bad session must not kill the service
             logger.debug(
                 "Catch-all TCP session error for %s:%s",
                 safe_addr, src_port,

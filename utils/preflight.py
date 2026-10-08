@@ -151,8 +151,8 @@ def _check_certs() -> list[CheckResult]:
             results.append(CheckResult(
                 OK, f"Root CA: certs/ca.crt (expires {expiry:%Y-%m-%d}, SHA256:{fp})"
             ))
-        except Exception as e:
-            results.append(CheckResult(OK, f"Root CA: certs/ca.crt exists (parse error: {e})"))
+        except (OSError, ValueError) as e:
+            results.append(CheckResult(WARN, f"Root CA: certs/ca.crt unreadable ({e})"))
     else:
         results.append(CheckResult(WARN,
             "Root CA: certs/ca.crt not found — will be generated on first HTTPS start"))
@@ -220,7 +220,7 @@ def _check_interface_status(interface: str, bind_ip: str) -> list[CheckResult]:
             ))
         else:
             results.append(CheckResult(FAIL, f"Interface {interface}: not found"))
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError) as e:
         results.append(CheckResult(FAIL, f"Interface check failed: {e}"))
 
     if bind_ip != "0.0.0.0":
@@ -233,7 +233,7 @@ def _check_interface_status(interface: str, bind_ip: str) -> list[CheckResult]:
                 results.append(CheckResult(OK, f"bind_ip {bind_ip} assigned to {interface}"))
             else:
                 results.append(CheckResult(FAIL, f"bind_ip {bind_ip} NOT found on {interface}"))
-        except Exception as e:
+        except (OSError, subprocess.SubprocessError) as e:
             results.append(CheckResult(FAIL, f"bind_ip check failed: {e}"))
 
     return results
@@ -372,7 +372,7 @@ def _check_hardening() -> list[CheckResult]:
         else:
             results.append(CheckResult(INFO,
                 "FORWARD DROP rules: not found (auto-applied on service start)"))
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         results.append(CheckResult(WARN, "Could not check FORWARD rules (need root?)"))
 
     # Check tmpfs on logs/

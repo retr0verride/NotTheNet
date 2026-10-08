@@ -66,7 +66,7 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
         def _run():
             try:
                 self.finish_request(request, client_address)
-            except Exception:
+            except Exception:  # noqa: BLE001  # mirrors socketserver: report via handle_error, keep serving
                 self.handle_error(request, client_address)
             finally:
                 self.shutdown_request(request)

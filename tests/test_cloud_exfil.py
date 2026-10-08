@@ -365,6 +365,15 @@ class TestRouteDropbox:
         assert written[".tag"] == "file"
         assert "creds.txt" in written["name"]
 
+    @pytest.mark.parametrize("raw", ["[]", "1", '"str"', "null", "not json"])
+    def test_non_object_api_arg_still_answers_200(self, raw):
+        """Dropbox-API-Arg is attacker-controlled; non-object JSON must not crash the route."""
+        handler = _make_handler("POST", "/2/files/upload",
+                                body=b"DATA", headers={"Content-Length": "4",
+                                                       "Dropbox-API-Arg": raw})
+        assert route_dropbox(handler) is True
+        handler.send_response.assert_called_with(200)
+
     def test_upload_session_start(self):
         handler = _make_handler("POST", "/2/files/upload_session/start",
                                 body=b"CHUNK", headers={"Content-Length": "5"})

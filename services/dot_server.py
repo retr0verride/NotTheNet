@@ -188,7 +188,7 @@ class DoTService:
                     break
                 try:
                     request = DNSRecord.parse(data)
-                except Exception:
+                except Exception:  # noqa: BLE001  # untrusted-input boundary: one bad session must not kill the service
                     break  # malformed DNS message — silently close
                 reply = self._resolver.resolve(request, handler)
                 reply_bytes = reply.pack()

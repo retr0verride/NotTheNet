@@ -148,15 +148,15 @@ class NTPService:
                 jl = get_json_logger()
                 if jl:
                     jl.log("ntp_query", src_ip=addr[0], src_port=addr[1])
-            except Exception as e:
-                logger.debug("NTP handler error: %s", e)
+            except Exception as e:  # noqa: BLE001  # untrusted-input boundary: one bad session must not kill the service
+                logger.debug("NTP handler error: %s", e, exc_info=True)
 
     def stop(self) -> None:
         self._stop_event.set()
         if self._sock:
             try:
                 self._sock.close()
-            except Exception:
+            except OSError:
                 logger.debug("NTP socket close failed", exc_info=True)
         if self._thread:
             self._thread.join(timeout=3)

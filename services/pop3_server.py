@@ -49,8 +49,8 @@ class POP3Handler(socketserver.BaseRequestHandler):
             self._send(f"+OK {self._hostname} POP3 server ready")
             self.request.settimeout(self._conn_timeout)
             self._read_loop(safe_addr)
-        except Exception as e:
-            logger.debug("POP3 %s error: %s", safe_addr, e)
+        except Exception as e:  # noqa: BLE001  # untrusted-input boundary: one bad session must not kill the service
+            logger.debug("POP3 %s error: %s", safe_addr, e, exc_info=True)
 
     def _read_loop(self, safe_addr: str) -> None:
         buf = b""
@@ -135,7 +135,7 @@ class POP3Handler(socketserver.BaseRequestHandler):
     def _send(self, msg: str):
         try:
             self.request.sendall((msg + "\r\n").encode("utf-8", errors="replace"))
-        except Exception:
+        except OSError:
             logger.debug("POP3 send failed", exc_info=True)
 
 

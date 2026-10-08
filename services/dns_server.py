@@ -50,10 +50,7 @@ def _log_dns_query(request, handler, reply) -> None:
         return
     try:
         qname = str(request.q.qname).lower().rstrip(".")
-        try:
-            qtype = str(QTYPE[request.q.qtype])
-        except Exception:
-            qtype = str(request.q.qtype)
+        qtype = str(QTYPE[request.q.qtype])  # dnslib returns "TYPEnnn" for unknown codes
         src = handler.client_address[0] if hasattr(handler, "client_address") else ""
         rcode = reply.header.rcode
         if rcode == 3:
@@ -65,7 +62,7 @@ def _log_dns_query(request, handler, reply) -> None:
         else:
             resolve_to = "(empty)"
         jl.log("dns_query", qtype=qtype, qname=qname, src_ip=src, resolve_to=resolve_to)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # event logging must never break a DNS reply
         logger.debug("dns_query log error: %s", exc, exc_info=True)
 
 
@@ -163,8 +160,8 @@ class _FakeResolver:
             logger.debug("  -> empty NOERROR for qtype=%s: %s", request.q.qtype, safe_name)
 
 
-        except Exception as e:
-            logger.warning("DNS resolve error: %s", e)
+        except Exception as e:  # noqa: BLE001  # untrusted-input boundary: one bad session must not kill the service
+            logger.warning("DNS resolve error: %s", e, exc_info=True)
             reply.header.rcode = 2  # SERVFAIL — never crash the server
         return reply
 
@@ -179,11 +176,8 @@ class _FakeResolver:
                     ptr_label = ptr_label[: -len(suffix)]
                     break
             octets = ptr_label.split(".")
-            try:
-                ip_hyphen = "-".join(reversed(octets))
-                ptr_host = f"static-{ip_hyphen}.res.example.net."
-            except Exception:
-                ptr_host = "host.example.net."
+            ip_hyphen = "-".join(reversed(octets))
+            ptr_host = f"static-{ip_hyphen}.res.example.net."
             reply.add_answer(
                 RR(qname, QTYPE.PTR, ttl=self.ttl, rdata=PTR(ptr_host))
             )
@@ -406,7 +400,7 @@ class DNSService:
             if srv:
                 try:
                     srv.stop()
-                except Exception:
+                except Exception:  # noqa: BLE001  # shutdown must continue past a failing listener
                     logger.debug("DNS server stop failed", exc_info=True)
         self._server_udp = None
         self._server_tcp = None
@@ -417,8 +411,5 @@ class DNSService:
         # dnslib's DNSServer exposes the underlying thread via .thread
         # (set by start_thread()).  Fall back gracefully if the attribute
         # layout ever changes.
-        try:
-            t = getattr(self._server_udp, "thread", None)
-            return bool(t and t.is_alive())
-        except Exception:
-            return False
+        t = getattr(self._server_udp, "thread", None)
+        return bool(t and t.is_alive())

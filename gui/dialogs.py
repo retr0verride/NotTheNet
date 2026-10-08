@@ -609,7 +609,7 @@ class _JsonEventsPage(tk.Frame):
             return
         try:
             _open_path_external(path)
-        except Exception as e:
+        except OSError as e:
             messagebox.showerror("Error", f"Could not open file:\n{e}")
 
     def destroy(self):

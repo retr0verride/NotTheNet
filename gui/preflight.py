@@ -270,7 +270,7 @@ class _PreflightPage(tk.Frame):
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-        except Exception as exc:
+        except OSError as exc:
             shutil.rmtree(serve_dir, ignore_errors=True)
             self._cert_server_dir = None
             messagebox.showerror("CA Cert Server", f"Failed to start HTTP server:\n{exc}")

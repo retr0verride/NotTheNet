@@ -609,7 +609,7 @@ class ServiceManager:
     def _apply_fingerprints(self) -> None:
         """Apply TCP/IP OS fingerprint spoofing to server sockets."""
         fp_enabled = self.config.get("general", "tcp_fingerprint")
-        fp_os = self.config.get("general", "tcp_fingerprint_os") or "windows"
+        fp_os = str(self.config.get("general", "tcp_fingerprint_os") or "windows")
         if not fp_enabled:
             return
         for name, svc in self._services.items():
@@ -617,7 +617,7 @@ class ServiceManager:
             if sock:
                 try:
                     apply_os_fingerprint(sock, fp_os)
-                except Exception as e:
+                except OSError as e:
                     logger.debug("TCP fingerprint on %s: %s", name, e)
             else:
                 logger.debug("TCP fingerprint skipped for %s (no server socket)", name)
@@ -674,8 +674,8 @@ class ServiceManager:
             name, svc = name_svc
             try:
                 svc.stop()
-            except Exception as e:
-                logger.warning("Error stopping %s: %s", name, e)
+            except Exception as e:  # noqa: BLE001  # shutdown must keep stopping the remaining services
+                logger.warning("Error stopping %s: %s", name, e, exc_info=True)
 
         from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=min(len(items), 16) or 1) as ex:

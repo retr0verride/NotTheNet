@@ -135,7 +135,7 @@ class ServiceControlMixin(_ControlHost):
             os.makedirs(log_dir, exist_ok=True)
         try:
             _open_path_external(log_dir)
-        except Exception as e:
+        except OSError as e:
             messagebox.showerror("Error", f"Could not open log folder:\n{e}")
 
     def _clear_log_widget(self):

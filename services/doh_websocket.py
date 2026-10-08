@@ -74,8 +74,8 @@ def handle_doh_get(path: str, redirect_ip: str) -> bytes | None:
             dns_b64 += "=" * padding
         raw_query = base64.urlsafe_b64decode(dns_b64)
         return _build_doh_response(raw_query, redirect_ip)
-    except Exception as e:
-        logger.debug("DoH GET decode error: %s", e)
+    except Exception as e:  # noqa: BLE001  # untrusted-input boundary: one bad session must not kill the service
+        logger.debug("DoH GET decode error: %s", e, exc_info=True)
         return None
 
 
@@ -113,8 +113,8 @@ def _build_doh_response(raw_query: bytes, redirect_ip: str) -> bytes | None:
         logger.debug("  -> DoH A: %s -> %s", sanitize_log_string(qname, 253), redirect_ip)
 
         return reply.pack()
-    except Exception as e:
-        logger.debug("DoH response build error: %s", e)
+    except Exception as e:  # noqa: BLE001  # untrusted-input boundary: one bad session must not kill the service
+        logger.debug("DoH response build error: %s", e, exc_info=True)
         return None
 
 

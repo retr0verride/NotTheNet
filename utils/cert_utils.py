@@ -547,8 +547,8 @@ class DynamicCertCache:
 
         try:
             ctx = self._build_ctx_for_hostname(hostname)
-        except Exception as e:
-            logger.warning("TLS  Failed to forge cert for %s: %s", hostname, e)
+        except Exception as e:  # noqa: BLE001  # SNI callback: a failed forge falls back to the default cert
+            logger.warning("TLS  Failed to forge cert for %s: %s", hostname, e, exc_info=True)
             return None  # Fall back to default cert
 
         with self._lock:

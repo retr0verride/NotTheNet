@@ -389,8 +389,10 @@ def route_dropbox(handler, max_body_size: int = _MAX_EXFIL_BODY_BYTES) -> bool:
     dbx_arg_raw = handler.headers.get("Dropbox-API-Arg", "{}")
     try:
         dbx_arg = json.loads(dbx_arg_raw)
-    except Exception:
+    except ValueError:
         logger.debug("cloud_exfil: Dropbox-API-Arg parse failed", exc_info=True)
+    if not isinstance(dbx_arg, dict):  # attacker-controlled: may be a list, str, number
+        dbx_arg = {}
 
     remote_path = str(dbx_arg.get("path", path))
 

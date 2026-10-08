@@ -69,7 +69,7 @@ class _SMTPClientThread(threading.Thread):
     def _send(self, msg: str):
         try:
             self.conn.sendall((msg + "\r\n").encode("utf-8", errors="replace"))
-        except Exception:
+        except OSError:
             logger.debug("SMTP control send failed", exc_info=True)
 
     def run(self) -> None:
@@ -92,12 +92,12 @@ class _SMTPClientThread(threading.Thread):
                     sep = b"\r\n" if b"\r\n" in buf else b"\n"
                     line, buf = buf.split(sep, 1)
                     self._handle_line(line.decode("utf-8", errors="replace"), safe_addr)
-        except Exception as e:
-            logger.debug("SMTP client %s error: %s", safe_addr, e)
+        except Exception as e:  # noqa: BLE001  # untrusted-input boundary: one bad session must not kill the service
+            logger.debug("SMTP client %s error: %s", safe_addr, e, exc_info=True)
         finally:
             try:
                 self.conn.close()
-            except Exception:
+            except OSError:
                 logger.debug("SMTP socket close failed", exc_info=True)
 
     def _handle_line(self, line: str, safe_addr: str):
@@ -254,7 +254,7 @@ class _SMTPClientThread(threading.Thread):
             if total > self.max_disk_usage_bytes:
                 logger.warning("SMTP: email storage cap reached; discarding message.")
                 return
-        except Exception:
+        except OSError:
             logger.debug("SMTP disk-usage check failed", exc_info=True)
 
         fname = f"{uuid.uuid4().hex}.eml"  # UUID filename — no attacker control
@@ -263,7 +263,7 @@ class _SMTPClientThread(threading.Thread):
             with open(path, "w", encoding="utf-8", errors="replace") as f:
                 f.write("\n".join(self.mail_data))
             logger.info("SMTP: email saved to %s", fname)
-        except Exception as e:
+        except OSError as e:
             logger.error("SMTP: failed to save email: %s", e)
 
 

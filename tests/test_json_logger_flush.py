@@ -169,7 +169,7 @@ class TestPeriodicFlush(unittest.TestCase):
                 try:
                     for i in range(200):
                         logger.log("concurrent", thread=thread_id, idx=i)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001  # collect any worker failure for the assertion below
                     errors.append(e)
 
             threads = [threading.Thread(target=_writer, args=(n,)) for n in range(10)]

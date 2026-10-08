@@ -58,7 +58,7 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
         def _run():
             try:
                 self.finish_request(request, client_address)
-            except Exception:
+            except Exception:  # noqa: BLE001  # mirrors socketserver: report via handle_error, keep serving
                 self.handle_error(request, client_address)
             finally:
                 self.shutdown_request(request)
@@ -75,7 +75,7 @@ def _get_disk_usage(directory: str) -> int:
             fp = os.path.join(directory, fname)
             if os.path.isfile(fp):
                 total += os.path.getsize(fp)
-    except Exception:
+    except OSError:
         logger.debug("FTP disk-usage scan failed", exc_info=True)
     return total
 
@@ -119,7 +119,7 @@ class _FTPSession(threading.Thread):
     def _send(self, msg: str):
         try:
             self.conn.sendall((msg + "\r\n").encode("utf-8", errors="replace"))
-        except Exception:
+        except OSError:
             logger.debug("FTP control send failed", exc_info=True)
 
     def _open_pasv(self) -> str | None:
@@ -155,7 +155,7 @@ class _FTPSession(threading.Thread):
                 self._pasv_server.close()
                 self._pasv_server = None
                 return conn
-            except Exception:
+            except OSError:
                 logger.debug("FTP PASV accept failed", exc_info=True)
                 return None
         return None
@@ -180,12 +180,12 @@ class _FTPSession(threading.Thread):
                     self._handle_cmd(
                         line.decode("utf-8", errors="replace").strip(), safe_addr
                     )
-        except Exception as e:
-            logger.debug("FTP %s session error: %s", safe_addr, e)
+        except Exception as e:  # noqa: BLE001  # untrusted-input boundary: one bad session must not kill the service
+            logger.debug("FTP %s session error: %s", safe_addr, e, exc_info=True)
         finally:
             try:
                 self.conn.close()
-            except Exception:
+            except OSError:
                 logger.debug("FTP control socket close failed", exc_info=True)
             if self._pasv_server:
                 try:
@@ -280,13 +280,13 @@ class _FTPSession(threading.Thread):
         try:
             self._write_upload(data_conn, save_path, safe_addr, safe_fname, remote_name)
             self._send("226 Transfer complete")
-        except Exception as e:
+        except OSError as e:
             logger.error("FTP: upload error: %s", e)
             self._send("451 Requested action aborted")
         finally:
             try:
                 data_conn.close()
-            except Exception:
+            except OSError:
                 logger.debug("FTP data connection close failed", exc_info=True)
 
     def _drain_and_close(self, data_conn, reason: str):
@@ -294,7 +294,7 @@ class _FTPSession(threading.Thread):
         try:
             while data_conn.recv(65536):
                 pass  # discard
-        except Exception:
+        except OSError:
             logger.debug("FTP STOR drain failed (%s)", reason, exc_info=True)
         data_conn.close()
 
