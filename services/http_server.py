@@ -1,5 +1,4 @@
-"""
-NotTheNet - HTTP / HTTPS Fake Server
+"""NotTheNet - HTTP / HTTPS Fake Server
 Returns configurable responses to all HTTP(S) requests.
 
 Security notes (OpenSSF):
@@ -13,22 +12,23 @@ Security notes (OpenSSF):
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import http.server
 import ipaddress
 import logging
 import os
 import random
-import re
 import socket
 import socketserver
 import ssl
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor  # type: ignore[attr-defined]
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from urllib.parse import parse_qs, urlparse
+from typing import Any
 
 from services.cloud_exfil_routes import (
     route_aws_s3,
@@ -38,7 +38,36 @@ from services.cloud_exfil_routes import (
     route_graph_onedrive,
 )
 from services.doh_websocket import is_doh_request, is_websocket_upgrade
-from services.dynamic_response import compile_custom_rules, resolve_dynamic_response
+from services.dynamic_response import (
+    CompiledRule,
+    compile_custom_rules,
+    resolve_dynamic_response,
+)
+from services.http_catalog import (
+    _AWS_S3_RE,
+    _AZURE_BLOB_RE,
+    _CAPTIVE_PORTAL_HOSTS,
+    _CT_HTML,
+    _CT_JSON,
+    _CT_PLAIN,
+    _DISCORD_HOSTS,
+    _DROPBOX_HOSTS,
+    _FILE_HOSTING_HOSTS,
+    _GITHUB_RAW_HOSTS,
+    _GOOGLE_CONTENT_HOSTS,
+    _GRAPH_HOST,
+    _IP_CHECK_FORMATTERS,
+    _IP_CHECK_HOSTS,
+    _NCSI_HOSTS,
+    _NCSI_RESPONSES,
+    _PASTE_HOSTS,
+    _PKI_HOSTS,
+    _SLACK_HOST,
+    _TEAMS_HOSTS,
+    _TEAMS_WEBHOOK_RE,
+    _TELEGRAM_HOST,
+    _resolve_pki_response,
+)
 from services.http_routes import (
     route_dead_drop_ip,
     route_discord,
@@ -56,6 +85,7 @@ from utils.validators import sanitize_path
 
 logger = logging.getLogger(__name__)
 
+
 # Thread pool sized to match the connection cap of other services.
 # HTTP/1.1 keep-alive means threads can be held by idle connections;
 # 50 workers ensures new connections aren't starved even under concurrent load.
@@ -63,7 +93,7 @@ _MAX_WORKER_THREADS = 50
 
 _DEFAULT_SERVER_HEADER = "Apache/2.4.51"
 
-# Cipher suites: ECDHE forward secrecy + AEAD â€” no RC4, 3DES, CBC
+# Cipher suites: ECDHE forward secrecy + AEAD — no RC4, 3DES, CBC
 _SECURE_CIPHERS = (
     "ECDHE-ECDSA-AES128-GCM-SHA256:"
     "ECDHE-RSA-AES128-GCM-SHA256:"
@@ -75,228 +105,6 @@ _SECURE_CIPHERS = (
 )
 
 _DEFAULT_BODY = "<html><body><h1>200 OK</h1></body></html>"
-
-_CT_JSON = "application/json"
-_CT_HTML = "text/html"
-_CT_PLAIN = "text/plain"
-
-# When spoof_public_ip is set and a request Host matches one of these,
-# the handler returns the spoofed IP. Defeats the most common sandbox-evasion
-# technique: checking "am I on the real internet?".
-_IP_CHECK_HOSTS = frozenset({
-    "api.ipify.org", "api4.ipify.org", "api6.ipify.org",
-    "icanhazip.com", "ipv4.icanhazip.com",
-    "checkip.amazonaws.com",
-    "ifconfig.me", "ifconfig.io",
-    "ip.me",
-    "wtfismyip.com",
-    "ipecho.net",
-    "ident.me", "v4.ident.me",
-    "ipinfo.io",
-    "api.my-ip.io",
-    "checkip.dyndns.org", "checkip.dyndns.com",
-    "eth0.me",
-    "ip4.seeip.org",
-    "myexternalip.com",
-    "httpbin.org",
-    "ip-api.com",
-})
-
-# Windows Network Connectivity Status Indicator (NCSI) endpoints.
-# Windows queries these to determine whether the "Internet access" indicator
-# is shown in the system tray.  Some malware waits for NCSI to report
-# connectivity before detonating.  The responses MUST be exact byte-for-byte
-# matches of what a real Microsoft server returns.
-_NCSI_HOSTS = frozenset({
-    "www.msftconnecttest.com",
-    "msftconnecttest.com",
-    "ipv6.msftconnecttest.com",
-    "www.msftncsi.com",
-})
-_NCSI_BODY = b"Microsoft Connect Test"
-_NCSI_RESPONSES: dict[str, bytes] = {
-    "www.msftconnecttest.com":  _NCSI_BODY,
-    "msftconnecttest.com":      _NCSI_BODY,
-    "ipv6.msftconnecttest.com": _NCSI_BODY,
-    "www.msftncsi.com":         b"Microsoft NCSI",
-}
-
-# Google / Android / ChromeOS connectivity checks and Apple captive portal
-# detection hosts.  These are queried by the OS (not just the browser) and
-# must return EXACT expected responses â€” wrong body or status code causes the
-# OS to show "No internet" and some malware will stall waiting for connectivity.
-_CAPTIVE_PORTAL_HOSTS = frozenset({
-    # Google generate_204: Chrome OS, Android, Windows/macOS Chrome
-    "connectivitycheck.gstatic.com",
-    "connectivitycheck.android.com",
-    "clients1.google.com",
-    "clients3.google.com",
-    "ipv4.google.com",
-    # Apple captive portal / hotspot detection: macOS + iOS
-    "captive.apple.com",
-    "www.apple.com",
-})
-
-# Telegram Bot API host.  Agent Tesla (and other stealers) use the Bot API
-# to exfiltrate credentials/keylog data.  Returning a valid {"ok": true, ...}
-# response prevents the malware from entering an error/retry path.
-_TELEGRAM_HOST = "api.telegram.org"
-
-# Discord webhook hosts.  20+ stealer families (Raccoon, RedLine, Vidar,
-# Agent Tesla, Lumma, Stealc, etc.) exfiltrate via Discord webhooks.
-_DISCORD_HOSTS = frozenset({
-    "discord.com", "discordapp.com",
-    "canary.discord.com", "ptb.discord.com",
-})
-
-# Pastebin and paste-site hosts used as dead-drop resolvers by 15+ RAT/stealer
-# families (AsyncRAT, Remcos, njRAT, Quasar, XWorm, etc.).
-_PASTE_HOSTS = frozenset({
-    "pastebin.com", "paste.ee", "rentry.co", "rentry.org",
-    "hastebin.com", "pastebin.pl", "dpaste.org",
-    "paste.nrecom.net",
-})
-
-# Slack webhook host.  DCRat, Orcus, Sliver, and custom stealers.
-_SLACK_HOST = "hooks.slack.com"
-
-# Microsoft Teams webhook hosts.
-_TEAMS_HOSTS = frozenset({
-    "outlook.office.com", "outlook.office365.com",
-})
-_TEAMS_WEBHOOK_RE = re.compile(r"\.webhook\.office\.com$")
-
-# GitHub raw content hosts used by 10+ RATs as dead-drop for configs/payloads.
-_GITHUB_RAW_HOSTS = frozenset({
-    "raw.githubusercontent.com", "gist.githubusercontent.com",
-    "objects.githubusercontent.com",
-})
-
-# File-hosting sites used by Agent Tesla and similar stealers to stage
-# second-stage payloads before activating C2.  Returning HTTP 200 prevents
-# the "no connectivity" pre-check from aborting detonation.
-_FILE_HOSTING_HOSTS = frozenset({
-    "catbox.moe", "files.catbox.moe",
-    "litterbox.catbox.moe",
-    "anonfiles.com",          # legacy, still seen in older samples
-    "gofile.io",
-    "transfer.sh",
-    "file.io",
-    "tmpfiles.org",
-})
-
-# Google Docs/Drive hosts used by Emotet, Qakbot, IcedID, etc. for
-# payload staging and config dead-drops.
-_GOOGLE_CONTENT_HOSTS = frozenset({
-    "docs.google.com", "sheets.google.com", "drive.google.com",
-    "drive.usercontent.google.com", "www.googleapis.com",
-})
-
-# ── Cloud exfiltration hosts ──────────────────────────────────────────────────
-# AWS S3: matches virtual-hosted ({bucket}.s3.amazonaws.com,
-# {bucket}.s3.{region}.amazonaws.com) and path-style (s3.amazonaws.com,
-# s3.{region}.amazonaws.com).  checkip.amazonaws.com is excluded — it is
-# handled earlier by the IP-check route.
-_AWS_S3_RE = re.compile(r"(?:^|\.)s3(?:\.[a-z0-9-]+)?\.amazonaws\.com$")
-
-# Azure Blob Storage: {account}.blob.core.windows.net
-_AZURE_BLOB_RE = re.compile(r"\.blob\.core\.windows\.net$")
-
-# Microsoft Graph / OneDrive API
-_GRAPH_HOST = "graph.microsoft.com"
-
-# Dropbox upload + API hosts
-_DROPBOX_HOSTS = frozenset({
-    "content.dropboxapi.com",
-    "api.dropboxapi.com",
-})
-
-# Windows PKI infrastructure hosts -- CRL, OCSP, and Certificate Trust List
-# (CTL) download endpoints.  Windows CryptoAPI hits these during every HTTPS
-# connection to validate the server cert chain.  If the response is HTML (our
-# default page) instead of binary, cert validation fails -- a giveaway.
-_PKI_HOSTS = frozenset({
-    "crl.microsoft.com",
-    "crl3.digicert.com", "crl4.digicert.com",
-    "ocsp.digicert.com", "ocsp.msocsp.com", "oneocsp.microsoft.com",
-    "ocsp.verisign.com", "ocsp.thawte.com", "ocsp.sectigo.com",
-    "ocsp.comodoca.com", "ocsp.usertrust.com",
-    "ctldl.windowsupdate.com",
-    "cacerts.digicert.com",
-    "www.download.windowsupdate.com",
-    "download.windowsupdate.com",
-    # Let's Encrypt OCSP
-    "ocsp.int-x3.letsencrypt.org",
-    "r3.o.lencr.org", "e1.o.lencr.org", "r4.o.lencr.org",
-    "r10.o.lencr.org", "r11.o.lencr.org",
-})
-
-# Minimal CRL stub â€” an empty DER-encoded X.509 Certificate Revocation List.
-# We generate it lazily on first use.
-_STUB_CRL_CACHE: bytes | None = None
-_STUB_CRL_LOCK = threading.Lock()
-
-
-def _get_stub_crl() -> bytes:
-    """Return a minimal valid DER-encoded CRL (empty revocation list)."""
-    global _STUB_CRL_CACHE  # noqa: PLW0603  # NOSONAR
-    if _STUB_CRL_CACHE is not None:  # unsynchronized read — safe under CPython GIL
-        return _STUB_CRL_CACHE
-    with _STUB_CRL_LOCK:
-        if _STUB_CRL_CACHE is not None:  # re-check after acquiring the lock
-            return _STUB_CRL_CACHE
-        try:
-            from cryptography import x509 as cx509
-            from cryptography.hazmat.primitives import hashes, serialization
-            from cryptography.hazmat.primitives.asymmetric import rsa
-            from cryptography.x509.oid import NameOID
-
-            key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-            issuer = cx509.Name([
-                cx509.NameAttribute(NameOID.COMMON_NAME, "DigiCert Global Root CA"),
-            ])
-            now = datetime.now(timezone.utc)
-            crl = (
-                cx509.CertificateRevocationListBuilder()
-                .issuer_name(issuer)
-                .last_update(now)
-                .next_update(now + timedelta(days=30))
-                .sign(key, hashes.SHA256())
-            )
-            _STUB_CRL_CACHE = crl.public_bytes(serialization.Encoding.DER)
-        except Exception:  # noqa: BLE001
-            _STUB_CRL_CACHE = b"\x30\x00"  # empty DER SEQUENCE — CryptoAPI treats as soft-fail
-    return _STUB_CRL_CACHE
-
-
-# Minimal OCSP "good" response stub (DER).  Real OCSP responses are complex;
-# we return a small valid-looking binary payload with the correct content-type.
-# Most CryptoAPI implementations accept a timeout/error gracefully and don't
-# hard-fail on soft-fail OCSP â€” but returning HTML would be worse.
-_STUB_OCSP_RESPONSE = (
-    b"\x30\x03"    # SEQUENCE { OCSPResponse
-    b"\x0a\x01"    # ENUMERATED (1 byte)
-    b"\x00"        # successful (0)
-    # responseBytes omitted â€” this is a "successful but no details" stub.
-    # CryptoAPI treats this as soft-pass (same as timeout).
-)
-
-
-def _resolve_pki_response(host: str, path: str) -> tuple[int, bytes, str]:
-    """Determine the appropriate PKI stub response from host and path.
-
-    Returns (status_code, body_bytes, content_type).
-    """
-    low = path.lower()
-    if "ocsp" in host or "/ocsp" in low:
-        return 200, _STUB_OCSP_RESPONSE, "application/ocsp-response"
-    if low.endswith(".crl") or "crl" in host:
-        return 200, _get_stub_crl(), "application/pkix-crl"
-    if low.endswith((".crt", ".cer")) or "cacerts" in host:
-        return 404, b"", ""
-    if "ctldl" in host or low.endswith((".stl", ".cab")):
-        return 200, b"", "application/octet-stream"
-    return 200, b"", "application/octet-stream"
 
 
 _MAX_BODY_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
@@ -312,7 +120,7 @@ _SERVER_LAST_MODIFIED = (
     datetime.now(timezone.utc) - timedelta(days=_LAST_MODIFIED_AGE_DAYS)
 ).strftime(f"%a, %d %b %Y {_LAST_MODIFIED_TIME_OF_DAY}")
 
-# RFC 1918 private address ranges â€” returning one of these as a "public" IP
+# RFC 1918 private address ranges — returning one of these as a "public" IP
 # would let sandbox-aware malware detect the private network.
 _RFC1918_NETWORKS = (
     ipaddress.ip_network("10.0.0.0/8"),
@@ -335,116 +143,20 @@ def _validate_spoof_ip(raw: str, context: str = "") -> str:
         addr = ipaddress.ip_address(raw)
     except ValueError:
         logger.error(
-            "Invalid spoof_public_ip '%s' in %s config â€” must be a valid IPv4/IPv6 address; "
+            "Invalid spoof_public_ip '%s' in %s config — must be a valid IPv4/IPv6 address; "
             "IP spoofing disabled.", raw, context or "http"
         )
         return ""
     if any(addr in net for net in _RFC1918_NETWORKS):
         logger.warning(
-            "spoof_public_ip '%s' (%s) is a private/loopback address â€” "
+            "spoof_public_ip '%s' (%s) is a private/loopback address — "
             "sandbox detection tools may still flag this as non-internet traffic.",
             raw, context or "http"
         )
     return raw
 
 
-# â”€â”€ IP-check response formatters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# Pure functions: (ip, path) â†’ (body, content_type, extra_headers | None).
-# Used by FakeHTTPHandler._send_ip_check_response via _IP_CHECK_FORMATTERS.
-
-_COMCAST_GEO = {
-    "status": "success",
-    "country": "United States",
-    "countryCode": "US",
-    "region": "OH",
-    "regionName": "Ohio",
-    "city": "Columbus",
-    "zip": "43215",
-    "lat": "39.9612",
-    "lon": "-82.9988",
-    "timezone": "America/New_York",
-    "isp": "Comcast Cable Communications",
-    "org": "Comcast Cable Communications",
-    "as": "AS7922 Comcast Cable Communications, LLC",
-    "hosting": "false",
-    "proxy": "false",
-    "mobile": "false",
-}
-
-_IpCheckResult = tuple[bytes, str, "dict[str, str] | None"]
-
-
-def _fmt_ipinfo(ip: str, _path: str) -> _IpCheckResult:
-    body = (
-        f'{{"ip":"{ip}",'
-        f'"city":"Columbus","region":"Ohio","country":"US",'
-        f'"loc":"39.9612,-82.9988",'
-        f'"org":"AS7922 Comcast Cable Communications, LLC",'
-        f'"postal":"43215","timezone":"America/New_York"}}\n'
-    ).encode()
-    return body, _CT_JSON, None
-
-
-def _fmt_ip_api(ip: str, path: str) -> _IpCheckResult:
-    extra: dict[str, str] = {
-        "Server": "nginx",
-        "Access-Control-Allow-Origin": "*",
-        "X-Ttl": "60",
-        "X-Rl": "44",
-    }
-    _path_base = path.split("?")[0].rstrip("/")
-    if _path_base == "/line" or _path_base.startswith("/line/"):
-        _qs = parse_qs(urlparse(path).query)
-        _fields = [f.strip() for f in _qs.get("fields", ["query"])[0].split(",")]
-        _field_map = {**_COMCAST_GEO, "query": ip}
-        body = "\n".join(_field_map.get(f, "") for f in _fields).encode() + b"\n"
-        return body, "text/plain; charset=utf-8", extra
-    if _path_base == "/csv" or _path_base.startswith("/csv/") or "fields=csv" in path:
-        _csv = (
-            f"success,United States,US,OH,Ohio,Columbus,43215,"
-            f"39.9612,-82.9988,America/New_York,"
-            f"Comcast Cable Communications,"
-            f"Comcast Cable Communications,"
-            f"AS7922 Comcast Cable Communications LLC,"
-            f"false,false,false,{ip}\n"
-        )
-        return _csv.encode(), "text/csv", extra
-    body = (
-        f'{{"status":"success","country":"United States",'
-        f'"countryCode":"US","region":"OH","regionName":"Ohio",'
-        f'"city":"Columbus","zip":"43215",'
-        f'"lat":39.9612,"lon":-82.9988,'
-        f'"timezone":"America/New_York",'
-        f'"isp":"Comcast Cable Communications",'
-        f'"org":"Comcast Cable Communications",'
-        f'"as":"AS7922 Comcast Cable Communications, LLC",'
-        f'"hosting":false,"proxy":false,"mobile":false,'
-        f'"query":"{ip}"}}\n'
-    ).encode()
-    return body, _CT_JSON, extra
-
-
-def _fmt_httpbin(ip: str, _path: str) -> _IpCheckResult:
-    return f'{{"origin":"{ip}"}}\n'.encode(), _CT_JSON, None
-
-
-def _fmt_checkip_aws(ip: str, _path: str) -> _IpCheckResult:
-    body = (
-        f"<html><head><title>Current IP Check</title></head>"
-        f"<body>Current IP Address: {ip}</body></html>\n"
-    ).encode()
-    return body, _CT_HTML, None
-
-
-_IP_CHECK_FORMATTERS: dict[str, object] = {
-    "ipinfo.io": _fmt_ipinfo,
-    "ip-api.com": _fmt_ip_api,
-    "httpbin.org": _fmt_httpbin,
-    "checkip.amazonaws.com": _fmt_checkip_aws,
-}
-
-
-def _load_response_body(config: dict) -> str:
+def _load_response_body(config: dict[str, Any]) -> str:
     """
     Resolve the HTTP response body from config.
     If 'response_body_file' is set, load the file contents (relative to the
@@ -462,7 +174,7 @@ def _load_response_body(config: dict) -> str:
                 "falling back to response_body string.",
                 file_path,
             )
-            return config.get("response_body", _DEFAULT_BODY)
+            return str(config.get("response_body", _DEFAULT_BODY))
         try:
             size = os.path.getsize(abs_path)
             if size > _MAX_BODY_FILE_SIZE:
@@ -477,7 +189,7 @@ def _load_response_body(config: dict) -> str:
         except OSError as exc:
             logger.warning("response_body_file '%s' could not be read: %s; "
                            "falling back to response_body string.", abs_path, exc)
-    return config.get("response_body", _DEFAULT_BODY)
+    return str(config.get("response_body", _DEFAULT_BODY))
 
 
 @dataclass(frozen=True)
@@ -491,11 +203,11 @@ class _HandlerConfig:
     delay_ms: int = 0
     delay_jitter_ms: int = 0
     dynamic_responses: bool = False
-    custom_rules: list = field(default_factory=list)
+    custom_rules: list[CompiledRule] = field(default_factory=list)
     doh_enabled: bool = False
     doh_redirect_ip: str = "127.0.0.1"
     websocket_intercept: bool = False
-    pool_ips: frozenset = field(default_factory=frozenset)
+    pool_ips: frozenset[str] = field(default_factory=frozenset)
     exfil_log_dir: str = "logs/exfil"
 
 
@@ -503,7 +215,7 @@ def _build_handler_config(
     response_code: int, response_body: str, server_header: str,
     log_requests: bool, spoof_ip: str = "", delay_ms: int = 0,
     delay_jitter_ms: int = 0,
-    dynamic_responses: bool = False, custom_rules: list | None = None,
+    dynamic_responses: bool = False, custom_rules: list[dict[str, Any]] | None = None,
     doh_enabled: bool = False, doh_redirect_ip: str = "127.0.0.1",
     websocket_intercept: bool = False,
     pool_ips: frozenset[str] = frozenset(),
@@ -528,6 +240,9 @@ def _build_handler_config(
     )
 
 
+# (handler, host) -> bool. Predicates decide; route handlers return True if they responded.
+_RouteFn = Callable[["FakeHTTPHandler", str], bool]
+
 class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
     """HTTP request handler — reads config from the owning server instance."""
 
@@ -538,16 +253,13 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = ""
 
-    def send_response(self, code, message=None):
+    def send_response(self, code: int, message: str | None = None) -> None:
         """Override to suppress Python's auto-injected Server header."""
         if message is None:
-            if code in self.responses:
-                message = self.responses[code][0]
-            else:
-                message = ""
+            message = self.responses[code][0] if code in self.responses else ""
         if self.request_version != "HTTP/0.9":
             if not hasattr(self, "_headers_buffer"):
-                self._headers_buffer = []  # type: ignore[misc]
+                self._headers_buffer = []
             self._headers_buffer.append(
                 f"{self.protocol_version} {code} {message}\r\n"
                 .encode("latin-1", "strict")
@@ -555,10 +267,10 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         self.log_request(code)
         self.send_header("Date", self.date_time_string())
 
-    def log_message(self, fmt, *args):  # type: ignore[override]
+    def log_message(self, _format: str, *_args: Any) -> None:
         pass  # suppress default stderr logging
 
-    def _send_ip_check_response(self, host: str):
+    def _send_ip_check_response(self, host: str) -> None:
         """Return the spoofed public IP for known IP-check services."""
         path = self.path or "/"
         ip = self._cfg.spoof_ip or "203.0.113.1"
@@ -653,16 +365,16 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
             return self._handle_apple_captive(path)
 
         return False
-    def _send_ncsi_response(self, host: str):
+    def _send_ncsi_response(self, host: str) -> None:
         """Return the exact response Windows NCSI expects.
 
         Windows polls these hosts to determine whether to show the
         'Internet access' indicator. When the response body matches
-        exactly, Windows reports full connectivity â€” which prevents
+        exactly, Windows reports full connectivity — which prevents
         certain malware from stalling in a 'no network' idle loop.
         """
         path = (self.path or "/").split("?")[0]
-        # www.msftconnecttest.com/redirect should return HTTP 302 â†’ HTTPS.
+        # www.msftconnecttest.com/redirect should return HTTP 302 → HTTPS.
         # Returning 200+body here triggers mismatches in NCSI validator
         # tools and is a detectable fingerprint for savvy malware.
         if path == "/redirect":
@@ -704,7 +416,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         except OSError:
             pass
 
-    def _send_pki_response(self, host: str):
+    def _send_pki_response(self, host: str) -> None:
         """Return stub CRL/OCSP/CTL binary responses for Windows PKI hosts."""
         path = self.path or "/"
         if self._cfg.log_requests:
@@ -729,65 +441,65 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         except OSError:
             pass
 
-    def _handle_doh_request(self):
+    def _handle_doh_request(self) -> None:
         """Handle a DNS-over-HTTPS (DoH) request and return a DNS response."""
         if not route_doh(self, _MAX_BODY_FILE_SIZE):
             # Couldn't parse DoH — fall through to normal response
             self._send_normal_response()
 
-    def _handle_websocket_upgrade(self):
+    def _handle_websocket_upgrade(self) -> None:
         """Complete a WebSocket handshake then send a close frame."""
         if not route_websocket_upgrade(self):
             self._send_normal_response()
 
-    # â”€â”€ Route registry â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Route registry ────────────────────────────────────────────────
     # Each entry: (predicate(self, host) -> bool, handler(self, host) -> bool|None).
     # Handler returns True (or None) if it consumed the request, False to
     # fall through. Evaluated in priority order; first match wins.
-    _ROUTES: list[tuple] = []  # populated after class body
+    _ROUTES: list[tuple[_RouteFn, _RouteFn]] = []  # populated after class body
 
-    def _route_doh(self, _host: str):
+    def _route_doh(self, _host: str) -> bool:
         ct = self.headers.get("Content-Type", "")
         if is_doh_request(ct, self.path):
             self._handle_doh_request()
             return True
         return False
 
-    def _route_websocket(self, _host: str):
+    def _route_websocket(self, _host: str) -> bool:
         hdrs = {k: self.headers.get(k, "") for k in ("Connection", "Upgrade", "Sec-WebSocket-Key")}
         if is_websocket_upgrade(hdrs):
             self._handle_websocket_upgrade()
             return True
         return False
 
-    def _route_ncsi(self, host: str):
+    def _route_ncsi(self, host: str) -> bool:
         self._send_ncsi_response(host)
         return True
 
-    def _route_captive(self, host: str):
+    def _route_captive(self, host: str) -> bool:
         return self._send_captive_portal_response(host)
 
-    def _route_pki(self, host: str):
+    def _route_pki(self, host: str) -> bool:
         self._send_pki_response(host)
         return True
 
-    def _route_ip_check(self, host: str):
+    def _route_ip_check(self, host: str) -> bool:
         self._send_ip_check_response(host)
         return True
 
-    def _route_telegram(self, _host: str):
+    def _route_telegram(self, _host: str) -> bool:
         return route_telegram(self, _MAX_BODY_FILE_SIZE, _CT_JSON)
 
     # ── Discord webhook route ─────────────────────────────────────────────
-    def _route_discord(self, _host: str):
+    def _route_discord(self, _host: str) -> bool:
         return route_discord(self, _MAX_BODY_FILE_SIZE, _CT_JSON)
 
     # ── Pastebin / paste dead-drop route ──────────────────────────────────
-    def _route_paste(self, host: str):
+    def _route_paste(self, host: str) -> bool:
         return route_dead_drop_ip(self, "paste_dead_drop", host, "nginx")
 
     # ── Slack webhook route ───────────────────────────────────────────────
-    def _route_slack(self, _host: str):
+    def _route_slack(self, _host: str) -> bool:
         return route_simple_text(
             self,
             event_name="slack_c2",
@@ -798,7 +510,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         )
 
     # ── Teams webhook route ───────────────────────────────────────────────
-    def _route_teams(self, _host: str):
+    def _route_teams(self, _host: str) -> bool:
         return route_simple_text(
             self,
             event_name="teams_c2",
@@ -809,34 +521,34 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         )
 
     # ── GitHub raw content route ──────────────────────────────────────────
-    def _route_github_raw(self, host: str):
+    def _route_github_raw(self, host: str) -> bool:
         return route_dead_drop_ip(self, "github_dead_drop", host, "github.com")
 
     # ── File-hosting / payload-staging route ───────────────────────────────
-    def _route_file_hosting(self, host: str):
+    def _route_file_hosting(self, host: str) -> bool:
         return route_file_hosting(self, host)
 
     # ── Google Docs/Drive route ───────────────────────────────────────────
-    def _route_google_content(self, host: str):
+    def _route_google_content(self, host: str) -> bool:
         return route_google_content(self, host)
 
     # ── Cloud exfiltration routes ─────────────────────────────────────────
-    def _route_aws_s3(self, host: str):
+    def _route_aws_s3(self, host: str) -> bool:
         return route_aws_s3(self, host)
 
-    def _route_azure_blob(self, host: str):
+    def _route_azure_blob(self, host: str) -> bool:
         return route_azure_blob(self, host)
 
-    def _route_graph_onedrive(self, _host: str):
+    def _route_graph_onedrive(self, _host: str) -> bool:
         return route_graph_onedrive(self)
 
-    def _route_dropbox(self, _host: str):
+    def _route_dropbox(self, _host: str) -> bool:
         return route_dropbox(self)
 
-    def _route_gdrive_upload(self, host: str):
+    def _route_gdrive_upload(self, host: str) -> bool:
         return route_gdrive_upload(self)
 
-    def _send_fake_response(self):
+    def _send_fake_response(self) -> None:
         host = self.headers.get("Host", "").split(":")[0].strip().lower()
 
         # Skip artificial delay for OS connectivity probes.
@@ -856,7 +568,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
                 return
         self._send_normal_response()
 
-    def _send_normal_response(self):
+    def _send_normal_response(self) -> None:
         if self._cfg.log_requests:
             safe_path = sanitize_log_string(self.path, max_length=256)
             safe_addr = sanitize_ip(self.client_address[0])
@@ -894,28 +606,28 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Server", self._cfg.server_header)
             self.send_header("Accept-Ranges", "bytes")
             self.send_header("Vary", "Accept-Encoding")
-            # ETag varies per path â€” a single static value for every URL is
+            # ETag varies per path — a single static value for every URL is
             # a detectable fingerprint (real servers use inode/mtime/size).
-            _path_etag = hashlib.md5(  # noqa: S324  # nosec B324 â€” not crypto
+            _path_etag = hashlib.md5(  # noqa: S324  # nosec B324 — not crypto
                 (self.path or "/").encode(), usedforsecurity=False
             ).hexdigest()[:13]
             self.send_header("ETag", f'"3a4b1c-{_path_etag}"')
             self.send_header("Last-Modified", _SERVER_LAST_MODIFIED)
             self.send_header("Connection", "keep-alive")
             self.end_headers()
-            # HEAD requests MUST NOT include a message body (RFC 7231 Â§4.3.2).
+            # HEAD requests MUST NOT include a message body (RFC 7231 §4.3.2).
             # send_response() / send_header() still ran, so headers are correct.
             if self.command != "HEAD":
                 self.wfile.write(body)
         except OSError:
-            pass  # Client disconnected â€” normal for malware scanners
+            pass  # Client disconnected — normal for malware scanners
 
-    def _send_connect_response(self):
+    def _send_connect_response(self) -> None:
         """Handle HTTP CONNECT tunnel request.
 
         Malware configured to route traffic via an HTTP proxy sends
         CONNECT to tunnel to its C2 (typically port 443).  Returning
-        a proper 200 response â€” rather than an HTML page â€” lets the
+        a proper 200 response — rather than an HTML page — lets the
         malware believe the tunnel was established; the subsequent TLS
         handshake fails (no real upstream), but the connection is logged
         and the client closes cleanly instead of seeing garbled HTML.
@@ -947,17 +659,17 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         do_OPTIONS = do_PATCH = do_TRACE = _send_fake_response
     do_CONNECT = _send_connect_response
 
-    # First line of the HTTP/2 client connection preface (RFC 7540 Â§3.5).
+    # First line of the HTTP/2 client connection preface (RFC 7540 §3.5).
     _HTTP2_PREFACE_LINE = b"PRI * HTTP/2.0"
 
-    def _handle_http2_goaway(self):
+    def _handle_http2_goaway(self) -> None:
         """
         Respond to an HTTP/2 connection preface with a server SETTINGS
         frame followed by GOAWAY(HTTP_1_1_REQUIRED).
 
-        RFC 7540 Â§3.5  â€” the server sends its own connection preface
+        RFC 7540 §3.5  — the server sends its own connection preface
                          (a SETTINGS frame) before any other frame.
-        RFC 7540 Â§6.8  â€” GOAWAY carries the last processed stream ID
+        RFC 7540 §6.8  — GOAWAY carries the last processed stream ID
                          and an error code.
         Error 0x0D (HTTP_1_1_REQUIRED) tells the client to retry the
         request using HTTP/1.1 rather than h2.  Well-behaved HTTP/2
@@ -970,7 +682,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         except OSError:
             return
         try:
-            # Empty SETTINGS frame â€” server connection preface (RFC 7540 Â§6.5)
+            # Empty SETTINGS frame — server connection preface (RFC 7540 §6.5)
             settings_frame = (
                 b"\x00\x00\x00"       # payload length: 0
                 b"\x04"               # frame type: SETTINGS
@@ -991,28 +703,28 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
         except OSError:
             pass
 
-    def handle_one_request(self):
+    def handle_one_request(self) -> None:
         try:
             # Read the request line ourselves so we can inspect it before
-            # parse_request() sees it â€” needed for HTTP/2 preface detection.
-            self.raw_requestline = self.rfile.readline(65537)  # type: ignore[misc]
+            # parse_request() sees it — needed for HTTP/2 preface detection.
+            self.raw_requestline = self.rfile.readline(65537)
             if not self.raw_requestline:
-                self.close_connection = True  # type: ignore[misc]
+                self.close_connection = True
                 return
             if len(self.raw_requestline) > 65536:
-                self.requestline = ""  # type: ignore[misc]
-                self.request_version = ""  # type: ignore[misc]
-                self.command = ""  # type: ignore[misc]
+                self.requestline = ""
+                self.request_version = ""
+                self.command = ""
                 self.send_error(414)
-                self.close_connection = True  # type: ignore[misc]
+                self.close_connection = True
                 return
-            # HTTP/2 connection preface (RFC 7540 Â§3.5): respond with
+            # HTTP/2 connection preface (RFC 7540 §3.5): respond with
             # SETTINGS + GOAWAY(HTTP_1_1_REQUIRED) and close.
             if self.raw_requestline.startswith(self._HTTP2_PREFACE_LINE):
                 safe_addr = sanitize_ip(self.client_address[0])
                 logger.debug("HTTP2 preface from %s -> GOAWAY(HTTP_1_1_REQUIRED)", safe_addr)
                 self._handle_http2_goaway()
-                self.close_connection = True  # type: ignore[misc]
+                self.close_connection = True
                 return
             if not self.parse_request():
                 return
@@ -1033,7 +745,7 @@ class FakeHTTPHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.flush()
         except Exception as e:  # noqa: BLE001
             logger.debug("HTTP handler error (benign): %s", e)
-            self.close_connection = True  # type: ignore[misc]
+            self.close_connection = True
 
 
 # Populate route registry after class body so method refs are valid.
@@ -1049,7 +761,7 @@ FakeHTTPHandler._ROUTES = [  # noqa: SLF001
     (lambda s, h: h in _DISCORD_HOSTS,                          FakeHTTPHandler._route_discord),        # noqa: SLF001
     (lambda s, h: h in _PASTE_HOSTS,                            FakeHTTPHandler._route_paste),          # noqa: SLF001
     (lambda s, h: h == _SLACK_HOST,                             FakeHTTPHandler._route_slack),          # noqa: SLF001
-    (lambda s, h: h in _TEAMS_HOSTS or _TEAMS_WEBHOOK_RE.search(h),
+    (lambda s, h: h in _TEAMS_HOSTS or bool(_TEAMS_WEBHOOK_RE.search(h)),
                                                                 FakeHTTPHandler._route_teams),          # noqa: SLF001
     (lambda s, h: h in _GITHUB_RAW_HOSTS,                       FakeHTTPHandler._route_github_raw),     # noqa: SLF001
     (lambda s, h: h in _FILE_HOSTING_HOSTS,                     FakeHTTPHandler._route_file_hosting),   # noqa: SLF001
@@ -1070,24 +782,27 @@ class _ThreadedServer(socketserver.ThreadingTCPServer):
     daemon_threads = True
     _handler_cfg: _HandlerConfig = _HandlerConfig()
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         self._pool = ThreadPoolExecutor(max_workers=_MAX_WORKER_THREADS)
         super().__init__(*args, **kwargs)
 
-    def process_request(self, request, client_address):
+    # TCP-only server: request is always a socket, narrower than the stdlib stub.
+    def process_request(  # type: ignore[override]
+        self, request: socket.socket, client_address: tuple[str, int],
+    ) -> None:
         self._pool.submit(self.process_request_thread, request, client_address)
 
-    def process_request_thread(self, request, client_address):
+    def process_request_thread(  # type: ignore[override]
+        self, request: socket.socket, client_address: tuple[str, int],
+    ) -> None:
         # Set a read timeout before handing the socket to the handler.
         # Without this, a client that negotiates h2 via ALPN but never sends
         # the connection preface holds a pool worker indefinitely.
-        try:
+        with contextlib.suppress(OSError):
             request.settimeout(30)
-        except OSError:
-            pass
         super().process_request_thread(request, client_address)
 
-    def server_close(self):
+    def server_close(self) -> None:
         self._pool.shutdown(wait=False)
         super().server_close()
 
@@ -1095,7 +810,7 @@ class _ThreadedServer(socketserver.ThreadingTCPServer):
 class HTTPService:
     """Fake HTTP server that returns a canned response to everything."""
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 80))
         self.bind_ip = bind_ip
@@ -1148,10 +863,8 @@ class HTTPService:
 
     def stop(self) -> None:
         if self._server:
-            try:
+            with contextlib.suppress(OSError):
                 self._server.socket.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
             self._server.shutdown()
             self._server.server_close()
             self._server = None
@@ -1165,7 +878,7 @@ class HTTPService:
 class HTTPSService:
     """Fake HTTPS server with hardened TLS configuration."""
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 443))
         self.bind_ip = bind_ip
@@ -1209,7 +922,7 @@ class HTTPSService:
             | ssl.OP_SINGLE_ECDH_USE
         )
         ctx.set_ciphers(_SECURE_CIPHERS)
-        # Advertise h2 + http/1.1 via ALPN â€” matches real Apache 2.4.x ServerHello.
+        # Advertise h2 + http/1.1 via ALPN — matches real Apache 2.4.x ServerHello.
         # When h2 is negotiated the handler detects the connection preface and
         # sends GOAWAY(HTTP_1_1_REQUIRED) so the client retries on HTTP/1.1.
         ctx.set_alpn_protocols(["h2", "http/1.1"])
@@ -1247,7 +960,7 @@ class HTTPSService:
             ssl_ctx = self._build_ssl_context()
             if self.dynamic_certs:
                 from utils.cert_utils import DynamicCertCache
-                self._cert_cache = DynamicCertCache(  # type: ignore[misc]
+                self._cert_cache = DynamicCertCache(
                     self.cert_file, self.key_file
                 )
                 ssl_ctx.sni_callback = self._cert_cache.sni_callback
@@ -1274,10 +987,8 @@ class HTTPSService:
 
     def stop(self) -> None:
         if self._server:
-            try:
+            with contextlib.suppress(OSError):
                 self._server.socket.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
             self._server.shutdown()
             self._server.server_close()
             self._server = None

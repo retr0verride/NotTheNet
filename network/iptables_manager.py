@@ -1,5 +1,4 @@
-"""
-NotTheNet - iptables / nftables Rule Manager
+"""NotTheNet - iptables / nftables Rule Manager
 Redirects all outbound traffic from monitored processes to local fake services.
 
 Why this avoids INetSim / FakeNet-NG DNS problems:
@@ -18,398 +17,40 @@ Security notes (OpenSSF):
 
 from __future__ import annotations
 
-import atexit
 import logging
 import os
-import select
-import shutil
-import socket
-import struct
-import subprocess
-import threading
-from collections.abc import Callable
+from typing import Any
 
+from network.host_state import (
+    _PROC_NET_DEV,
+    _promisc_restore,
+    _read_ip_forward,
+    _read_promisc,
+    _restore_filter_snapshot,
+    _restore_mangle_snapshot,
+    _restore_nat_snapshot,
+    _run,
+    _save_filter_snapshot,
+    _save_mangle_snapshot,
+    _save_nat_snapshot,
+    _set_promisc,
+    _write_ip_forward,
+)
+from network.iface_watcher import (
+    _NetlinkInterfaceWatcher,
+)
 from utils.logging_utils import sanitize_log_string
-from utils.validators import validate_port
+from utils.validators import validate_ip, validate_port
 
 logger = logging.getLogger(__name__)
 
+
 _RULE_COMMENT = "NOTTHENET"
-_PROC_NET_DEV = "/proc/net/dev"
-
-# Store snapshots in the project's logs/ directory instead of /tmp/ to prevent
-# symlink races on shared systems (CWE-59).  The logs/ directory is app-owned
-# and already exists by the time iptables rules are applied.
-_SNAPSHOT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
-_IPTABLES_SAVE_FILE = os.path.join(_SNAPSHOT_DIR, ".iptables_save.rules")
-_MANGLE_SAVE_FILE = os.path.join(_SNAPSHOT_DIR, ".mangle_save.rules")
-_FILTER_SAVE_FILE = os.path.join(_SNAPSHOT_DIR, ".filter_save.rules")
-
-# Tracks interfaces whose promisc state was changed at start so atexit can
-# restore them if remove_rules() is never called (crash / SIGABRT).
-# Maps {iface_name: original_bool}.
-_promisc_restore: dict[str, bool] = {}
-
-
-def _atexit_restore_snapshots() -> None:
-    """Last-resort iptables cleanup when the process exits without a clean shutdown.
-
-    If snapshot files still exist at exit, the normal remove_rules() path
-    was never called (e.g. unhandled exception, SIGABRT).  Restore them
-    now so the lab doesn't keep stale NAT redirects pointing at dead ports.
-    SIGKILL cannot be caught — the systemd ExecStopPost handles that case.
-    """
-    for table, path in [("nat", _IPTABLES_SAVE_FILE),
-                        ("mangle", _MANGLE_SAVE_FILE),
-                        ("filter", _FILTER_SAVE_FILE)]:
-        if os.path.exists(path) and shutil.which("iptables-restore"):
-            _run(["iptables", "-t", table, "-F"])
-            code, _, err = _run(["iptables-restore", path])
-            if code == 0:
-                logger.info("atexit: %s table restored from snapshot.", table)
-                try:
-                    os.unlink(path)
-                except OSError:
-                    pass
-            else:
-                logger.error("atexit: %s restore failed: %s", table, err)
-
-    # Restore any promiscuous-mode state that remove_rules() didn't clean up.
-    _atexit_restore_promisc()
-
-
-def _atexit_restore_promisc() -> None:
-    """Restore promisc state for any interfaces changed at start but not yet restored."""
-    for iface, was_on in _promisc_restore.items():
-        if _set_promisc(iface, was_on):
-            logger.info("atexit: promisc restored to %s on %s.", "on" if was_on else "off", iface)
-    _promisc_restore.clear()
-
-
-atexit.register(_atexit_restore_snapshots)
-
-
-def _run(args: list[str]) -> tuple[int, str, str]:
-    """
-    Run a subprocess command safely (no shell=True).
-    Returns (returncode, stdout, stderr).
-    """
-    try:
-        result = subprocess.run(
-            args,
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,  # returncode handled by callers
-            shell=False,  # NEVER shell=True — prevents injection
-        )
-        return result.returncode, result.stdout, result.stderr
-    except subprocess.TimeoutExpired:
-        logger.error("Command timed out: %s", args[0])
-        return 1, "", "timeout"
-    except FileNotFoundError:
-        logger.error("Command not found: %s", args[0])
-        return 127, "", "not found"
 
 
 def _iptables_available() -> bool:
     code, _, _ = _run(["iptables", "--version"])
     return code == 0
-
-
-def _save_nat_snapshot() -> bool:
-    """Snapshot the current nat table so it can be fully restored on stop."""
-    if not shutil.which("iptables-save"):
-        return False
-    code, out, _ = _run(["iptables-save", "-t", "nat"])
-    if code == 0:
-        try:
-            # Use os.open with O_CREAT|O_WRONLY|O_TRUNC and mode 0o600 in a
-            # single atomic call to avoid the TOCTOU race between open() and
-            # a subsequent chmod().  This prevents another process from opening
-            # the file in the window between creation and permission tightening.
-            fd = os.open(
-                _IPTABLES_SAVE_FILE,
-                os.O_CREAT | os.O_WRONLY | os.O_TRUNC,
-                0o600,
-            )
-            try:
-                os.write(fd, out.encode())
-            finally:
-                os.close(fd)
-            logger.debug("nat table snapshot saved to %s", _IPTABLES_SAVE_FILE)
-            return True
-        except OSError as e:
-            logger.error("Failed to save nat snapshot: %s", e)
-    return False
-
-
-def _restore_nat_snapshot() -> bool:
-    """Flush the nat table and restore the pre-start snapshot."""
-    if not os.path.exists(_IPTABLES_SAVE_FILE):
-        return False
-    if not shutil.which("iptables-restore"):
-        return False
-    # Flush first so no stale rules survive a partial restore
-    _run(["iptables", "-t", "nat", "-F"])
-    code, _, err = _run(["iptables-restore", _IPTABLES_SAVE_FILE])
-    if code == 0:
-        logger.info("nat table restored from pre-start snapshot.")
-        try:
-            os.unlink(_IPTABLES_SAVE_FILE)
-        except OSError:
-            logger.debug("NAT snapshot cleanup failed", exc_info=True)
-        return True
-    logger.error("iptables-restore failed: %s", err)
-    return False
-
-
-def _save_mangle_snapshot() -> bool:
-    """Snapshot the current mangle table before applying TTL rules."""
-    if not shutil.which("iptables-save"):
-        return False
-    code, out, _ = _run(["iptables-save", "-t", "mangle"])
-    if code == 0:
-        try:
-            fd = os.open(
-                _MANGLE_SAVE_FILE,
-                os.O_CREAT | os.O_WRONLY | os.O_TRUNC,
-                0o600,
-            )
-            try:
-                os.write(fd, out.encode())
-            finally:
-                os.close(fd)
-            logger.debug("mangle table snapshot saved to %s", _MANGLE_SAVE_FILE)
-            return True
-        except OSError as e:
-            logger.error("Failed to save mangle snapshot: %s", e)
-    return False
-
-
-def _restore_mangle_snapshot() -> bool:
-    """Restore the mangle table from its pre-start snapshot."""
-    if not os.path.exists(_MANGLE_SAVE_FILE):
-        return False
-    if not shutil.which("iptables-restore"):
-        return False
-    _run(["iptables", "-t", "mangle", "-F"])
-    code, _, err = _run(["iptables-restore", _MANGLE_SAVE_FILE])
-    if code == 0:
-        logger.info("mangle table restored from pre-start snapshot.")
-        try:
-            os.unlink(_MANGLE_SAVE_FILE)
-        except OSError:
-            logger.debug("Mangle snapshot cleanup failed", exc_info=True)
-        return True
-    logger.error("mangle restore failed: %s", err)
-    return False
-
-
-def _save_filter_snapshot() -> bool:
-    """Snapshot the current filter table before harden-lab rules are applied."""
-    if not shutil.which("iptables-save"):
-        return False
-    code, out, _ = _run(["iptables-save", "-t", "filter"])
-    if code == 0:
-        try:
-            fd = os.open(
-                _FILTER_SAVE_FILE,
-                os.O_CREAT | os.O_WRONLY | os.O_TRUNC,
-                0o600,
-            )
-            try:
-                os.write(fd, out.encode())
-            finally:
-                os.close(fd)
-            logger.debug("filter table snapshot saved to %s", _FILTER_SAVE_FILE)
-            return True
-        except OSError as e:
-            logger.error("Failed to save filter snapshot: %s", e)
-    return False
-
-
-def _restore_filter_snapshot() -> bool:
-    """Restore the filter table from its pre-start snapshot."""
-    if not os.path.exists(_FILTER_SAVE_FILE):
-        return False
-    if not shutil.which("iptables-restore"):
-        return False
-    _run(["iptables", "-t", "filter", "-F"])
-    code, _, err = _run(["iptables-restore", _FILTER_SAVE_FILE])
-    if code == 0:
-        logger.info("filter table restored from pre-start snapshot.")
-        try:
-            os.unlink(_FILTER_SAVE_FILE)
-        except OSError:
-            logger.debug("Filter snapshot cleanup failed", exc_info=True)
-        return True
-    logger.error("filter restore failed: %s", err)
-    return False
-
-
-_IP_FORWARD_PATH = "/proc/sys/net/ipv4/ip_forward"
-
-
-def _read_ip_forward() -> str | None:
-    try:
-        with open(_IP_FORWARD_PATH, encoding="utf-8") as f:
-            return f.read().strip()
-    except OSError:
-        return None
-
-
-def _write_ip_forward(value: str) -> bool:
-    try:
-        with open(_IP_FORWARD_PATH, "w", encoding="utf-8") as f:
-            f.write(value + "\n")
-        return True
-    except OSError as e:
-        logger.warning("Could not write ip_forward: %s", e)
-        return False
-
-
-def _read_promisc(iface: str) -> bool | None:
-    """Return current promiscuous-mode state for *iface*, or None on error.
-
-    Reads the IFF_PROMISC bit (0x100) from /sys/class/net/<iface>/flags.
-    Only meaningful on Linux; returns None on non-Linux hosts.
-    """
-    try:
-        with open(f"/sys/class/net/{iface}/flags", encoding="utf-8") as f:
-            flags = int(f.read().strip(), 16)
-        return bool(flags & 0x100)
-    except OSError:
-        return None
-
-
-def _set_promisc(iface: str, enabled: bool) -> bool:
-    """Enable or disable promiscuous mode on *iface* via `ip link set`.
-
-    Returns True on success.  Uses the `ip` command (no shell=True).
-    """
-    state = "on" if enabled else "off"
-    code, _, err = _run(["ip", "link", "set", iface, "promisc", state])
-    if code == 0:
-        return True
-    logger.warning("Could not set promisc %s on %s: %s", state, iface, err.strip())
-    return False
-
-
-class _NetlinkInterfaceWatcher:
-    """Watches for new IPv4 addresses via RTNETLINK and applies pivot DROP rules.
-
-    Opens an AF_NETLINK/NETLINK_ROUTE socket subscribed to the
-    RTMGRP_IPV4_IFADDR multicast group.  On each RTM_NEWADDR event it
-    resolves the interface index to a name and calls back to
-    ``_block_pivot_iface`` on ``IPTablesManager`` so that a bridge coming up
-    *after* NTN starts (e.g. vmbr2 in Proxmox) is locked out immediately.
-
-    Pure stdlib — no external dependencies.  Linux only; start() is a no-op
-    on non-Linux hosts.
-    """
-
-    _RTMGRP_IPV4_IFADDR: int = 0x10
-    _RTM_NEWADDR: int = 20
-    # Linux socket constants — defined here so Pylance (Windows) does not flag
-    # them as missing.  Values are stable across all Linux kernel versions.
-    _AF_NETLINK: int = 16    # socket.AF_NETLINK on Linux
-    _NETLINK_ROUTE: int = 0  # socket.NETLINK_ROUTE on Linux
-    # nlmsghdr: __u32 nlmsg_len, __u16 nlmsg_type, __u16 nlmsg_flags,
-    #           __u32 nlmsg_seq, __u32 nlmsg_pid  (total 16 bytes, LE)
-    _NL_HDR: struct.Struct = struct.Struct("<IHHII")
-    # ifaddrmsg: __u8 ifa_family, __u8 ifa_prefixlen, __u8 ifa_flags,
-    #            __u8 ifa_scope, __u32 ifa_index  (total 8 bytes)
-    _IFADDR_MSG: struct.Struct = struct.Struct("<BBBBI")
-
-    def __init__(
-        self,
-        bridge: str,
-        block_fn: Callable[[str], bool],
-    ) -> None:
-        self._bridge = bridge
-        self._block_fn = block_fn
-        self._stop = threading.Event()
-        self._thread: threading.Thread | None = None
-        self._sock: socket.socket | None = None
-
-    def start(self) -> None:
-        """Start the watcher thread.  No-op on non-Linux hosts."""
-        if not os.path.exists(_PROC_NET_DEV):
-            logger.debug("NetlinkInterfaceWatcher: not Linux; watcher disabled.")
-            return
-        self._thread = threading.Thread(
-            target=self._run, daemon=True, name="ntn-iface-watcher"
-        )
-        self._thread.start()
-        logger.debug("NetlinkInterfaceWatcher: started.")
-
-    def stop(self) -> None:
-        """Signal the watcher thread to exit and wait for it."""
-        self._stop.set()
-        if self._sock is not None:
-            try:
-                self._sock.close()
-            except OSError:
-                pass
-        if self._thread is not None:
-            self._thread.join(timeout=2.0)
-            self._thread = None
-        logger.debug("NetlinkInterfaceWatcher: stopped.")
-
-    def _run(self) -> None:
-        try:
-            self._sock = socket.socket(
-                self._AF_NETLINK,
-                socket.SOCK_RAW,
-                self._NETLINK_ROUTE,
-            )
-            self._sock.bind((0, self._RTMGRP_IPV4_IFADDR))
-        except OSError as exc:
-            logger.warning("NetlinkInterfaceWatcher: socket error: %s", exc)
-            return
-
-        while not self._stop.is_set():
-            try:
-                ready, _, _ = select.select([self._sock], [], [], 1.0)
-                if not ready:
-                    continue
-                data = self._sock.recv(8192)
-                self._handle(data)
-            except OSError:
-                break
-
-    def _handle(self, data: bytes) -> None:
-        """Parse one or more netlink messages from *data*."""
-        offset = 0
-        hdr_size = self._NL_HDR.size
-        msg_size = self._IFADDR_MSG.size
-        while offset + hdr_size <= len(data):
-            nl_len, nl_type, _, _, _ = self._NL_HDR.unpack_from(data, offset)
-            payload_off = offset + hdr_size
-            if nl_type == self._RTM_NEWADDR and payload_off + msg_size <= len(data):
-                _, _, _, _, ifindex = self._IFADDR_MSG.unpack_from(data, payload_off)
-                self._on_new_addr(ifindex)
-            if nl_len < hdr_size:
-                break
-            offset += nl_len
-
-    def _on_new_addr(self, ifindex: int) -> None:
-        """Called when a new IPv4 address is assigned to any interface."""
-        try:
-            iface = socket.if_indextoname(ifindex)
-        except OSError:
-            return
-        if iface in ("lo", self._bridge):
-            return
-        if iface.startswith(self._bridge + "."):
-            return
-        logger.warning(
-            "NetlinkInterfaceWatcher: new address on %s after NTN start — "
-            "applying pivot FORWARD DROP.",
-            sanitize_log_string(iface),
-        )
-        self._block_fn(iface)
 
 
 class IPTablesManager:
@@ -424,7 +65,7 @@ class IPTablesManager:
         (for use as a network gateway/transparent proxy).
     """
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict[str, Any]):
         self.enabled = config.get("auto_iptables", True)
         self.mode = config.get("iptables_mode", "loopback")
         self.promisc_mode: bool = bool(config.get("promisc_mode", False))
@@ -485,6 +126,17 @@ class IPTablesManager:
             # Non-gateway (loopback) mode: empty string would break iptables;
             # default to loopback which is what loopback mode wants anyway.
             self.redirect_ip = configured_redirect or "127.0.0.1"
+        # Final boundary check: redirect_ip is interpolated into iptables
+        # --to-destination, so revalidate it regardless of how it was derived.
+        ok, norm = validate_ip(self.redirect_ip)
+        if ok and norm is not None:
+            self.redirect_ip = norm
+        else:
+            logger.warning(
+                "redirect_ip %r is not a valid IP; falling back to 127.0.0.1",
+                sanitize_log_string(str(self.redirect_ip)),
+            )
+            self.redirect_ip = "127.0.0.1"
         # When > 0, add a mangle POSTROUTING TTL rule so outgoing packets
         # appear to have traversed internet routing hops rather than being
         # served from a directly-connected host.
@@ -500,7 +152,7 @@ class IPTablesManager:
         # before service rules in PREROUTING/OUTPUT).  Enables victim-to-victim
         # spread in a lab where bridge-nf-call-iptables=1 routes intra-bridge
         # packets through iptables.
-        raw_subnets: list = config.get("passthrough_subnets", []) or []
+        raw_subnets: list[Any] = config.get("passthrough_subnets", []) or []
         self.passthrough_subnets: list[str] = [
             s for s in raw_subnets if isinstance(s, str) and self._valid_cidr(s)
         ]
@@ -634,11 +286,10 @@ class IPTablesManager:
             if err.strip():
                 logger.debug("iptables rule applied with warning: %s", err.strip())
             return True
-        else:
-            logger.warning("iptables rule failed (%s): %s", err.strip(), ' '.join(cmd))
-            return False
+        logger.warning("iptables rule failed (%s): %s", err.strip(), ' '.join(cmd))
+        return False
 
-    def _del_rule(self, rule: list[str]):
+    def _del_rule(self, rule: list[str]) -> None:
         """Remove a previously-added iptables rule."""
         # Replace -A (append) with -D (delete) to construct removal command
         del_rule = ["-D" if a == "-A" else a for a in rule]
@@ -647,7 +298,7 @@ class IPTablesManager:
 
     def apply_rules(
         self,
-        service_ports: dict,
+        service_ports: dict[str, list[int]],
         catch_all_tcp_port: int = 9999,
         catch_all_udp_port: int = 0,
         excluded_ports: list[int] | None = None,
@@ -665,7 +316,7 @@ class IPTablesManager:
             logger.info("Auto-iptables disabled in config; skipping.")
             return False
 
-        if os.geteuid() != 0:  # type: ignore[attr-defined]
+        if os.geteuid() != 0:
             logger.warning(
                 "Not running as root; iptables rules cannot be applied. "
                 "Run with sudo or set auto_iptables=false and configure routing manually."
@@ -780,7 +431,7 @@ class IPTablesManager:
 
     def _apply_service_redirects(
         self,
-        service_ports: dict,
+        service_ports: dict[str, list[int]],
         chain: str,
         table_flag: list[str],
     ) -> int:
@@ -1088,14 +739,14 @@ class IPTablesManager:
             else:
                 logger.warning("Failed to remove ICMP DROP rule: %s", err.strip())
 
-    def remove_rules(self):
+    def remove_rules(self) -> None:
         """Stop: restore the nat table to its pre-start state."""
         if self._iface_watcher is not None:
             self._iface_watcher.stop()
             self._iface_watcher = None
 
         escalated = False
-        if os.geteuid() != 0:  # type: ignore[attr-defined]
+        if os.geteuid() != 0:
             from utils.privilege import restore_privileges
             escalated = restore_privileges()
             if not escalated:
@@ -1157,6 +808,3 @@ class IPTablesManager:
             line for line in out.splitlines()
             if _RULE_COMMENT in line
         ]
-
-
-

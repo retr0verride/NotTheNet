@@ -17,7 +17,7 @@
 
 NotTheNet simulates the internet for malware being detonated in an isolated lab. A single Python application with a live GUI — no race conditions, no socket leaks, no opaque config files.
 
-Built to help people **learn how malware behaves** — whether you're studying for a cert, working through a CTF, taking a malware analysis course, or just curious how real-world C2 beaconing, DNS exfiltration, and credential theft look on the wire. You don't need a paid sandbox or cloud account. Spin up two VMs, install NotTheNet on Kali, detonate a sample on FlareVM, and watch every connection in the GUI log — decoded at the application layer: DNS queries and resolved names, HTTP requests with headers and body, SMTP envelope and message content, FTP commands and file transfers, raw catch-all payloads, and more. No raw packet capture required.
+Built to help people **learn how malware behaves**, whether you're studying for a cert, working through a CTF, taking a malware analysis course, or just curious how real-world C2 beaconing, DNS exfiltration, and credential theft look on the wire. You don't need a paid sandbox or cloud account. Spin up two VMs, install NotTheNet on Kali, detonate a sample on FlareVM, and watch every connection in the GUI log; decoded at the application layer: DNS queries and resolved names, HTTP requests with headers and body, SMTP envelope and message content, FTP commands and file transfers, raw catch-all payloads, and more. No raw packet capture required.
 
 ---
 
@@ -65,7 +65,7 @@ sudo apt-get install -f
 sudo notthenet
 ```
 
-See [docs/installation.md](docs/installation.md) for all three install methods (`.deb`, offline bundle, dev script) with upgrade and uninstall steps.
+See [docs/installation.md](docs/installation.md) for all three install methods (`.deb`, offline `.deb`, dev script) with upgrade and uninstall steps.
 
 ---
 
@@ -100,7 +100,7 @@ See [docs/installation.md](docs/installation.md) for all three install methods (
 
 | Guide | |
 |---|---|
-| [Installation](docs/installation.md) | Install, update, uninstall, offline USB bundle |
+| [Installation](docs/installation.md) | Install, update, uninstall, offline install |
 | [Configuration](docs/configuration.md) | Every config.json field with examples |
 | [Usage](docs/usage.md) | GUI walkthrough, CLI mode, analysis workflow |
 | [Services](docs/services.md) | Per-service technical reference |
@@ -110,6 +110,7 @@ See [docs/installation.md](docs/installation.md) for all three install methods (
 | [Safe Detonation](docs/safe-detonation.md) | Proxmox snapshots, KVM cloaking, artifact handling |
 | [Security Hardening](docs/security-hardening.md) | Lab isolation, privilege model, OpenSSF practices |
 | [Troubleshooting](docs/troubleshooting.md) | Common errors and fixes |
+| [Architecture](docs/architecture.md) | Code map, adding a service, releasing |
 | [Changelog](CHANGELOG.md) | Full release history |
 
 Man page: [man/notthenet.1](man/notthenet.1) — installed automatically by notthenet-install.sh.

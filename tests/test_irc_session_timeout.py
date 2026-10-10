@@ -50,24 +50,26 @@ class TestIRCPingTimeout(unittest.TestCase):
         conn, addr, client = _make_pair()
 
         # Patch the interval to something tiny so the test doesn't wait 120 s.
-        with patch("services.irc_server._PING_INTERVAL", 0.2):
-            with patch("services.irc_server._PING_TIMEOUT", 5.0):
-                t = _make_thread(conn, addr)  # no semaphore needed here
-                t.start()
+        with (
+            patch("services.irc_server._PING_INTERVAL", 0.2),
+            patch("services.irc_server._PING_TIMEOUT", 5.0),
+        ):
+            t = _make_thread(conn, addr)  # no semaphore needed here
+            t.start()
 
-                client.settimeout(3.0)
-                data = b""
-                deadline = time.monotonic() + 2.0
-                while time.monotonic() < deadline:
-                    try:
-                        chunk = client.recv(4096)
-                        if not chunk:
-                            break
-                        data += chunk
-                        if b"PING" in data:
-                            break
-                    except TimeoutError:
+            client.settimeout(3.0)
+            data = b""
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline:
+                try:
+                    chunk = client.recv(4096)
+                    if not chunk:
                         break
+                    data += chunk
+                    if b"PING" in data:
+                        break
+                except TimeoutError:
+                    break
 
         client.close()
         t.join(timeout=3.0)
@@ -78,22 +80,24 @@ class TestIRCPingTimeout(unittest.TestCase):
         """If no PONG arrives within _PING_TIMEOUT the server closes the link."""
         conn, addr, client = _make_pair()
 
-        with patch("services.irc_server._PING_INTERVAL", 0.1):
-            with patch("services.irc_server._PING_TIMEOUT", 0.2):
-                t = _make_thread(conn, addr)  # no semaphore needed here
-                t.start()
+        with (
+            patch("services.irc_server._PING_INTERVAL", 0.1),
+            patch("services.irc_server._PING_TIMEOUT", 0.2),
+        ):
+            t = _make_thread(conn, addr)  # no semaphore needed here
+            t.start()
 
-                # Drain until EOF (the server side closes after ping timeout).
-                client.settimeout(3.0)
-                data = b""
-                try:
-                    while True:
-                        chunk = client.recv(4096)
-                        if not chunk:
-                            break
-                        data += chunk
-                except OSError:
-                    pass
+            # Drain until EOF (the server side closes after ping timeout).
+            client.settimeout(3.0)
+            data = b""
+            try:
+                while True:
+                    chunk = client.recv(4096)
+                    if not chunk:
+                        break
+                    data += chunk
+            except OSError:
+                pass
 
         client.close()
         t.join(timeout=3.0)
@@ -108,27 +112,29 @@ class TestIRCPingTimeout(unittest.TestCase):
         """A timely PONG must prevent the session from being dropped."""
         conn, addr, client = _make_pair()
 
-        with patch("services.irc_server._PING_INTERVAL", 0.2):
-            with patch("services.irc_server._PING_TIMEOUT", 0.3):
-                t = _make_thread(conn, addr)  # no semaphore needed here
-                t.start()
+        with (
+            patch("services.irc_server._PING_INTERVAL", 0.2),
+            patch("services.irc_server._PING_TIMEOUT", 0.3),
+        ):
+            t = _make_thread(conn, addr)  # no semaphore needed here
+            t.start()
 
-                client.settimeout(3.0)
-                # Wait for the PING, then reply with PONG.
-                data = b""
-                deadline = time.monotonic() + 2.0
-                while b"PING" not in data and time.monotonic() < deadline:
-                    try:
-                        data += client.recv(4096)
-                    except TimeoutError:
-                        break
+            client.settimeout(3.0)
+            # Wait for the PING, then reply with PONG.
+            data = b""
+            deadline = time.monotonic() + 2.0
+            while b"PING" not in data and time.monotonic() < deadline:
+                try:
+                    data += client.recv(4096)
+                except TimeoutError:
+                    break
 
-                if b"PING" in data:
-                    client.sendall(b"PONG :token\r\n")
+            if b"PING" in data:
+                client.sendall(b"PONG :token\r\n")
 
-                # Give it another idle cycle to confirm it doesn't close.
-                time.sleep(0.5)
-                alive = t.is_alive()
+            # Give it another idle cycle to confirm it doesn't close.
+            time.sleep(0.5)
+            alive = t.is_alive()
 
         client.close()
         t.join(timeout=3.0)
@@ -143,17 +149,19 @@ class TestIRCPingTimeout(unittest.TestCase):
         # Simulate that here so release() doesn't over-release.
         sem.acquire()
 
-        with patch("services.irc_server._PING_INTERVAL", 0.1):
-            with patch("services.irc_server._PING_TIMEOUT", 0.1):
-                t = _make_thread(conn, addr, sem)
-                t.start()
+        with (
+            patch("services.irc_server._PING_INTERVAL", 0.1),
+            patch("services.irc_server._PING_TIMEOUT", 0.1),
+        ):
+            t = _make_thread(conn, addr, sem)
+            t.start()
 
-                client.settimeout(3.0)
-                try:
-                    while client.recv(4096):
-                        pass  # drain server responses
-                except OSError:
-                    pass  # server closed connection — expected
+            client.settimeout(3.0)
+            try:
+                while client.recv(4096):
+                    pass  # drain server responses
+            except OSError:
+                pass  # server closed connection — expected
 
         client.close()
         t.join(timeout=3.0)

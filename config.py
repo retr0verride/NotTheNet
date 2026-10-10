@@ -66,33 +66,33 @@ class Config:
                 os.replace(tmp, target)  # atomic on POSIX; near-atomic on Windows
             logger.debug("Config saved to %s", target)
             return True
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
             logger.error("Failed to save config: %s", e)
             return False
 
-    def get(self, section: str, key: str, fallback=None):
+    def get(self, section: str, key: str, fallback: Any = None) -> Any:
         """Get a value from the config with an optional fallback."""
         with self._write_lock:
             return self._data.get(section, {}).get(key, fallback)
 
-    def set(self, section: str, key: str, value):
+    def set(self, section: str, key: str, value: Any) -> None:
         """Set a value in the config."""
         with self._write_lock:
             if section not in self._data:
                 self._data[section] = {}
             self._data[section][key] = value
 
-    def get_section(self, section: str) -> dict:
+    def get_section(self, section: str) -> dict[str, Any]:
         """Return an entire section as a dict."""
         with self._write_lock:
             return copy.deepcopy(self._data.get(section, {}))
 
-    def set_section(self, section: str, data: dict):
+    def set_section(self, section: str, data: dict[str, Any]) -> None:
         """Replace an entire section."""
         with self._write_lock:
             self._data[section] = data
 
-    def reset_to_defaults(self):
+    def reset_to_defaults(self) -> None:
         """Reset the configuration to the built-in defaults."""
         self._data = copy.deepcopy(self._defaults)
 
@@ -100,7 +100,7 @@ class Config:
         result: dict[str, Any] = copy.deepcopy(self._data)
         return result
 
-    def all_sections(self) -> list:
+    def all_sections(self) -> list[str]:
         return list(self._data.keys())
 
     # ── internal helpers ──────────────────────────────────────────────────────

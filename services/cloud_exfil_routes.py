@@ -34,9 +34,13 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
+
+if TYPE_CHECKING:
+    from services.http_server import FakeHTTPHandler
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +52,7 @@ _MAX_EXFIL_BODY_BYTES = 10 * 1024 * 1024  # 10 MB
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
-def _read_body(handler, max_bytes: int) -> bytes:
+def _read_body(handler: FakeHTTPHandler, max_bytes: int) -> bytes:
     """Read the request body up to max_bytes bytes."""
     try:
         cl = int(handler.headers.get("Content-Length", 0))
@@ -80,7 +84,7 @@ def _save_exfil_body(src_ip: str, service: str, body: bytes, log_dir: str) -> st
         return None
 
 
-def _send_json(handler, status: int, obj: dict, server: str) -> None:
+def _send_json(handler: FakeHTTPHandler, status: int, obj: dict[str, Any], server: str) -> None:
     """Send a JSON response; swallows OSError on client disconnect."""
     body = json.dumps(obj).encode()
     try:
@@ -97,7 +101,7 @@ def _send_json(handler, status: int, obj: dict, server: str) -> None:
 
 
 def _send_empty(
-    handler,
+    handler: FakeHTTPHandler,
     status: int,
     extra_headers: dict[str, str],
     server: str,
@@ -117,7 +121,9 @@ def _send_empty(
 
 # ── Route handlers ────────────────────────────────────────────────────────────
 
-def route_aws_s3(handler, host: str, max_body_size: int = _MAX_EXFIL_BODY_BYTES) -> bool:
+def route_aws_s3(
+    handler: FakeHTTPHandler, host: str, max_body_size: int = _MAX_EXFIL_BODY_BYTES,
+) -> bool:
     """Fake AWS S3 endpoint.
 
     Handles both virtual-hosted style ({bucket}.s3[.region].amazonaws.com)
@@ -204,7 +210,7 @@ def route_aws_s3(handler, host: str, max_body_size: int = _MAX_EXFIL_BODY_BYTES)
 
 
 def route_azure_blob(
-    handler, host: str, max_body_size: int = _MAX_EXFIL_BODY_BYTES
+    handler: FakeHTTPHandler, host: str, max_body_size: int = _MAX_EXFIL_BODY_BYTES
 ) -> bool:
     """Fake Azure Blob Storage endpoint ({account}.blob.core.windows.net).
 
@@ -277,7 +283,9 @@ def route_azure_blob(
     return True
 
 
-def route_graph_onedrive(handler, max_body_size: int = _MAX_EXFIL_BODY_BYTES) -> bool:
+def route_graph_onedrive(
+    handler: FakeHTTPHandler, max_body_size: int = _MAX_EXFIL_BODY_BYTES,
+) -> bool:
     """Fake Microsoft Graph / OneDrive upload endpoint (graph.microsoft.com).
 
     PUT  /v1.0/me/drive/root:/{path}:/content  → 201 + DriveItem JSON
@@ -370,7 +378,7 @@ def route_graph_onedrive(handler, max_body_size: int = _MAX_EXFIL_BODY_BYTES) ->
     return True
 
 
-def route_dropbox(handler, max_body_size: int = _MAX_EXFIL_BODY_BYTES) -> bool:
+def route_dropbox(handler: FakeHTTPHandler, max_body_size: int = _MAX_EXFIL_BODY_BYTES) -> bool:
     """Fake Dropbox API endpoint (content.dropboxapi.com, api.dropboxapi.com).
 
     POST /2/files/upload                    → 200 + FileMetadata JSON
@@ -385,12 +393,14 @@ def route_dropbox(handler, max_body_size: int = _MAX_EXFIL_BODY_BYTES) -> bool:
     auth = handler.headers.get("Authorization", "")
 
     # Dropbox-API-Arg header contains JSON metadata (path, mode, etc.)
-    dbx_arg: dict = {}
+    dbx_arg: dict[str, Any] = {}
     dbx_arg_raw = handler.headers.get("Dropbox-API-Arg", "{}")
     try:
         dbx_arg = json.loads(dbx_arg_raw)
-    except Exception:
+    except ValueError:
         logger.debug("cloud_exfil: Dropbox-API-Arg parse failed", exc_info=True)
+    if not isinstance(dbx_arg, dict):  # attacker-controlled: may be a list, str, number
+        dbx_arg = {}
 
     remote_path = str(dbx_arg.get("path", path))
 
@@ -454,7 +464,9 @@ def route_dropbox(handler, max_body_size: int = _MAX_EXFIL_BODY_BYTES) -> bool:
     return True
 
 
-def route_gdrive_upload(handler, max_body_size: int = _MAX_EXFIL_BODY_BYTES) -> bool:
+def route_gdrive_upload(
+    handler: FakeHTTPHandler, max_body_size: int = _MAX_EXFIL_BODY_BYTES,
+) -> bool:
     """Fake Google Drive upload endpoint (www.googleapis.com/upload/drive/...).
 
     POST /upload/drive/v3/files              → 200 + File resource JSON

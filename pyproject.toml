@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "notthenet"
-version = "2026.05.13-19"
+version = "2026.10.08-rc1"
 description = "Fake internet simulator for malware analysis — INetSim/FakeNet-NG alternative"
 readme = "README.md"
 license = "MIT"
@@ -23,7 +23,7 @@ classifiers = [
 ]
 dependencies = [
     "dnslib==0.9.26",
-    "cryptography>=46.0.6",
+    "cryptography>=50.0.2",
     "setproctitle>=1.3",
 ]
 
@@ -39,11 +39,11 @@ notthenet = "notthenet:main"
 # CPE: cpe:2.3:a:retr0verride:notthenet:*:*:*:*:*:python:*:*
 
 [tool.setuptools]
-py-modules = ["notthenet", "config", "service_manager"]
+py-modules = ["notthenet", "config", "service_manager", "version", "headless"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["services*", "network*", "utils*"]
+include = ["services*", "network*", "utils*", "gui*"]
 
 # ── Linting / formatting ──────────────────────────────────────────────────────
 
@@ -63,6 +63,11 @@ select = [
     "UP",   # pyupgrade
     "C90",  # mccabe complexity
     "N",    # pep8-naming
+    "DTZ",  # flake8-datetimez: no naive datetimes
+    "RET",  # flake8-return
+    "SIM",  # flake8-simplify
+    "BLE",  # flake8-blind-except
+    "TRY",  # tryceratops
 ]
 ignore = [
     "S101",  # assert statements (OK in tests)
@@ -70,6 +75,11 @@ ignore = [
     "S607",  # partial path for subprocess — we use full paths where possible
     "S104",  # binding to 0.0.0.0 — intentional (fake internet by design)
     "S110",  # try/except/pass — intentional in I/O handlers and log queue
+    # TRY policy:
+    "TRY003",  # operator-facing ValueError messages are the point; no class per message
+    "TRY300",  # `return <constant>` at the end of a try cannot raise; else: adds nothing
+    "TRY400",  # expected operational failures (bind, write) log the cause, not a traceback;
+               # unexpected ones at untrusted-input boundaries already log exc_info
 ]
 
 [tool.ruff.lint.mccabe]
@@ -97,47 +107,43 @@ max-complexity = 12
 "services/smb_server.py" = ["E501"]
 "services/vnc_server.py" = ["E501"]
 # Tools and preflight: long human-readable diagnostic messages
-"tools/load_test.py" = ["E501"]
+"tools/load_test.py" = ["E501", "BLE001"]  # probes record any failure as a result
 "utils/preflight.py" = ["E501"]
 # Tests: long expected-string assertions
-"tests/test_kali_fidelity.py" = ["E501"]
+"tests/test_kali_fidelity.py" = ["E501", "BLE001"]  # live probes record any failure as a result
 
 [tool.mypy]
-python_version = "2026.04.24-2"
+python_version = "3.10"
+platform = "linux"           # NotTheNet only runs on Linux; check it as Linux everywhere
 strict = false
+check_untyped_defs = true    # type-check function bodies even without annotations
 ignore_missing_imports = true
 warn_return_any = false
-warn_unused_ignores = false
-
-# ── Strict mode for Clean Architecture layers ───────────────────────────────────
-# New code written to Clean Architecture standards must pass --strict.
-# Existing service/GUI code is exempt to avoid blocking CI.
-
-[[tool.mypy.overrides]]
-module = ["domain.*", "application.*", "infrastructure.*"]
-strict = true
-warn_return_any = true
 warn_unused_ignores = true
+# Some tkinter methods (curselection, panes, ...) are unannotated in typeshed itself.
+untyped_calls_exclude = ["tkinter"]
+
+# ── Strict modules ──────────────────────────────────────────────────────────────
+# All code (application, tests, tools, scripts) passes mypy with check_untyped_defs. Fully annotated
+# modules must also pass --strict (list mirrors STRICT_MYPY_FILES in scripts/checks.py).
 
 [[tool.mypy.overrides]]
-module = ["utils.privilege", "network.iptables_manager"]
-# Linux-only modules (os.geteuid, os.setuid, grp, pwd) — false positives on Windows
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-# Legacy code outside Clean Architecture layers — un-annotated, exempt from strict checking.
 module = [
-    "config",
-    "service_manager",
-    "notthenet",
-    "services.*",
-    "network.*",
-    "utils.*",
-    "gui.*",
-    "tools.*",
-    "tests.*",
+    "notthenet", "headless", "version", "config", "service_manager",
+    "services.*", "network.*", "utils.*", "gui.*",
 ]
-ignore_errors = true
+# The --strict flag set, spelled out: `strict = true` in an override is applied
+# globally by mypy, so it cannot be scoped to these modules.
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_calls = true
+disallow_untyped_decorators = true
+disallow_any_generics = true
+disallow_subclassing_any = true
+no_implicit_reexport = true
+strict_equality = true
+warn_return_any = true
+
 
 # ── Security scanning (Bandit) ────────────────────────────────────────────────
 
@@ -163,6 +169,7 @@ skips = [
 [tool.coverage.run]
 source = [
     "config",
+    "headless",
     "service_manager",
     "services",
     "network",

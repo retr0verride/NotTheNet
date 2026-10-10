@@ -249,8 +249,11 @@ jobs:
           DEB=$(find dist/ -name '*.deb' | head -1)
           mkdir -p /tmp/deb-extract
           dpkg-deb -R "$DEB" /tmp/deb-extract
-          if grep -rn '_PLACEHOLDER' /tmp/deb-extract/; then
-            echo "ERROR: Unresolved *_PLACEHOLDER strings found in the installed .deb payload."
+          # Only usr/ holds files rendered at build time. /opt/notthenet ships
+          # templates and installer scripts that contain placeholders on purpose
+          # (postinst substitutes them; checks.py audits that substitution).
+          if grep -rn '_PLACEHOLDER' /tmp/deb-extract/usr/; then
+            echo "ERROR: Unresolved *_PLACEHOLDER strings in build-time generated files."
             exit 1
           fi
           echo "OK: No unresolved placeholders in $DEB"

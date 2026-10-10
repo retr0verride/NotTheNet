@@ -10,8 +10,10 @@ import re
 import shutil
 import subprocess
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from typing import Any
 
 from config import Config
 from network.iptables_manager import IPTablesManager
@@ -23,29 +25,24 @@ from services.dot_server import DoTService
 from services.ftp_server import FTPService
 from services.http_server import HTTPService, HTTPSService
 from services.icmp_responder import ICMPResponder
+from services.imap_server import IMAPService, IMAPSService
 from services.irc_server import IRCService, IRCSTLSService
 from services.ldap_server import LDAPService
-from services.mail_server import (
-    IMAPService,
-    IMAPSService,
-    POP3Service,
-    POP3SService,
-    SMTPService,
-    SMTPSService,
-)
 from services.mssql_server import MSSQLService
 from services.mysql_server import MySQLService
 from services.ntp_server import NTPService
+from services.pop3_server import POP3Service, POP3SService
 from services.rdp_server import RDPService
 from services.redis_server import RedisService
 from services.smb_server import SMBService
+from services.smtp_server import SMTPService, SMTPSService
 from services.socks5_server import Socks5Service
 from services.telnet_server import TelnetService
 from services.tftp_server import TFTPService
 from services.vnc_server import VNCService
 from utils.cert_utils import ensure_certs
 from utils.json_logger import close_json_logger, init_json_logger
-from utils.privilege import drop_privileges, require_root_or_warn, restore_privileges
+from utils.privilege import drop_privileges, is_root, require_root_or_warn, restore_privileges
 from utils.validators import validate_config
 
 logger = logging.getLogger(__name__)
@@ -54,11 +51,21 @@ _DEFAULT_CERT = "certs/server.crt"
 _DEFAULT_KEY = "certs/server.key"
 
 
+def local_date(timestamp: float | None = None) -> date:
+    """Operator-local calendar date, now or of a POSIX timestamp.
+
+    Session log names follow the analyst's wall clock, not UTC.
+    """
+    if timestamp is None:
+        return datetime.now().astimezone().date()
+    return datetime.fromtimestamp(timestamp).astimezone().date()
+
+
 @dataclass(frozen=True)
 class ServiceSpec:
     """Single source of truth for one fake-network service."""
     name: str
-    factory: type
+    factory: Callable[..., ServiceProtocol]
     config_section: str
     default_port: int          # 0 = no fixed port (catch-all / ICMP)
     protocol: str              # "tcp" | "udp" | "both"
@@ -122,17 +129,17 @@ class ServiceManager:
     Also manages iptables rule lifecycle.
     """
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config) -> None:
         self.config = config
         self._services: dict[str, ServiceProtocol] = {}
         self._lock = threading.Lock()
         self._iptables: IPTablesManager | None = None
         self._running = False
+        self._failed: set[str] = set()
 
-    def validate(self) -> list:
+    def validate(self) -> list[str]:
         """Validate configuration; return list of error strings."""
-        errors = validate_config(self.config.as_dict())
-        return errors
+        return validate_config(self.config.as_dict())
 
     def _evict_conflicting_services(self) -> None:
         """Stop system services that would prevent NotTheNet from binding its ports.
@@ -194,7 +201,7 @@ class ServiceManager:
                 # the iptables lock after we give up waiting.
                 import signal
                 try:
-                    os.killpg(proc.pid, signal.SIGTERM)  # type: ignore[attr-defined]
+                    os.killpg(proc.pid, signal.SIGTERM)
                 except OSError:
                     proc.kill()
                 proc.wait(timeout=5)
@@ -209,7 +216,7 @@ class ServiceManager:
         except OSError as exc:
             logger.warning("Could not run harden-lab.sh: %s", exc)
 
-    def _check_port_conflicts(self):
+    def _check_port_conflicts(self) -> None:
         """Warn about duplicate port/proto assignments across enabled services."""
         port_map: dict[tuple[str, int], str] = {}
         for spec in _SERVICE_REGISTRY:
@@ -233,11 +240,11 @@ class ServiceManager:
     @staticmethod
     def _purge_old_logs(log_dir: str, max_age_days: int = 14) -> None:
         """Delete JSONL session logs older than *max_age_days*."""
-        cutoff = date.today() - timedelta(days=max_age_days)
+        cutoff = local_date() - timedelta(days=max_age_days)
         for path in glob.glob(os.path.join(log_dir, "events_*_s*.jsonl")):
             try:
                 mtime = os.path.getmtime(path)
-                if date.fromtimestamp(mtime) < cutoff:
+                if local_date(mtime) < cutoff:
                     os.remove(path)
                     logger.info("Purged old log: %s", path)
             except OSError as e:
@@ -250,7 +257,7 @@ class ServiceManager:
         Scans *log_dir* for existing session files dated today and picks the
         next available session number.
         """
-        today = date.today().isoformat()  # e.g. "2026-04-01"
+        today = local_date().isoformat()  # e.g. "2026-04-01"
         pattern = os.path.join(log_dir, f"events_{today}_s*.jsonl")
         existing = glob.glob(pattern)
 
@@ -338,7 +345,7 @@ class ServiceManager:
             logger.warning("Services FAILED to start: %s", ', '.join(failed))
         return self._running
 
-    def _tls_cfg(self, section: str) -> dict:
+    def _tls_cfg(self, section: str) -> dict[str, Any]:
         """Merge a config section with HTTPS cert/key paths."""
         https_cfg = self.config.get_section("https")
         return {
@@ -349,7 +356,7 @@ class ServiceManager:
 
     def _build_service(
         self, spec: ServiceSpec, bind_ip: str,
-        spoof_ip: str, redirect_ip: str, https_cfg: dict,
+        spoof_ip: str, redirect_ip: str, https_cfg: dict[str, Any],
     ) -> ServiceProtocol:
         """Build a service instance from its registry spec."""
         builder = self._special_builders(spec, bind_ip, spoof_ip, redirect_ip, https_cfg)
@@ -365,8 +372,8 @@ class ServiceManager:
 
     def _special_builders(
         self, spec: ServiceSpec, bind_ip: str,
-        spoof_ip: str, redirect_ip: str, https_cfg: dict,
-    ) -> tuple[dict, dict] | None:
+        spoof_ip: str, redirect_ip: str, https_cfg: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any]] | None:
         """Return (config, extra_kwargs) for services needing custom config, or None."""
         if spec.name in ("dns", "dot"):
             # In gateway mode, DNS must resolve names to the NTN host IP so that
@@ -425,6 +432,7 @@ class ServiceManager:
             iface = self.config.get("general", "interface") or ""
             if not iface:
                 iface = IPTablesManager._detect_default_interface() or ""
+            derived: str | None
             if bind_ip and bind_ip not in ("0.0.0.0", "127.0.0.1"):
                 derived = bind_ip
             else:
@@ -474,6 +482,7 @@ class ServiceManager:
 
         with self._lock:
             self._services.update(started_svcs)
+            self._failed = set(failed)
 
         return started, failed
 
@@ -518,9 +527,9 @@ class ServiceManager:
         if os.path.isdir(certs_dir):
             try:
                 for dirpath, _dirnames, filenames in os.walk(certs_dir):
-                    os.chown(dirpath, uid, gid)  # type: ignore[attr-defined]
+                    os.chown(dirpath, uid, gid)
                     for fname in filenames:
-                        os.chown(os.path.join(dirpath, fname), uid, gid)  # type: ignore[attr-defined]
+                        os.chown(os.path.join(dirpath, fname), uid, gid)
             except OSError as exc:
                 logger.warning("Could not chown certs/: %s", exc)
 
@@ -538,9 +547,9 @@ class ServiceManager:
                 continue
             try:
                 for dirpath, _dirnames, filenames in os.walk(d):
-                    os.chown(dirpath, uid, gid)  # type: ignore[attr-defined]
+                    os.chown(dirpath, uid, gid)
                     for fname in filenames:
-                        os.chown(os.path.join(dirpath, fname), uid, gid)  # type: ignore[attr-defined]
+                        os.chown(os.path.join(dirpath, fname), uid, gid)
             except OSError as exc:
                 logger.warning("Could not chown %s: %s", d, exc)
 
@@ -563,12 +572,19 @@ class ServiceManager:
     def _maybe_drop_privileges(self) -> None:
         """Drop root privileges after all ports are bound and iptables applied.
 
-        Controlled by general.drop_privileges (default: false).
-        WARNING: privilege drop is permanent — service restart requires a full
-        process relaunch.
+        Controlled by general.drop_privileges.  If the drop is requested while
+        running as root but fails (missing service account, seteuid error),
+        startup is aborted: the honeypot must never serve malware traffic as
+        root.  When NotTheNet was not started as root the drop is simply skipped
+        (ports < 1024 will not have bound).
         """
         if not self.config.get("general", "drop_privileges"):
             logger.debug("Privilege drop disabled in config.")
+            return
+        if not is_root():
+            logger.info(
+                "Privilege drop requested but not running as root; skipping."
+            )
             return
         user = self.config.get("general", "drop_privileges_user") or "nobody"
         group = self.config.get("general", "drop_privileges_group") or "nogroup"
@@ -578,13 +594,25 @@ class ServiceManager:
                 "Root privileges dropped to %s:%s — restart will require relaunch.",
                 user, group,
             )
-        else:
-            logger.warning("Privilege drop requested but failed or not applicable.")
+            return
+        # Drop failed while root: refuse to keep serving as root. Tear everything
+        # down first so nothing remains exposed, then abort the process.
+        logger.error(
+            "FATAL: privilege drop to %s:%s failed while running as root. "
+            "Refusing to serve traffic as root. Create the service account "
+            "(e.g. 'useradd --system %s') or set general.drop_privileges=false.",
+            user, group, user,
+        )
+        try:
+            self.stop()
+        except Exception:
+            logger.error("Cleanup during privilege-drop abort failed", exc_info=True)
+        raise SystemExit(1)
 
     def _apply_fingerprints(self) -> None:
         """Apply TCP/IP OS fingerprint spoofing to server sockets."""
         fp_enabled = self.config.get("general", "tcp_fingerprint")
-        fp_os = self.config.get("general", "tcp_fingerprint_os") or "windows"
+        fp_os = str(self.config.get("general", "tcp_fingerprint_os") or "windows")
         if not fp_enabled:
             return
         for name, svc in self._services.items():
@@ -592,10 +620,14 @@ class ServiceManager:
             if sock:
                 try:
                     apply_os_fingerprint(sock, fp_os)
-                except Exception as e:
+                except OSError as e:
                     logger.debug("TCP fingerprint on %s: %s", name, e)
             else:
                 logger.debug("TCP fingerprint skipped for %s (no server socket)", name)
+
+    def _configured_port(self, spec: ServiceSpec) -> int:
+        """Port from the service's config section, else the registry default."""
+        return int(self.config.get(spec.config_section, "port") or spec.default_port)
 
     def _build_service_ports(self) -> dict[str, list[int]]:
         """Build {tcp: [...], udp: [...]} dynamically from the service registry."""
@@ -603,7 +635,7 @@ class ServiceManager:
         for spec in _SERVICE_REGISTRY:
             if spec.name not in self._services or spec.default_port == 0:
                 continue
-            port = int(self.config.get(spec.config_section, "port") or spec.default_port)
+            port = self._configured_port(spec)
             if spec.protocol == "both":
                 ports["tcp"].append(port)
                 ports["udp"].append(port)
@@ -611,7 +643,7 @@ class ServiceManager:
                 ports[spec.protocol].append(port)
         return ports
 
-    def _apply_iptables(self):
+    def _apply_iptables(self) -> None:
         """Build the iptables rule set from running services."""
         iptables = IPTablesManager(self.config.get_section("general"))
         service_ports = self._build_service_ports()
@@ -629,23 +661,24 @@ class ServiceManager:
         )
         self._iptables = iptables
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop all services and remove iptables rules."""
         restore_privileges()  # Need root to remove iptables rules
         with self._lock:
             items = list(self._services.items())
             self._services.clear()
+            self._failed.clear()
             iptables = self._iptables
             self._iptables = None
 
         # Stop all services in parallel so total shutdown time is
         # max(individual stop times) rather than their sum.
-        def _stop_one(name_svc):
+        def _stop_one(name_svc: tuple[str, ServiceProtocol]) -> None:
             name, svc = name_svc
             try:
                 svc.stop()
-            except Exception as e:
-                logger.warning("Error stopping %s: %s", name, e)
+            except Exception as e:  # noqa: BLE001  # shutdown must keep stopping the remaining services
+                logger.warning("Error stopping %s: %s", name, e, exc_info=True)
 
         from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=min(len(items), 16) or 1) as ex:
@@ -664,6 +697,31 @@ class ServiceManager:
         with self._lock:
             return {name: getattr(svc, "running", False)
                     for name, svc in self._services.items()}
+
+    def service_report(self) -> list[dict[str, str | int]]:
+        """Per-service ``name``, ``state``, ``port`` and ``protocol`` for every registered service.
+
+        ``state`` is ``running``, ``failed`` (enabled but did not start) or ``stopped``.
+        ``port`` 0 means the service has no fixed port (catch-all, ICMP).
+        """
+        with self._lock:
+            running = {n for n, svc in self._services.items() if getattr(svc, "running", False)}
+            failed = set(self._failed)
+        report: list[dict[str, str | int]] = []
+        for spec in _SERVICE_REGISTRY:
+            if spec.name in running:
+                state = "running"
+            elif spec.name in failed:
+                state = "failed"
+            else:
+                state = "stopped"
+            report.append({
+                "name": spec.name,
+                "state": state,
+                "port": self._configured_port(spec),
+                "protocol": spec.protocol,
+            })
+        return report
 
     @property
     def running(self) -> bool:

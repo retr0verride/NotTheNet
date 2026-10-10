@@ -19,6 +19,12 @@ Security notes (OpenSSF):
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from cryptography import x509
+
+import contextlib
 import ipaddress
 import logging
 import os
@@ -32,7 +38,7 @@ from datetime import datetime, timedelta, timezone
 logger = logging.getLogger(__name__)
 
 
-def _make_fake_sct_extension():
+def _make_fake_sct_extension() -> x509.UnrecognizedExtension:
     """
     Build a structurally valid (but cryptographically fake) SCT list extension.
     OID 1.3.6.1.4.1.11129.2.4.2 — id-ce-signedCertificateTimestampList.
@@ -72,8 +78,8 @@ def generate_self_signed_cert(
     common_name: str = "www.example.com",
     days_valid: int = 825,
     key_bits: int = 4096,
-    san_ips: list | None = None,
-    san_dns: list | None = None,
+    san_ips: list[str] | None = None,
+    san_dns: list[str] | None = None,
 ) -> bool:
     """
     Generate a self-signed X.509 certificate and private key.
@@ -128,7 +134,7 @@ def generate_self_signed_cert(
         ])
 
         # Build SAN extension
-        san_list: list = []
+        san_list: list[x509.GeneralName] = []
         for ip in san_ips:
             try:
                 san_list.append(x509.IPAddress(ipaddress.ip_address(ip)))
@@ -215,7 +221,7 @@ def generate_self_signed_cert(
         return False
 
 
-def ensure_certs(cert_path: str, key_path: str, **kwargs) -> bool:
+def ensure_certs(cert_path: str, key_path: str, **kwargs: Any) -> bool:
     """
     Generate certs only if they don't already exist.
     Returns True if certs are present (existing or freshly generated).
@@ -323,7 +329,7 @@ def generate_ca_cert(
         return False
 
 
-def ensure_ca(ca_cert_path: str, ca_key_path: str, **kwargs) -> bool:
+def ensure_ca(ca_cert_path: str, ca_key_path: str, **kwargs: Any) -> bool:
     """Ensure Root CA exists; generate if missing."""
     if os.path.exists(ca_cert_path) and os.path.exists(ca_key_path):
         logger.debug("Existing CA certificates found; skipping generation.")
@@ -362,6 +368,8 @@ def forge_domain_cert(
         ca_cert = x509.load_pem_x509_certificate(f.read())
     with open(ca_key_path, "rb") as f:
         ca_key = serialization.load_pem_private_key(f.read(), password=None)
+    if not isinstance(ca_key, rsa.RSAPrivateKey):
+        raise TypeError(f"CA key {ca_key_path} must be RSA, got {type(ca_key).__name__}")
 
     # Generate ephemeral key for this domain (2048-bit is enough for short-lived)
     key = rsa.generate_private_key(
@@ -383,10 +391,8 @@ def forge_domain_cert(
         wildcard = "*." + ".".join(parts[1:])
         san_list.append(x509.DNSName(wildcard))
     # If hostname looks like an IP, add IPAddress SAN
-    try:
+    with contextlib.suppress(ValueError):
         san_list.append(x509.IPAddress(ipaddress.ip_address(hostname)))
-    except ValueError:
-        pass
 
     now = datetime.now(timezone.utc)
     cert = (
@@ -435,7 +441,7 @@ def forge_domain_cert(
         )
         .add_extension(
             x509.AuthorityKeyIdentifier.from_issuer_public_key(
-                ca_key.public_key()  # type: ignore[arg-type]  # always RSA; cryptography stubs return a wider union
+                ca_key.public_key()
             ),
             critical=False,
         )
@@ -443,7 +449,7 @@ def forge_domain_cert(
             _make_fake_sct_extension(),
             critical=False,
         )
-        .sign(ca_key, hashes.SHA256())  # type: ignore[arg-type]  # same reason
+        .sign(ca_key, hashes.SHA256())
     )
 
     cert_pem = cert.public_bytes(serialization.Encoding.PEM)
@@ -506,26 +512,22 @@ class DynamicCertCache:
         with open(key_file, "wb") as f:
             f.write(key_pem)
 
-        try:
+        with contextlib.suppress(OSError):
             os.chmod(key_file, stat.S_IRUSR | stat.S_IWUSR)
-        except OSError:
-            pass
 
         ctx.load_cert_chain(certfile=cert_file, keyfile=key_file)
         # SSLContext holds key material in memory once loaded — temp files are
         # no longer needed and would accumulate one file-pair per unique SNI.
         # Deleting them also avoids leaking domain names visited by malware.
         for _f in (cert_file, key_file):
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(_f)
-            except OSError:
-                pass
         logger.info("TLS  Forged certificate for: %s", hostname)
         return ctx
 
     def sni_callback(
         self,
-        ssl_socket: ssl.SSLSocket,
+        ssl_socket: ssl.SSLSocket | ssl.SSLObject,
         server_name: str | None,
         _ssl_context: ssl.SSLContext,
     ) -> int | None:
@@ -552,8 +554,8 @@ class DynamicCertCache:
 
         try:
             ctx = self._build_ctx_for_hostname(hostname)
-        except Exception as e:
-            logger.warning("TLS  Failed to forge cert for %s: %s", hostname, e)
+        except Exception as e:  # noqa: BLE001  # SNI callback: a failed forge falls back to the default cert
+            logger.warning("TLS  Failed to forge cert for %s: %s", hostname, e, exc_info=True)
             return None  # Fall back to default cert
 
         with self._lock:

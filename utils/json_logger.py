@@ -32,7 +32,7 @@ import os
 import threading
 import time
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, TextIO
 
 logger = logging.getLogger(__name__)
 
@@ -104,23 +104,23 @@ class JsonEventLogger:
         self._path = output_path
         self._max_bytes = max_bytes
         self._lock = threading.Lock()
-        self._file = None
+        self._file: TextIO | None = None
         self._bytes_written = 0
         self._cap_warned = False
         self._last_flush: float = 0.0
         self._open()
 
-    def __enter__(self):
+    def __enter__(self) -> JsonEventLogger:
         return self
 
-    def __exit__(self, *exc):
-        self.close()
-        return False
+    def __exit__(self, *exc: object) -> None:
+        self.close()  # returning None lets any exception propagate
 
-    def _open(self):
+    def _open(self) -> None:
         try:
             os.makedirs(os.path.dirname(os.path.abspath(self._path)), exist_ok=True)
-            self._file = open(self._path, "a", encoding="utf-8")
+            # Held open for the logger's lifetime; close() releases it.
+            self._file = open(self._path, "a", encoding="utf-8")  # noqa: SIM115
             # Track existing file size
             try:
                 self._bytes_written = os.path.getsize(self._path)
@@ -194,7 +194,7 @@ class JsonEventLogger:
                 except OSError as e:
                     logger.error("JSON event flush error: %s", e)
 
-    def close(self):
+    def close(self) -> None:
         """Flush and close the event log file."""
         with self._lock:
             if self._file:

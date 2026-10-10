@@ -33,6 +33,7 @@ from __future__ import annotations
 import logging
 import platform
 import socket
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ logger = logging.getLogger(__name__)
 #   mss          - TCP Maximum Segment Size (optional, applied via TCP_MAXSEG).
 #   description  - Human-readable label for the GUI/logs.
 
-OS_PROFILES: dict[str, dict] = {
+OS_PROFILES: dict[str, dict[str, Any]] = {
     "windows": {
         "ttl": 128,
         "window_size": 65535,
@@ -173,4 +174,4 @@ def get_profile_names() -> list[str]:
 def get_profile_description(name: str) -> str:
     """Return human-readable description for a profile, or empty string."""
     p = OS_PROFILES.get(name.lower(), {})
-    return p.get("description", "")
+    return str(p.get("description", ""))

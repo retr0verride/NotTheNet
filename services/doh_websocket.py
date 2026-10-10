@@ -43,9 +43,7 @@ def is_doh_request(content_type: str | None, path: str | None) -> bool:
     if content_type and DOH_CONTENT_TYPE in content_type.lower():
         return True
     # GET-based DoH: /dns-query?dns=<base64url>
-    if path and "/dns-query" in path.lower():
-        return True
-    return False
+    return bool(path and "/dns-query" in path.lower())
 
 
 def handle_doh_get(path: str, redirect_ip: str) -> bytes | None:
@@ -76,8 +74,8 @@ def handle_doh_get(path: str, redirect_ip: str) -> bytes | None:
             dns_b64 += "=" * padding
         raw_query = base64.urlsafe_b64decode(dns_b64)
         return _build_doh_response(raw_query, redirect_ip)
-    except Exception as e:
-        logger.debug("DoH GET decode error: %s", e)
+    except Exception as e:  # noqa: BLE001  # untrusted-input boundary: one bad session must not kill the service
+        logger.debug("DoH GET decode error: %s", e, exc_info=True)
         return None
 
 
@@ -114,9 +112,10 @@ def _build_doh_response(raw_query: bytes, redirect_ip: str) -> bytes | None:
         )
         logger.debug("  -> DoH A: %s -> %s", sanitize_log_string(qname, 253), redirect_ip)
 
-        return reply.pack()
-    except Exception as e:
-        logger.debug("DoH response build error: %s", e)
+        packed: bytes = reply.pack()  # dnslib is untyped
+        return packed
+    except Exception as e:  # noqa: BLE001  # untrusted-input boundary: one bad session must not kill the service
+        logger.debug("DoH response build error: %s", e, exc_info=True)
         return None
 
 
@@ -125,7 +124,7 @@ def _build_doh_response(raw_query: bytes, redirect_ip: str) -> bytes | None:
 _WS_MAGIC = "258EAFA5-E914-47DA-95CA-5AB5CD11AD85"
 
 
-def is_websocket_upgrade(headers: dict) -> bool:
+def is_websocket_upgrade(headers: dict[str, str]) -> bool:
     """Check if the HTTP request headers indicate a WebSocket upgrade."""
     connection = (headers.get("Connection") or "").lower()
     upgrade = (headers.get("Upgrade") or "").lower()

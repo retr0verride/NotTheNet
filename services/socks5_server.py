@@ -3,21 +3,21 @@ NotTheNet - Fake SOCKS5 Proxy Server (port 1080)
 
 Why this matters:
     A large proportion of modern malware does NOT connect directly to its C2.
-    Instead, it routes all C2 traffic through a SOCKS5 proxy â€” typically another
+    Instead, it routes all C2 traffic through a SOCKS5 proxy — typically another
     infected host or a rented proxy service.  Families that do this include:
 
-      SystemBC     â€” uses SOCKS5 exclusively for all C2 tunnelling
-      QakBot       â€” SOCKS5 proxy module embedded in the loader
-      Cobalt Strike â€” systemwide SOCKS5 proxy for post-exploit tunnelling
-      Emotet        â€” proxy module chains infections together
-      DarkComet/RATs â€” proxied C2 to hide operator's real IP
+      SystemBC     — uses SOCKS5 exclusively for all C2 tunnelling
+      QakBot       — SOCKS5 proxy module embedded in the loader
+      Cobalt Strike — systemwide SOCKS5 proxy for post-exploit tunnelling
+      Emotet        — proxy module chains infections together
+      DarkComet/RATs — proxied C2 to hide operator's real IP
 
     Key intelligence captured here:
       - The *real* destination host:port the malware is trying to reach
         (visible inside the SOCKS5 CONNECT request, even if the outer DNS
         query is fake).  This gives you the true C2 address.
       - The protocol the malware speaks after the proxy is established
-        (HTTP beacon, TLS, custom binary â€” all logged).
+        (HTTP beacon, TLS, custom binary — all logged).
 
     This server:
       1. Completes the SOCKS5 RFC 1928 handshake (no-auth)
@@ -36,12 +36,14 @@ Security notes (OpenSSF):
 - Sessions are bounded to SESSION_TIMEOUT
 """
 
+import contextlib
 import logging
 import os
 import socket
 import ssl
 import struct
 import threading
+from typing import Any
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -51,7 +53,7 @@ logger = logging.getLogger(__name__)
 SESSION_TIMEOUT = 30   # seconds
 LOG_PREVIEW     = 256  # max bytes logged per tunnel chunk (sanitized)
 
-# â”€â”€â”€ SOCKS5 constants (RFC 1928) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── SOCKS5 constants (RFC 1928) ─────────────────────────────────────────────
 _VER    = 0x05
 _CMD_CONNECT  = 0x01
 _CMD_BIND     = 0x02
@@ -66,7 +68,7 @@ _REP_REFUSED  = 0x05
 _CONNECT_OK   = struct.pack("!BBBBIH", _VER, _REP_OK, 0, _ATYP_IPV4, 0, 0)
 _CONNECT_FAIL = struct.pack("!BBBBIH", _VER, _REP_REFUSED, 0, _ATYP_IPV4, 0, 0)
 
-# â”€â”€â”€ Protocol detection / response (mirrors catch_all.py logic) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Protocol detection / response (mirrors catch_all.py logic) ──────────────
 _HTTP_PREFIXES = (b"GET ", b"POST", b"PUT ", b"HEAD", b"OPTI", b"DELE", b"PATC")
 
 _HTTP_200 = (
@@ -96,11 +98,11 @@ class _Socks5Session(threading.Thread):
     def __init__(
         self,
         conn: socket.socket,
-        addr: tuple,
+        addr: tuple[str, int],
         cert_path: str,
         key_path: str,
         sem: threading.BoundedSemaphore | None = None,
-    ):
+    ) -> None:
         super().__init__(daemon=True)
         self.conn      = conn
         self.addr      = addr
@@ -108,7 +110,7 @@ class _Socks5Session(threading.Thread):
         self.key_path  = key_path
         self._sem      = sem
 
-    # â”€â”€ I/O helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── I/O helpers ──────────────────────────────────────────────────────────
 
     def _recv_exact(self, n: int) -> bytes | None:
         """Read exactly n bytes, returning None on EOF/error."""
@@ -123,17 +125,15 @@ class _Socks5Session(threading.Thread):
             buf += chunk
         return buf
 
-    def _send(self, data: bytes):
-        try:
+    def _send(self, data: bytes) -> None:
+        with contextlib.suppress(OSError):
             self.conn.sendall(data)
-        except OSError:
-            pass
 
-    # â”€â”€ SOCKS5 handshake â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── SOCKS5 handshake ──────────────────────────────────────────────────────
 
     def _handshake(self) -> bool:
         """
-        SOCKS5 method negotiation (RFC 1928 Â§3).
+        SOCKS5 method negotiation (RFC 1928 §3).
         Returns True if the client is SOCKS5 and we agreed on no-auth (0x00).
         """
         header = self._recv_exact(2)
@@ -163,9 +163,9 @@ class _Socks5Session(threading.Thread):
             return socket.inet_ntop(socket.AF_INET6, raw) if raw else None
         return None
 
-    def _read_connect(self) -> tuple[str, int | None]:
+    def _read_connect(self) -> tuple[str, int] | None:
         """
-        Read a SOCKS5 CONNECT request (RFC 1928 Â§4).
+        Read a SOCKS5 CONNECT request (RFC 1928 §4).
         Returns (destination_host, destination_port) or None on error.
         BIND and UDP ASSOCIATE are rejected (SSRF/amplification vectors).
         """
@@ -185,7 +185,7 @@ class _Socks5Session(threading.Thread):
         if not port_raw:
             return None
         return host, struct.unpack("!H", port_raw)[0]
-    # â”€â”€ Tunnel snooping â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Tunnel snooping ───────────────────────────────────────────────────────
 
     def _try_tls_wrap(
         self, sock: socket.socket, safe_addr: str,
@@ -213,7 +213,7 @@ class _Socks5Session(threading.Thread):
             logger.debug("SOCKS5 TLS wrap failed %s: %s", safe_addr, e)
             raise  # socket unrecoverable after partial handshake
 
-    def _snoop_tunnel(self, destination: str, dest_port: int, safe_addr: str):
+    def _snoop_tunnel(self, destination: str, dest_port: int, safe_addr: str) -> None:
         """
         After sending CONNECT OK, snoop the tunnelled connection.
         Detect the protocol (TLS / HTTP / unknown) and respond accordingly,
@@ -239,10 +239,8 @@ class _Socks5Session(threading.Thread):
         sock.settimeout(SESSION_TIMEOUT)
 
         first_data = b""
-        try:
+        with contextlib.suppress(OSError):
             first_data = sock.recv(4096)
-        except OSError:
-            pass
 
         if first_data:
             preview = sanitize_log_string(
@@ -275,7 +273,7 @@ class _Socks5Session(threading.Thread):
                 )
         except OSError:
             pass
-    # â”€â”€ Thread main â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Thread main ───────────────────────────────────────────────────────────
 
     def run(self) -> None:
         safe_addr = sanitize_ip(self.addr[0])
@@ -315,17 +313,15 @@ class _Socks5Session(threading.Thread):
         finally:
             if self._sem is not None:
                 self._sem.release()
-            try:
+            with contextlib.suppress(OSError):
                 self.conn.close()
-            except OSError:
-                pass
             logger.debug("SOCKS5 [%s] session ended", safe_addr)
 
 
 class Socks5Service:
-    """Fake SOCKS5 proxy server â€” captures tunnelled C2 destinations."""
+    """Fake SOCKS5 proxy server — captures tunnelled C2 destinations."""
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled   = config.get("enabled", True)
         self.port      = int(config.get("port", 1080))
         self.bind_ip   = bind_ip
@@ -379,10 +375,8 @@ class Socks5Service:
     def stop(self) -> None:
         self._stop.set()
         if self._sock:
-            try:
+            with contextlib.suppress(OSError):
                 self._sock.close()
-            except OSError:
-                pass
         if self._thread:
             self._thread.join(timeout=3.0)
         logger.info("SOCKS5 proxy service stopped.")

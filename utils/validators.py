@@ -9,6 +9,7 @@ the network, config files, or environment variables without checking.
 import ipaddress
 import os
 import re
+from typing import Any
 
 # RFC 1123 hostname pattern
 _HOSTNAME_RE = re.compile(
@@ -30,14 +31,16 @@ def validate_ip(ip: str) -> tuple[bool, str | None]:
         return False, f"Invalid IP address: {ip!r}"
 
 
-def validate_port(port) -> tuple[bool, int | None]:
+def validate_port(port: int | str | float | None) -> tuple[bool, int | None]:
     """Return (True, int_port) or (False, None)."""
+    if port is None:
+        return False, None
     try:
         p = int(port)
         if 1 <= p <= MAX_PORT:
             return True, p
         return False, None
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # OverflowError: int(float("inf"))
         return False, None
 
 
@@ -80,19 +83,24 @@ def validate_http_method(method: str) -> bool:
     }
 
 
-def _check_positive_number(section_name: str, section: dict, key: str, errors: list) -> None:
+def _check_positive_number(
+    section_name: str, section: dict[str, Any], key: str, errors: list[str],
+) -> None:
     """Append an error if section[key] is present but not a positive number."""
     val = section.get(key)
     if val is None:
         return
     try:
-        if float(val) <= 0:
-            raise ValueError
+        positive = float(val) > 0  # NaN compares False, so it is rejected too
     except (TypeError, ValueError):
+        positive = False
+    if not positive:
         errors.append(f"{section_name}.{key} must be a positive number, got {val!r}")
 
 
-def _check_no_traversal(section_name: str, section: dict, key: str, errors: list) -> None:
+def _check_no_traversal(
+    section_name: str, section: dict[str, Any], key: str, errors: list[str],
+) -> None:
     """Append an error if section[key] contains a path-traversal (..) component."""
     path = section.get(key)
     if not path:
@@ -135,7 +143,7 @@ _PATH_FIELDS: dict[str, list[str]] = {
 }
 
 
-def validate_config(config_data: dict) -> list:  # noqa: C901 — one function validates the full config schema
+def validate_config(config_data: dict[str, Any]) -> list[str]:  # noqa: C901 — one function validates the full config schema
     """
     Validate a full configuration dict.
     Returns a list of error strings (empty list = valid).
@@ -166,9 +174,9 @@ def validate_config(config_data: dict) -> list:  # noqa: C901 — one function v
         delay = section.get("response_delay_ms", 0)
         try:
             d = int(delay)
-            if not (0 <= d <= 30_000):
-                raise ValueError
         except (TypeError, ValueError):
+            d = -1
+        if not 0 <= d <= 30_000:
             errors.append(f"{service}.response_delay_ms must be an integer 0–30000, got {delay!r}")
 
     for service in _PORT_SERVICES:
@@ -205,7 +213,7 @@ def validate_config(config_data: dict) -> list:  # noqa: C901 — one function v
             errors.append(f"ftp.pasv_port_low is invalid: {pasv_low!r}")
         if not ok_high:
             errors.append(f"ftp.pasv_port_high is invalid: {pasv_high!r}")
-        if ok_low and ok_high and low >= high:
+        if low is not None and high is not None and low >= high:
             errors.append(
                 f"ftp.pasv_port_low ({low}) must be less than pasv_port_high ({high})"
             )

@@ -42,7 +42,8 @@ pip install ruff mypy bandit pytest
 ### 3. Make your changes
 
 - Follow the existing code style (PEP 8, enforced by Ruff).
-- Line length limit: **120 characters** (see `pyproject.toml [tool.ruff]`).
+- Line length limit: **100 characters** (see `pyproject.toml [tool.ruff]`).
+- Read [docs/architecture.md](docs/architecture.md) for the code map and how to add a service.
 - All `subprocess` calls must use `shell=False` — no exceptions.
 - All user-facing strings must be validated through `utils/validators.py`.
 
@@ -58,14 +59,10 @@ pip install ruff mypy bandit pytest
 ### 5. Run the full pre-deploy gate
 
 ```bash
-# Linux
 bash predeploy.sh
-
-# Windows dev machine
-.\predeploy.ps1
 ```
 
-Both wrappers invoke `scripts/checks.py` — the same script CI runs. It executes 12 steps: secret scan, ruff, mypy (informational + strict on `domain/application/infrastructure`), bandit, pip-audit, OpenAPI validation, shellcheck, placeholder audit, pytest with coverage gate, version consistency, CHANGELOG check, Python floor check, and stale `_dyn_*` cert sweep. Use `--skip-tests` for a fast pass or `--only 1,3` for a subset.
+The wrapper invokes `scripts/checks.py`, the same script CI runs. It runs: secret scan, ruff, mypy (strict on all application code, enforced on tests and tools), bandit, pip-audit, OpenAPI validation, shellcheck, placeholder audit, pytest with coverage gate, version consistency, CHANGELOG check, Python floor check, and stale `_dyn_*` cert sweep. Use `--skip-tests` for a fast pass or `--only ruff,pytest` for a subset (`--help` lists step names).
 
 All steps must pass before submitting a PR.
 
@@ -162,10 +159,11 @@ The Tkinter GUI is split into a `gui/` package for maintainability:
 | -------- | --------- |
 | `gui/widgets.py` | Constants, colours, reusable widget factories, tooltip |
 | `gui/dialogs.py` | `_GeneralPage`, `_JsonEventsPage`, `_ServicePage`, `_DNSPage` |
-| `gui/views.py` | `DashboardMixin` — all `_build_*` layout methods |
-| `gui/logic.py` | `ServiceControlMixin` — service lifecycle, log polling |
-| `gui/app.py` | `NotTheNetApp` class (combines both mixins) + `main()` |
-| `notthenet.py` | Thin entry point (~24 lines) |
+| `gui/service_pages.py` | Field and checkbox specs for every generic service page (add GUI options here) |
+| `gui/views.py` | `DashboardMixin`: all `_build_*` layout methods |
+| `gui/logic.py` | `ServiceControlMixin`: service lifecycle, log polling |
+| `gui/app.py` | `NotTheNetApp` class (combines both mixins) + `run_gui()` |
+| `notthenet.py` | CLI entry point: argument parsing, mode dispatch, crash log |
 
 ---
 

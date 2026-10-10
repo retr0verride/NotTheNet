@@ -17,10 +17,12 @@ Security notes (OpenSSF):
 - Runs in a daemon thread; cannot block process exit.
 """
 
+import contextlib
 import logging
 import socket
 import threading
 import time
+from typing import Any
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip
@@ -30,7 +32,7 @@ logger = logging.getLogger(__name__)
 _ICMP_ECHO_REQUEST = 8
 _MIN_IP_HDR        = 20
 _MIN_ICMP_HDR      = 8
-_LOG_INTERVAL      = 5.0  # seconds between repeated log entries for the same srcâ†’dst pair
+_LOG_INTERVAL      = 5.0  # seconds between repeated log entries for the same src→dst pair
 
 
 class ICMPResponder:
@@ -41,7 +43,7 @@ class ICMPResponder:
     automatically, making every ping appear to succeed.
     """
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict[str, Any]) -> None:
         self.enabled = config.get("enabled", True)
         self._sock: socket.socket | None = None
         self._thread: threading.Thread | None = None
@@ -77,17 +79,19 @@ class ICMPResponder:
     def stop(self) -> None:
         self._stop.set()
         if self._sock:
-            try:
+            with contextlib.suppress(OSError):
                 self._sock.close()
-            except OSError:
-                pass
             self._sock = None
         if self._thread:
             self._thread.join(timeout=2)
             self._thread = None
 
+    @property
+    def running(self) -> bool:
+        return self._sock is not None
+
     @staticmethod
-    def _parse_echo_request(raw: bytes, addr: tuple) -> "tuple[str, str] | None":
+    def _parse_echo_request(raw: bytes, addr: tuple[str, int]) -> "tuple[str, str] | None":
         """Validate IP+ICMP headers and extract (src_ip, dst_ip) or None."""
         if len(raw) < _MIN_IP_HDR:
             return None
@@ -100,7 +104,7 @@ class ICMPResponder:
         dst_ip = socket.inet_ntoa(raw[16:20])
         return src_ip, dst_ip
 
-    def _should_log(self, key: tuple, now: float) -> bool:
+    def _should_log(self, key: tuple[str, str], now: float) -> bool:
         """Rate-limit check: returns True if this key should be logged now."""
         with self._lock:
             if now - self._last_logged.get(key, 0.0) < _LOG_INTERVAL:

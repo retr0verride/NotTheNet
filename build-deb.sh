@@ -14,8 +14,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Extract version from source — hard-fail if the constant is missing or renamed.
-VERSION=$(grep -oP 'APP_VERSION\s*=\s*"\K[^"]+' "${SCRIPT_DIR}/gui/widgets.py" 2>/dev/null) || {
-    echo "[!] Could not extract APP_VERSION from gui/widgets.py — aborting."
+VERSION=$(grep -oP '^APP_VERSION = "\K[^"]+' "${SCRIPT_DIR}/version.py" 2>/dev/null) || {
+    echo "[!] Could not extract APP_VERSION from version.py — aborting."
     exit 1
 }
 PKG="notthenet"
@@ -41,40 +41,40 @@ install -dm755 "$STAGING/usr/share/doc/${PKG}"
 install -dm755 "$STAGING/usr/share/icons/hicolor/scalable/apps"
 
 # ── Copy project files ────────────────────────────────────────────────────────
+# One exclude list, applied by tar so excluded paths are never opened. That
+# matters because a sudo run leaves root-only files (certs/*.key, state/) in a
+# dev checkout. "./x" excludes a top-level path; a bare name matches anywhere.
 info "Copying project files to /opt/notthenet..."
-if command -v rsync &>/dev/null; then
-    rsync -a \
-        --exclude='.git' \
-        --exclude='__pycache__' \
-        --exclude='*.pyc' \
-        --exclude='.venv' \
-        --exclude='venv' \
-        --exclude='*.egg-info' \
-        --exclude='.vscode' \
-        --exclude='build-deb.sh' \
-        --exclude='*.deb' \
-        --exclude='tests/' \
-        --exclude='certs/' \
-        --exclude='logs/' \
-        "${SCRIPT_DIR}/" "$STAGING/opt/notthenet/"
-else
-    warn "rsync not found — falling back to cp (installing rsync is recommended: sudo apt-get install rsync)"
-    cp -a "${SCRIPT_DIR}/." "$STAGING/opt/notthenet/"
-    # Remove excluded paths manually
-    rm -rf \
-        "$STAGING/opt/notthenet/.git" \
-        "$STAGING/opt/notthenet/__pycache__" \
-        "$STAGING/opt/notthenet/.venv" \
-        "$STAGING/opt/notthenet/venv" \
-        "$STAGING/opt/notthenet/.vscode" \
-        "$STAGING/opt/notthenet/build-deb.sh" \
-        "$STAGING/opt/notthenet/tests" \
-        "$STAGING/opt/notthenet/certs" \
-        "$STAGING/opt/notthenet/logs"
-    find "$STAGING/opt/notthenet" -name '*.pyc' -delete
-    find "$STAGING/opt/notthenet" -name '*.egg-info' -exec rm -rf {} + 2>/dev/null || true
-    find "$STAGING/opt/notthenet" -name '*.deb' -delete
-fi
+EXCLUDES=(
+    ./.git ./.venv ./venv ./.vscode ./.github ./dist ./tests
+    ./certs ./logs ./state ./.env ./build-deb.sh ./ship.sh
+    __pycache__ '*.pyc' '*.egg-info' '*.deb'
+    .mypy_cache .ruff_cache .pytest_cache ./.coverage ./coverage.xml ./htmlcov
+)
+tar -C "$SCRIPT_DIR" "${EXCLUDES[@]/#/--exclude=}" -cf - . \
+    | tar -C "$STAGING/opt/notthenet" -xf -
+
+# ── Vendored dependency wheels (offline install) ─────────────────────────────
+# postinst installs only from these (--no-index), so the .deb works on an
+# air-gapped Kali. Covers CPython 3.10-3.14 on x86_64 and aarch64.
+BUILD_PY="${BUILD_PY:-python3}"
+"$BUILD_PY" -m pip --version >/dev/null 2>&1 || {
+    echo "[!] $BUILD_PY has no pip; install python3-pip (needed to download wheels)."
+    exit 1
+}
+WHEEL_DIR="$STAGING/opt/notthenet/wheels"
+install -dm755 "$WHEEL_DIR"
+info "Downloading dependency wheels for offline install..."
+for pyver in 3.10 3.11 3.12 3.13 3.14; do
+    for arch in x86_64 aarch64; do
+        "$BUILD_PY" -m pip download --quiet --disable-pip-version-check \
+            --only-binary=:all: --implementation cp --python-version "$pyver" \
+            --platform "manylinux_2_28_${arch}" --platform "manylinux_2_17_${arch}" \
+            --platform "manylinux2014_${arch}" \
+            --dest "$WHEEL_DIR" \
+            -r "${SCRIPT_DIR}/requirements.txt" setuptools wheel
+    done
+done
 
 # ── /usr/bin/notthenet CLI launcher ──────────────────────────────────────────
 info "Creating /usr/bin/notthenet launcher..."
@@ -151,12 +151,23 @@ if [[ -f /usr/local/bin/notthenet ]] && \
     exit 1
 fi
 
-# ── Python virtualenv + dependencies ─────────────────────────────────────────
+# ── Python virtualenv + dependencies (offline, from vendored wheels) ─────────
 echo "[*] Creating Python virtualenv..."
 python3 -m venv "$OPT/venv"
-"$OPT/venv/bin/pip" install --quiet --upgrade pip setuptools wheel
-"$OPT/venv/bin/pip" install --quiet -r "$OPT/requirements.txt"
-"$OPT/venv/bin/pip" install --quiet -e "$OPT" --no-deps
+# Bundled wheels cover CPython 3.10-3.14 on x86_64/aarch64. Anything else
+# falls back to PyPI, which needs internet.
+PIP=("$OPT/venv/bin/pip" install --quiet --disable-pip-version-check)
+OFFLINE=(--no-index --find-links "$OPT/wheels")
+if ! "${PIP[@]}" "${OFFLINE[@]}" setuptools wheel -r "$OPT/requirements.txt" 2>/dev/null; then
+    echo "[!] No bundled wheels match $(python3 --version) on $(uname -m); trying PyPI..."
+    OFFLINE=()
+    if ! "${PIP[@]}" setuptools wheel -r "$OPT/requirements.txt"; then
+        echo "[!] Dependency install failed. Offline installs need CPython 3.10-3.14"
+        echo "    on x86_64 or aarch64; otherwise this host needs internet access."
+        exit 1
+    fi
+fi
+"${PIP[@]}" "${OFFLINE[@]}" --no-build-isolation --no-deps -e "$OPT"
 
 # ── TLS certificate ───────────────────────────────────────────────────────────
 if [[ ! -f "$OPT/certs/server.crt" ]]; then

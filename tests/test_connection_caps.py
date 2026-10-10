@@ -9,6 +9,7 @@ All tests bind to 127.0.0.1 on an ephemeral port, verify the cap fires, and
 shut the server down cleanly.  No network traffic leaves the loopback.
 """
 
+import contextlib
 import socket
 import socketserver
 import threading
@@ -16,7 +17,8 @@ import time
 import unittest
 
 import services.ftp_server as ftp_mod
-import services.mail_server as mail_mod
+import services.mail_common as mail_common
+import services.smtp_server as smtp_mod
 
 # ---------------------------------------------------------------------------
 # Helper
@@ -144,49 +146,47 @@ class TestFTPConnectionCap(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestMailReuseServerConnectionCap(unittest.TestCase):
-    """_ReuseServer in mail_server must not accept more than _MAX_CONNECTIONS."""
+    """_ReuseServer (POP3 / IMAP) must drop connections beyond max_connections."""
+
+    CAP = 3
 
     def setUp(self):
-        self._orig_max = mail_mod._MAX_CONNECTIONS
-        mail_mod._MAX_CONNECTIONS = 3
         self.port = _free_port()
+        stop = threading.Event()
 
-        class _NullHandler(socketserver.BaseRequestHandler):
-            _stop = threading.Event()
-
+        class _GreetHandler(socketserver.BaseRequestHandler):
             def handle(self):
-                self._stop.wait(timeout=5.0)
+                self.request.sendall(b"hi")
+                stop.wait(timeout=5.0)
 
-        self._handler = _NullHandler
-        self._server = mail_mod._ReuseServer(("127.0.0.1", self.port), _NullHandler)
-        t = threading.Thread(target=self._server.serve_forever, daemon=True)
-        t.start()
+        self._stop = stop
+        self._server = mail_common._ReuseServer(
+            ("127.0.0.1", self.port), _GreetHandler, max_connections=self.CAP,
+        )
+        threading.Thread(target=self._server.serve_forever, daemon=True).start()
 
     def tearDown(self):
-        self._handler._stop.set()
+        self._stop.set()
         self._server.shutdown()
-        mail_mod._MAX_CONNECTIONS = self._orig_max
+        self._server.server_close()
 
     def test_connection_beyond_cap_is_dropped(self):
         socks = []
         try:
-            for _ in range(mail_mod._MAX_CONNECTIONS):
-                socks.append(_connect(self.port))
-            time.sleep(0.1)
+            for _ in range(self.CAP):
+                s = _connect(self.port, timeout=2.0)
+                socks.append(s)
+                self.assertEqual(s.recv(2), b"hi")  # within cap: served
 
             extra = _connect(self.port, timeout=2.0)
-            extra.settimeout(2.0)
-            data = b""
             try:
-                data = extra.recv(4096)
+                data = extra.recv(4096)  # beyond cap: closed without a greeting
             except OSError:
-                pass
+                data = b""
             finally:
                 extra.close()
-
             self.assertEqual(data, b"")
         finally:
-            self._handler._stop.set()
             for s in socks:
                 s.close()
 
@@ -196,26 +196,26 @@ class TestMailReuseServerConnectionCap(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestSMTPConnectionCap(unittest.TestCase):
-    """_SMTPServer must enforce _MAX_CONNECTIONS independently."""
+    """_SMTPServer must enforce its connection cap independently."""
+
+    CAP = 3
 
     def setUp(self):
-        self._orig_max = mail_mod._MAX_CONNECTIONS
-        mail_mod._MAX_CONNECTIONS = 3
         self.port = _free_port()
 
         # _SMTPServer needs hostname / banner / save_dir but no actual handler.
-        self._server = mail_mod._SMTPServer(
+        self._server = smtp_mod._SMTPServer(
             ("127.0.0.1", self.port),
             hostname="test.host",
             banner="220 test",
             save_dir=None,
+            max_connections=self.CAP,
         )
         t = threading.Thread(target=self._server.serve_forever, daemon=True)
         t.start()
 
     def tearDown(self):
         self._server.shutdown()
-        mail_mod._MAX_CONNECTIONS = self._orig_max
 
     def test_smtp_banner_received(self):
         """A normal connection must receive the 220 banner."""
@@ -231,14 +231,12 @@ class TestSMTPConnectionCap(unittest.TestCase):
     def test_smtp_connection_beyond_cap_is_dropped(self):
         socks = []
         try:
-            for _ in range(mail_mod._MAX_CONNECTIONS):
+            for _ in range(self.CAP):
                 s = _connect(self.port)
                 socks.append(s)
                 s.settimeout(1.0)
-                try:
+                with contextlib.suppress(TimeoutError):
                     s.recv(256)   # consume banner so the slot stays open
-                except TimeoutError:
-                    pass
             time.sleep(0.1)
 
             extra = _connect(self.port, timeout=2.0)

@@ -325,7 +325,7 @@ curl -ko /dev/null -w "%{content_type}" https://127.0.0.1/malware.dll
 
 **What is SMTP?** SMTP is the protocol for sending email. Malware uses it to send spam, exfiltrate data, or communicate with C2 servers via email.
 
-**File:** `services/mail_server.py` (`SMTPService` class)  
+**File:** `services/smtp_server.py` (`SMTPService` class)  
 **Protocol:** TCP on port 25  
 **Standard:** RFC 5321 (ESMTP subset)
 
@@ -373,7 +373,7 @@ QUIT
 
 ## POP3 Service
 
-**File:** `services/mail_server.py` (`POP3Service` class)  
+**File:** `services/pop3_server.py` (`POP3Service` class)  
 **Protocol:** TCP on port 110
 
 ### Behaviour
@@ -402,7 +402,7 @@ QUIT
 
 ## SMTPS Service
 
-**File:** `services/mail_server.py` (`SMTPSService` class)  
+**File:** `services/smtp_server.py` (`SMTPSService` class)  
 **Protocol:** TCP on port 465 — TLS-wrapped SMTP (implicit TLS)
 
 ### Behaviour
@@ -427,7 +427,7 @@ QUIT
 
 ## POP3S Service
 
-**File:** `services/mail_server.py` (`POP3SService` class)  
+**File:** `services/pop3_server.py` (`POP3SService` class)  
 **Protocol:** TCP on port 995 — TLS-wrapped POP3 (implicit TLS)
 
 ### Behaviour
@@ -450,7 +450,7 @@ QUIT
 
 ## IMAP Service
 
-**File:** `services/mail_server.py` (`IMAPService` class)  
+**File:** `services/imap_server.py` (`IMAPService` class)  
 **Protocol:** TCP on port 143
 
 ### Behaviour
@@ -478,7 +478,7 @@ A003 LOGOUT
 
 ## IMAPS Service
 
-**File:** `services/mail_server.py` (`IMAPSService` class)  
+**File:** `services/imap_server.py` (`IMAPSService` class)  
 **Protocol:** TCP on port 993 — TLS-wrapped IMAP (implicit TLS)
 
 ### Behaviour

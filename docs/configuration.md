@@ -58,7 +58,7 @@ Global settings that apply to all services.
 | `drop_privileges` | bool | `true` | Drop from `root` to `drop_privileges_user`:`drop_privileges_group` after all ports are bound and iptables rules are applied. The `logs/` directory tree is `chown`'d to the target user before the drop so file saves, JSON exports, and the Open Logs button continue to work. |
 | `drop_privileges_user` | string | `"nobody"` | Username to drop to when `drop_privileges` is `true`. |
 | `drop_privileges_group` | string | `"nogroup"` | Group name to drop to when `drop_privileges` is `true`. |
-| `process_masquerade` | bool | `true` | After startup, rename the process title to a kernel-thread-like string (e.g. `[kworker/u2:1-events]`) so it does not appear as `python3 notthenet.py` in `ps` or process monitors on the analysis host. Requires the `setproctitle` package (bundled in the offline installer). |
+| `process_masquerade` | bool | `true` | After startup, rename the process title to a kernel-thread-like string (e.g. `[kworker/u2:1-events]`) so it does not appear as `python3 notthenet.py` in `ps` or process monitors on the analysis host. Requires the `setproctitle` package (installed with NotTheNet). |
 | `process_name` | string | `"[kworker/u2:1-events]"` | Process title used when `process_masquerade` is `true`. |
 | `tcp_fingerprint` | bool | `true` | Enable TCP/IP OS fingerprint spoofing on all listening sockets. Modifies low-level TCP parameters so responses appear to come from the configured OS. Linux only. |
 | `tcp_fingerprint_os` | string | `"windows"` | OS profile for TCP fingerprint spoofing. One of: `"windows"` (TTL=128, Win=65535), `"linux"` (TTL=64, Win=29200), `"macos"` (TTL=64, Win=65535), `"solaris"` (TTL=255, Win=49640). |

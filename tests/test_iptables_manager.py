@@ -1,5 +1,6 @@
 """
-Tests for network/iptables_manager.py — validation, rule building, snapshot paths.
+Tests for network/iptables_manager.py and network/host_state.py:
+validation, rule building, snapshot paths.
 
 All tests mock subprocess and /proc so they run without root on any OS.
 """
@@ -9,13 +10,24 @@ from unittest.mock import mock_open, patch
 
 import pytest
 
-from network.iptables_manager import (
-    _IPTABLES_SAVE_FILE,
-    _MANGLE_SAVE_FILE,
-    _RULE_COMMENT,
-    _SNAPSHOT_DIR,
-    IPTablesManager,
-)
+from network.host_state import _IPTABLES_SAVE_FILE, _MANGLE_SAVE_FILE, _SNAPSHOT_DIR
+from network.iptables_manager import _RULE_COMMENT, IPTablesManager
+
+
+@pytest.fixture(autouse=True)
+def _no_real_commands(monkeypatch):
+    """Never shell out to ip/iptables on the host running the tests.
+
+    Unpatched commands behave as if they failed, so route and address
+    discovery is deterministic. Tests that need specific output patch
+    ``_run`` themselves; that patch is applied after this one and wins.
+    """
+    def _stub(args):
+        return 1, "", "stubbed in tests"
+
+    monkeypatch.setattr("network.iptables_manager._run", _stub)
+    monkeypatch.setattr("network.host_state._run", _stub)
+
 
 # ── Snapshot path safety ─────────────────────────────────────────────────────
 
@@ -26,10 +38,10 @@ class TestSnapshotPaths:
         assert "/tmp" not in _SNAPSHOT_DIR  # noqa: S108
         assert "\\Temp" not in _SNAPSHOT_DIR
 
-    def test_snapshot_dir_is_logs(self):
-        assert _SNAPSHOT_DIR.endswith("logs")
+    def test_snapshot_dir_is_state(self):
+        assert _SNAPSHOT_DIR.endswith("state")
 
-    def test_save_file_under_logs(self):
+    def test_save_file_under_snapshot_dir(self):
         assert _IPTABLES_SAVE_FILE.startswith(_SNAPSHOT_DIR)
         assert _MANGLE_SAVE_FILE.startswith(_SNAPSHOT_DIR)
 
@@ -115,7 +127,7 @@ class TestRuleBuilding:
 
     def test_add_rule_rejects_non_string_args(self):
         mgr = self._mgr()
-        assert not mgr._add_rule(["-t", "nat", 42])
+        assert not mgr._add_rule(["-t", "nat", 42])  # type: ignore[list-item]  # deliberately wrong
 
     @patch("network.iptables_manager._run", return_value=(0, "", ""))
     def test_del_rule_converts_a_to_d(self, mock_run):

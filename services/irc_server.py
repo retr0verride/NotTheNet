@@ -6,17 +6,18 @@ Fake IRC server for capturing IRC-based C2 (botnet) traffic.
 Many botnets use IRC for command-and-control: the bot connects to an IRC
 server, joins a private channel, and waits for PRIVMSG commands from an
 operator.  This server accepts all connections, responds with a realistic
-IRC welcome sequence (numerics 001â€“005, LUSERS, MOTD), and handles the
+IRC welcome sequence (numerics 001–005, LUSERS, MOTD), and handles the
 full set of common IRC commands so bots proceed to join channels and sit
-waiting for orders â€” fully captured in the sandbox.
+waiting for orders — fully captured in the sandbox.
 
 Security notes (OpenSSF):
-- Lines are capped at 512 bytes (RFC 1459 Â§2.3); data beyond is discarded
+- Lines are capped at 512 bytes (RFC 1459 §2.3); data beyond is discarded
 - Nick, channel, and message strings are sanitized before logging
 - Runs each connection in a daemon thread; cannot block process exit
 - No data is forwarded to any external host; all traffic is intercepted
 """
 
+import contextlib
 import logging
 import os
 import socket
@@ -24,13 +25,14 @@ import ssl
 import threading
 import time
 from collections.abc import Callable
+from typing import Any
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
 
 logger = logging.getLogger(__name__)
 
-_MAX_LINE = 512       # RFC 1459 Â§2.3
+_MAX_LINE = 512       # RFC 1459 §2.3
 _PING_INTERVAL = 120  # idle seconds before the server sends a keepalive PING
 _PING_TIMEOUT  = 60   # seconds to wait for PONG before forcibly closing
 _CHANNEL_EPOCH = 1735689600  # 2025-01-01T00:00:00Z
@@ -41,13 +43,13 @@ class _IRCClientThread(threading.Thread):
     def __init__(
         self,
         conn: socket.socket,
-        addr: tuple,
+        addr: tuple[str, int],
         hostname: str,
         network: str,
         channel: str,
         motd: str,
         sem: threading.BoundedSemaphore | None = None,
-    ):
+    ) -> None:
         super().__init__(daemon=True, name=f"irc-{addr[0]}:{addr[1]}")
         self.conn = conn
         self.addr = addr
@@ -61,27 +63,23 @@ class _IRCClientThread(threading.Thread):
         self._sem = sem
         self._waiting_for_pong: bool = False
 
-    # â”€â”€ I/O helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── I/O helpers ──────────────────────────────────────────────────────────
 
-    def _send(self, line: str):
+    def _send(self, line: str) -> None:
         """Send a server-originated message (prefixed with :hostname)."""
-        try:
+        with contextlib.suppress(OSError):
             self.conn.sendall(f":{self.hostname} {line}\r\n".encode())
-        except OSError:
-            pass
 
-    def _send_raw(self, line: str):
+    def _send_raw(self, line: str) -> None:
         """Send a raw (already-prefixed) line."""
-        try:
+        with contextlib.suppress(OSError):
             self.conn.sendall(f"{line}\r\n".encode())
-        except OSError:
-            pass
 
-    # â”€â”€ Registration burst â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Registration burst ───────────────────────────────────────────────────
 
-    def _welcome(self):
+    def _welcome(self) -> None:
         """
-        Send the RFC 1459 registration burst: 001â€“005, LUSERS, MOTD end.
+        Send the RFC 1459 registration burst: 001–005, LUSERS, MOTD end.
         This is the sequence that tells the client it has successfully
         registered and may begin sending channel commands.
         """
@@ -113,9 +111,9 @@ class _IRCClientThread(threading.Thread):
             self._send(f"372 {nick} :- {motd_line}")
         self._send(f"376 {nick} :End of /MOTD command.")
 
-    # â”€â”€ Channel join response â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Channel join response ─────────────────────────────────────────────────
 
-    def _do_join(self, channel: str):
+    def _do_join(self, channel: str) -> None:
         """Emit RFC-correct join response: JOIN echo + topic + NAMREPLY."""
         nick = self.nick
         safe_chan = sanitize_log_string(channel)
@@ -135,7 +133,7 @@ class _IRCClientThread(threading.Thread):
         # 366 RPL_ENDOFNAMES
         self._send(f"366 {nick} {channel} :End of /NAMES list.")
 
-    # â”€â”€ Main read loop â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Main read loop ────────────────────────────────────────────────────────
 
     def run(self) -> None:
         safe_addr = sanitize_ip(self.addr[0])
@@ -162,10 +160,8 @@ class _IRCClientThread(threading.Thread):
         finally:
             if self._sem is not None:
                 self._sem.release()
-            try:
+            with contextlib.suppress(OSError):
                 self.conn.close()
-            except OSError:
-                pass
             logger.info("IRC  [%s] disconnected", safe_addr)
 
     def _recv_or_ping(self) -> "bytes | None":
@@ -192,9 +188,9 @@ class _IRCClientThread(threading.Thread):
                 self.conn.settimeout(_PING_INTERVAL)
             return chunk
 
-    # â”€â”€ Command dispatcher â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Command dispatcher ────────────────────────────────────────────────────
 
-    def _dispatch(self, line: str, safe_addr: str):
+    def _dispatch(self, line: str, safe_addr: str) -> None:
         """Dispatch one IRC client message."""
         # Strip optional leading server prefix (clients sometimes echo it back)
         if line.startswith(":"):
@@ -212,9 +208,9 @@ class _IRCClientThread(threading.Thread):
         elif self.registered and cmd:
             self._send(f"421 {self.nick} {cmd} :Unknown command")
 
-    # â”€â”€ Per-command handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Per-command handlers ──────────────────────────────────────────────
 
-    def _cmd_cap(self, rest: str, _sa: str):
+    def _cmd_cap(self, rest: str, _sa: str) -> None:
         sub = rest.split()[0].upper() if rest.split() else ""
         if sub == "LS":
             self._send_raw(f":{self.hostname} CAP * LS :")
@@ -222,10 +218,10 @@ class _IRCClientThread(threading.Thread):
             caps = rest[3:].strip().lstrip(":")
             self._send_raw(f":{self.hostname} CAP * NAK :{caps}")
 
-    def _cmd_pass(self, _rest: str, _sa: str):
+    def _cmd_pass(self, _rest: str, _sa: str) -> None:
         pass  # Accept any password silently
 
-    def _cmd_nick(self, rest: str, _sa: str):
+    def _cmd_nick(self, rest: str, _sa: str) -> None:
         new_nick = rest.strip().split()[0] if rest.strip() else "bot"
         _nick_special = "-_[]{}\\|`^"
         _stripped = new_nick.translate(str.maketrans("", "", _nick_special))
@@ -237,22 +233,22 @@ class _IRCClientThread(threading.Thread):
             self.registered = True
             self._welcome()
 
-    def _cmd_user(self, rest: str, _sa: str):
+    def _cmd_user(self, rest: str, _sa: str) -> None:
         u_parts = rest.split(None, 1)
         self.user = u_parts[0][:20] if u_parts else "user"
         if self.nick and not self.registered:
             self.registered = True
             self._welcome()
 
-    def _cmd_ping(self, rest: str, _sa: str):
+    def _cmd_ping(self, rest: str, _sa: str) -> None:
         token = rest.lstrip(":").strip() or self.hostname
         self._send_raw(f":{self.hostname} PONG {self.hostname} :{token}")
 
-    def _cmd_pong(self, _rest: str, _sa: str):
+    def _cmd_pong(self, _rest: str, _sa: str) -> None:
         self._waiting_for_pong = False
         self.conn.settimeout(_PING_INTERVAL)
 
-    def _cmd_join(self, rest: str, _sa: str):
+    def _cmd_join(self, rest: str, _sa: str) -> None:
         if not self.registered:
             return
         if rest.strip() == "0":
@@ -262,7 +258,7 @@ class _IRCClientThread(threading.Thread):
             if ch.startswith(("#", "&")):
                 self._do_join(ch)
 
-    def _cmd_part(self, rest: str, _sa: str):
+    def _cmd_part(self, rest: str, _sa: str) -> None:
         if not self.registered:
             return
         ch = rest.split()[0] if rest.split() else ""
@@ -270,7 +266,7 @@ class _IRCClientThread(threading.Thread):
             f":{self.nick}!{self.user}@{self.hostname} PART {ch} :Leaving"
         )
 
-    def _cmd_privmsg(self, rest: str, safe_addr: str):
+    def _cmd_privmsg(self, rest: str, safe_addr: str) -> None:
         if not self.registered:
             return
         safe_msg = sanitize_log_string(rest)
@@ -285,7 +281,7 @@ class _IRCClientThread(threading.Thread):
                 nick=self.nick, type="PRIVMSG", message=safe_msg[:200],
             )
 
-    def _cmd_notice(self, rest: str, safe_addr: str):
+    def _cmd_notice(self, rest: str, safe_addr: str) -> None:
         if not self.registered:
             return
         safe_msg = sanitize_log_string(rest)
@@ -300,13 +296,13 @@ class _IRCClientThread(threading.Thread):
                 nick=self.nick, type="NOTICE", message=safe_msg[:200],
             )
 
-    def _cmd_who(self, rest: str, _sa: str):
+    def _cmd_who(self, rest: str, _sa: str) -> None:
         if not self.registered:
             return
         target = rest.strip().lstrip(":").split()[0] if rest.strip() else "*"
         self._send(f"315 {self.nick} {target} :End of /WHO list.")
 
-    def _cmd_whois(self, rest: str, _sa: str):
+    def _cmd_whois(self, rest: str, _sa: str) -> None:
         if not self.registered:
             return
         target = rest.strip().split()[0] if rest.strip() else ""
@@ -315,7 +311,7 @@ class _IRCClientThread(threading.Thread):
             f"401 {self.nick} {safe_target} :No such nick/channel"
         )
 
-    def _cmd_mode(self, rest: str, _sa: str):
+    def _cmd_mode(self, rest: str, _sa: str) -> None:
         if not self.registered:
             return
         target = rest.strip().split()[0] if rest.strip() else ""
@@ -325,42 +321,40 @@ class _IRCClientThread(threading.Thread):
         else:
             self._send(f"221 {self.nick} +i")
 
-    def _cmd_list(self, _rest: str, _sa: str):
+    def _cmd_list(self, _rest: str, _sa: str) -> None:
         if not self.registered:
             return
         self._send(f"321 {self.nick} Channel :Users  Name")
         self._send(f"322 {self.nick} #{self.channel} 1 :Fake channel")
         self._send(f"323 {self.nick} :End of /LIST")
 
-    def _cmd_names(self, rest: str, _sa: str):
+    def _cmd_names(self, rest: str, _sa: str) -> None:
         if not self.registered:
             return
         ch = rest.strip().split()[0] if rest.strip() else f"#{self.channel}"
         self._send(f"353 {self.nick} = {ch} :@admin {self.nick}")
         self._send(f"366 {self.nick} {ch} :End of /NAMES list.")
 
-    def _cmd_topic(self, rest: str, _sa: str):
+    def _cmd_topic(self, rest: str, _sa: str) -> None:
         if not self.registered:
             return
         ch = rest.strip().split()[0] if rest.strip() else ""
         self._send(f"332 {self.nick} {ch} :Welcome")
 
-    def _cmd_ison(self, _rest: str, _sa: str):
+    def _cmd_ison(self, _rest: str, _sa: str) -> None:
         self._send(f"303 {self.nick} :")
 
-    def _cmd_away(self, _rest: str, _sa: str):
+    def _cmd_away(self, _rest: str, _sa: str) -> None:
         self._send(f"305 {self.nick} :You are no longer marked as being away")
 
-    def _cmd_userhost(self, _rest: str, _sa: str):
+    def _cmd_userhost(self, _rest: str, _sa: str) -> None:
         if not self.registered:
             return
         self._send(f"302 {self.nick} :")
 
-    def _cmd_quit(self, _rest: str, _sa: str):
-        try:
+    def _cmd_quit(self, _rest: str, _sa: str) -> None:
+        with contextlib.suppress(OSError):
             self.conn.close()
-        except OSError:
-            pass
 
     _COMMAND_MAP: dict[str, Callable[["_IRCClientThread", str, str], None]] = {
         "CAP":     _cmd_cap,
@@ -386,13 +380,13 @@ class _IRCClientThread(threading.Thread):
     }
 
 
-# â”€â”€â”€ Service wrappers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Service wrappers ────────────────────────────────────────────────────────
 
 
 class IRCService:
-    """Fake IRC server â€” accepts botnet C2 connections on TCP."""
+    """Fake IRC server — accepts botnet C2 connections on TCP."""
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 6667))
         self.bind_ip = bind_ip
@@ -451,10 +445,8 @@ class IRCService:
     def stop(self) -> None:
         self._stop_event.set()
         if self._sock:
-            try:
+            with contextlib.suppress(OSError):
                 self._sock.close()
-            except OSError:
-                pass
         if self._thread:
             self._thread.join(timeout=3.0)
         logger.info("IRC service stopped.")
@@ -470,11 +462,11 @@ class IRCSTLSService:
 
     Modern botnets increasingly use SSL IRC to avoid plaintext interception.
     This service wraps each accepted connection in TLS before handing it to
-    the same ``_IRCClientThread`` handler â€” giving you full IRC sinkholing
+    the same ``_IRCClientThread`` handler — giving you full IRC sinkholing
     over encrypted channels with no code duplication.
     """
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled   = config.get("enabled", True)
         self.port      = int(config.get("port", 6697))
         self.bind_ip   = bind_ip
@@ -496,7 +488,7 @@ class IRCSTLSService:
             os.path.exists(self.cert_path) and os.path.exists(self.key_path)
         ):
             logger.warning(
-                "IRC/TLS (port %d): cert or key not found â€” skipping", self.port
+                "IRC/TLS (port %d): cert or key not found — skipping", self.port
             )
             return False
         try:
@@ -539,11 +531,9 @@ class IRCSTLSService:
                 conn = self._ssl_ctx.wrap_socket(raw_conn, server_side=True)
             except ssl.SSLError as e:
                 logger.debug("IRC/TLS handshake failed %s: %s", addr[0], e)
-                self._sem.release()   # release slot â€” session never started
-                try:
+                self._sem.release()   # release slot — session never started
+                with contextlib.suppress(OSError):
                     raw_conn.close()
-                except OSError:
-                    pass
                 continue
             _IRCClientThread(
                 conn, addr,
@@ -557,10 +547,8 @@ class IRCSTLSService:
     def stop(self) -> None:
         self._stop.set()
         if self._sock:
-            try:
+            with contextlib.suppress(OSError):
                 self._sock.close()
-            except OSError:
-                pass
         if self._thread:
             self._thread.join(timeout=3.0)
         logger.info("IRC/TLS service stopped.")

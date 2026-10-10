@@ -7,7 +7,7 @@
 - [Requirements](#requirements)
 - Install methods
   - [Method 1 — .deb package (recommended)](#method-1--deb-package-recommended)
-  - [Method 2 — Offline / USB bundle](#method-2--offline--usb-bundle)
+  - [Method 2 — Offline / USB install](#method-2--offline--usb-install)
   - [Method 3 — Dev / script install](#method-3--dev--script-install)
 - [Verifying the Install](#verifying-the-install)
 - [Desktop Integration](#desktop-integration)
@@ -107,7 +107,7 @@ sudo iptables -t nat -S | grep NOTTHENET   # should return nothing
 
 ## Method 2 — Offline / USB install
 
-Use when your Kali machine has **no internet access**. Download the `.deb` from GitHub Releases on any internet-connected machine and copy it to Kali.
+Use when your Kali machine has **no internet access**. Download the `.deb` from GitHub Releases on any internet-connected machine and copy it to Kali. The package vendors every Python dependency as a pre-built wheel (CPython 3.10 to 3.14, x86_64 and aarch64), so its install step never needs the network.
 
 ### Download (on any internet-connected machine)
 
@@ -177,7 +177,9 @@ Backs up `config.json`, pulls the latest code, reinstalls the package, and resto
 diff config.json <(git show origin/main:config.json)
 ```
 
-> **`update.sh` works on `.deb` installs too.** When run on a system where the `notthenet` package is registered with `dpkg`, it pulls the latest source, rebuilds the `.deb`, backs up `/opt/notthenet/config.json`, runs `dpkg -i`, restores the user config, and merges any new default keys. The version is verified post-install (`dpkg-query -W` must equal `gui/widgets.py:APP_VERSION`) so silent build failures are caught.
+> **`update.sh` on a `.deb` install rebuilds the package, which downloads dependency wheels, so it needs internet and `python3-pip`.**
+>
+> **`update.sh` works on `.deb` installs too.** When run on a system where the `notthenet` package is registered with `dpkg`, it pulls the latest source, rebuilds the `.deb`, backs up `/opt/notthenet/config.json`, runs `dpkg -i`, restores the user config, and merges any new default keys. The version is verified post-install (`dpkg-query -W` must equal `version.py:APP_VERSION`) so silent build failures are caught.
 
 ### Uninstall
 

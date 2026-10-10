@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import tkinter as tk
 from tkinter import messagebox
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from gui.widgets import (
     C_ACCENT,
@@ -34,7 +36,12 @@ from gui.widgets import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from config import Config
+    from service_manager import ServiceManager
+    from utils.preflight import CheckResult, PreflightReport
+    from utils.victim_remote import DetectedHost
 
 logger = logging.getLogger(__name__)
 
@@ -45,17 +52,21 @@ _STATUS_COLORS = {"ok": C_GREEN, "warn": C_ORANGE, "fail": C_RED, "info": C_DIM}
 class _PreflightPage(tk.Frame):
     """Preflight check page: local checks and victim IP detection."""
 
-    def __init__(self, parent, cfg: Config, manager_ref=None):
+    def __init__(
+        self, parent: tk.Misc, cfg: Config,
+        manager_ref: Callable[[], ServiceManager | None] | None = None,
+    ) -> None:
         super().__init__(parent, bg=C_SURFACE)
         self.cfg = cfg
         self._manager_ref = manager_ref  # callable that returns the ServiceManager
-        self.vars: dict = {}
+        self.vars: dict[str, tk.StringVar] = {}
         self._local_labels: list[tk.Label] = []
         self._running = False
-        self._cert_server_proc: subprocess.Popen | None = None
+        self._cert_server_proc: subprocess.Popen[bytes] | None = None
+        self._cert_server_dir: str | None = None
         self._build()
 
-    def _build(self):
+    def _build(self) -> None:
         # Scrollable canvas wrapper
         canvas = tk.Canvas(self, bg=C_SURFACE, highlightthickness=0, bd=0)
         vsb = tk.Scrollbar(self, orient="vertical", command=canvas.yview)
@@ -70,7 +81,7 @@ class _PreflightPage(tk.Frame):
         canvas.bind("<Configure>",
                     lambda e: canvas.itemconfig(_win, width=e.width))
 
-        def _scroll(event):
+        def _scroll(event: tk.Event[tk.Misc]) -> None:
             if event.num == 4 or getattr(event, "delta", 0) > 0:
                 canvas.yview_scroll(-1, "units")
             elif event.num == 5 or getattr(event, "delta", 0) < 0:
@@ -89,7 +100,7 @@ class _PreflightPage(tk.Frame):
 
     # ── Victim IP section ─────────────────────────────────────────────────
 
-    def _build_victim_section(self):
+    def _build_victim_section(self) -> None:
         f = _section_frame(self._inner, "Victim IP")
         f.pack(fill="x", padx=PAD + 4, pady=PAD + 4)
 
@@ -113,7 +124,7 @@ class _PreflightPage(tk.Frame):
                 "Detect victim IP by reading the ARP table on the lab bridge.\n"
                 "The victim VM must be running.")
 
-    def _on_detect_ip(self):
+    def _on_detect_ip(self) -> None:
         """Detect victim IP from ARP cache."""
         from utils.victim_remote import arp_scan, detect_victims
         manual_ip = self.vars["ip"].get().strip()
@@ -135,7 +146,7 @@ class _PreflightPage(tk.Frame):
             return
         self._show_ip_picker(hosts)
 
-    def _show_ip_picker(self, hosts):
+    def _show_ip_picker(self, hosts: list[DetectedHost]) -> None:
         dlg = tk.Toplevel()
         dlg.title("Select Victim")
         dlg.configure(bg=C_SURFACE)
@@ -152,7 +163,7 @@ class _PreflightPage(tk.Frame):
             listbox.insert("end", f"{h.ip}  ({h.mac})")
         listbox.pack(fill="both", expand=True, padx=12, pady=4)
 
-        def _select():
+        def _select() -> None:
             sel = listbox.curselection()
             if sel:
                 self.vars["ip"].set(hosts[sel[0]].ip)
@@ -167,7 +178,7 @@ class _PreflightPage(tk.Frame):
 
     # ── CA Cert Distribution section ──────────────────────────────────────
 
-    def _build_cert_section(self):
+    def _build_cert_section(self) -> None:
         f = _section_frame(self._inner, "CA Cert Distribution")
         f.pack(fill="x", padx=PAD + 4, pady=(0, PAD + 4))
 
@@ -190,7 +201,7 @@ class _PreflightPage(tk.Frame):
         self._serve_btn.pack(side="left")
         _hover_bind(self._serve_btn, C_HOVER, C_SELECTED)
         tooltip(self._serve_btn,
-                "Start a temporary HTTP server on port 8080 serving certs/.\n"
+                "Start a temporary HTTP server on port 8080 serving ca.crt only.\n"
                 "Browse to the URL on the victim and install ca.crt.")
 
         self._cert_url_var = tk.StringVar()
@@ -203,13 +214,37 @@ class _PreflightPage(tk.Frame):
         self._cert_url_label.bind("<Button-1>", lambda _e: self._copy_cert_url())
         tooltip(self._cert_url_label, "Click to copy URL to clipboard")
 
-    def _on_toggle_cert_server(self):
+    def _on_toggle_cert_server(self) -> None:
         if self._cert_server_proc and self._cert_server_proc.poll() is None:
             self._stop_cert_server()
         else:
             self._start_cert_server()
 
-    def _start_cert_server(self):
+    def _resolve_serve_ip(self) -> str:
+        """Resolve a concrete lab-facing IP to bind the cert server to.
+
+        Never binds 0.0.0.0: the cert server must be reachable only on the lab
+        segment, not every interface (including the management LAN).
+        """
+        from utils.validators import validate_ip
+
+        redirect = (self.cfg.get("general", "redirect_ip") or "").strip()
+        if redirect and redirect not in ("auto", "0.0.0.0", "127.0.0.1"):
+            ok, norm = validate_ip(redirect)
+            if ok and norm:
+                return norm
+        bind = (self.cfg.get("general", "bind_ip") or "").strip()
+        if bind and bind not in ("0.0.0.0", "::"):
+            ok, norm = validate_ip(bind)
+            if ok and norm:
+                return norm
+        logger.warning(
+            "cert server: no concrete lab IP configured (bind_ip/redirect_ip); "
+            "falling back to 10.10.10.1"
+        )
+        return "10.10.10.1"
+
+    def _start_cert_server(self) -> None:
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         certs_dir = os.path.join(project_root, "certs")
         ca_path = os.path.join(certs_dir, "ca.crt")
@@ -221,21 +256,35 @@ class _PreflightPage(tk.Frame):
             )
             return
 
-        bind_ip = self.cfg.get("general", "bind_ip") or "10.10.10.1"
+        serve_ip = self._resolve_serve_ip()
         port = 8080
+
+        # Serve ONLY ca.crt from an isolated temp dir. http.server exposes its
+        # whole --directory (with listing), so pointing it at certs/ would leak
+        # the Root CA private key (ca.key) and server.key. Copy just the public
+        # cert into a throwaway dir instead.
+        try:
+            serve_dir = tempfile.mkdtemp(prefix="ntn_cacert_")
+            shutil.copy2(ca_path, os.path.join(serve_dir, "ca.crt"))
+        except OSError as exc:
+            messagebox.showerror("CA Cert Server", f"Failed to prepare cert directory:\n{exc}")
+            return
+        self._cert_server_dir = serve_dir
 
         try:
             self._cert_server_proc = subprocess.Popen(
                 [sys.executable, "-m", "http.server", str(port),
-                 "--bind", bind_ip, "--directory", certs_dir],
+                 "--bind", serve_ip, "--directory", serve_dir],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-        except Exception as exc:
+        except OSError as exc:
+            shutil.rmtree(serve_dir, ignore_errors=True)
+            self._cert_server_dir = None
             messagebox.showerror("CA Cert Server", f"Failed to start HTTP server:\n{exc}")
             return
 
-        url = f"http://{bind_ip}:{port}/ca.crt"
+        url = f"http://{serve_ip}:{port}/ca.crt"
         self._cert_url_var.set(f"\u2398  {url}")
         self._serve_btn.configure(
             text="\u25a0  Stop Serving", bg=C_RED, fg="#ffffff",
@@ -243,10 +292,13 @@ class _PreflightPage(tk.Frame):
         _hover_bind(self._serve_btn, C_RED, "#ff6060")
         self._set_status(f"Serving CA cert at {url}", C_GREEN)
 
-    def _stop_cert_server(self):
+    def _stop_cert_server(self) -> None:
         if self._cert_server_proc:
             self._cert_server_proc.terminate()
             self._cert_server_proc = None
+        if self._cert_server_dir:
+            shutil.rmtree(self._cert_server_dir, ignore_errors=True)
+            self._cert_server_dir = None
         self._cert_url_var.set("")
         self._serve_btn.configure(
             text="\u25b6  Serve CA Cert", bg=C_HOVER, fg=C_TEXT,
@@ -254,7 +306,7 @@ class _PreflightPage(tk.Frame):
         _hover_bind(self._serve_btn, C_HOVER, C_SELECTED)
         self._set_status("CA cert server stopped.", C_DIM)
 
-    def _copy_cert_url(self):
+    def _copy_cert_url(self) -> None:
         raw = self._cert_url_var.get()
         # strip the leading clipboard icon + space
         url = raw.lstrip("\u2398 ").strip()
@@ -263,23 +315,24 @@ class _PreflightPage(tk.Frame):
             self.clipboard_append(url)
             self._set_status("URL copied to clipboard.", C_DIM)
 
-    def destroy(self):
+    def destroy(self) -> None:
         self._stop_cert_server()
         super().destroy()
 
     # ── Local Checks section ──────────────────────────────────────────────
 
-    def _build_local_section(self):
+    def _build_local_section(self) -> None:
         f = _section_frame(self._inner, "Local Checks (Kali)")
         f.pack(fill="x", padx=PAD + 4, pady=(0, PAD + 4))
         self._local_frame = f
-        self._local_placeholder = tk.Label(
+        placeholder = tk.Label(
             f, text="Click 'Run Local Checks' or 'Run All Checks' to start.",
             bg=C_SURFACE, fg=C_DIM, font=_f(9),
         )
-        self._local_placeholder.pack(anchor="w", pady=4)
+        placeholder.pack(anchor="w", pady=4)
+        self._local_placeholder: tk.Label | None = placeholder
 
-    def _populate_local_results(self, results):
+    def _populate_local_results(self, results: list[CheckResult]) -> None:
         """Display local check results."""
         for lbl in self._local_labels:
             lbl.destroy()
@@ -301,11 +354,11 @@ class _PreflightPage(tk.Frame):
 
     # ── Buttons ───────────────────────────────────────────────────────────
 
-    def _build_buttons(self):
+    def _build_buttons(self) -> None:
         bar = tk.Frame(self._inner, bg=C_SURFACE)
         bar.pack(fill="x", padx=PAD + 4, pady=(0, PAD))
 
-        btn_style = {"relief": "flat", "bd": 0, "padx": 12, "pady": 5,
+        btn_style: dict[str, Any] = {"relief": "flat", "bd": 0, "padx": 12, "pady": 5,
                      "font": _f(9, True), "cursor": "hand2"}
 
         self._local_btn = tk.Button(
@@ -320,13 +373,13 @@ class _PreflightPage(tk.Frame):
 
     # ── Status line ───────────────────────────────────────────────────────
 
-    def _build_status(self):
+    def _build_status(self) -> None:
         self._status_label = tk.Label(
             self._inner, text="", bg=C_SURFACE, fg=C_DIM, font=_f(9),
         )
         self._status_label.pack(anchor="w", padx=PAD + 4, pady=(0, PAD))
 
-    def _set_status(self, text: str, color: str = C_DIM):
+    def _set_status(self, text: str, color: str = C_DIM) -> None:
         self._status_label.configure(text=text, fg=color)
 
     # ── Check execution ───────────────────────────────────────────────────
@@ -338,20 +391,20 @@ class _PreflightPage(tk.Frame):
                 return True
         return False
 
-    def _get_victim_creds(self):
+    def _get_victim_creds(self) -> tuple[str, str, str]:
         ip = self.vars["ip"].get().strip()
         user = self.vars["username"].get().strip()
         pw = self.vars["password"].get().strip()
         return ip, user, pw
 
-    def _on_run_local(self):
+    def _on_run_local(self) -> None:
         if self._running:
             return
         self._running = True
         self._set_status("Running checks\u2026", C_ORANGE)
         self._local_btn.configure(state="disabled")
 
-        def _worker():
+        def _worker() -> None:
             from utils.preflight import run_preflight
             self.apply_to_config()
             report = run_preflight(self.cfg)
@@ -361,7 +414,7 @@ class _PreflightPage(tk.Frame):
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _finish_local(self, results, report):
+    def _finish_local(self, results: list[CheckResult], report: PreflightReport) -> None:
         self._populate_local_results(results)
         failures = len(report.failures)
         warnings = len(report.warnings)
@@ -376,7 +429,7 @@ class _PreflightPage(tk.Frame):
 
     # ── Config persistence ────────────────────────────────────────────────
 
-    def apply_to_config(self):
+    def apply_to_config(self) -> None:
         """Write victim IP field back to config."""
         for key, var in self.vars.items():
             self.cfg.set("victim", key, var.get())

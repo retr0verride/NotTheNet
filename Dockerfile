@@ -118,7 +118,9 @@ USER notthenet
 
 EXPOSE 8080
 
-# Default: headless mode (no display server needed)
-ENV NTN_HEADLESS=1
+# Default: headless mode (no display server needed) with the health endpoint
+# that HEALTHCHECK above polls.
+ENV NTN_HEADLESS=1 \
+    NTN_HEALTH_ENABLED=1
 
 ENTRYPOINT ["/venv/bin/python", "notthenet.py"]

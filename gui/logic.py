@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -25,6 +26,7 @@ from gui.widgets import (
 )
 from service_manager import ServiceManager
 from utils.logging_utils import setup_logging
+from version import APP_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -44,15 +46,22 @@ if TYPE_CHECKING:
         _btn_check_updates: tk.Button
         _status_label: tk.Label
         _cfg: Config
-        _pages: dict
+        _pages: dict[str, tk.Frame]
         _manager: ServiceManager | None
         _start_time: float | None
         _timer_job: str | None
-        _svc_vars: dict
-        _log_queue: queue.Queue
+        _svc_vars: dict[str, tk.Label]
+        _log_queue: queue.Queue[str]
         _log_line_count: int
+
+        # Provided by DashboardMixin (gui/views.py).
+        def _build_pages(self) -> None: ...
+        def _show_page(self, key: str) -> None: ...
 else:
     _ControlHost = object
+
+
+_RELEASES_PAGE = "https://github.com/retr0verride/NotTheNet/releases"
 
 
 class ServiceControlMixin(_ControlHost):
@@ -70,7 +79,7 @@ class ServiceControlMixin(_ControlHost):
 
     # ── Log filter ────────────────────────────────────────────────────────
 
-    def _toggle_log_filter(self, level: str):
+    def _toggle_log_filter(self, level: str) -> None:
         """Toggle visibility of a single log level in the live panel.
 
         Any combination of levels can be active simultaneously.
@@ -86,7 +95,7 @@ class ServiceControlMixin(_ControlHost):
                         bd=1 if active else 0)
         self._reapply_log_filter()
 
-    def _reapply_log_filter(self):
+    def _reapply_log_filter(self) -> None:
         """Re-apply the active filter set to all existing lines in the log widget.
 
         Uses ``tag_ranges()`` to fetch all ranges for each hidden level in
@@ -106,7 +115,7 @@ class ServiceControlMixin(_ControlHost):
 
     # ── Log polling ───────────────────────────────────────────────────────
 
-    def _poll_log_queue(self):
+    def _poll_log_queue(self) -> None:
         """Drain up to 200 queued log messages per poll cycle.
 
         Uses adaptive timing: 250 ms when messages are flowing, 500 ms
@@ -124,28 +133,26 @@ class ServiceControlMixin(_ControlHost):
         else:
             self.after(500, self._poll_log_queue)
 
-    def _open_log_folder(self):
+    def _open_log_folder(self) -> None:
         """Open the configured log directory in the system file manager."""
         log_dir = os.path.abspath(
             self._cfg.get("general", "log_dir") or "logs"
         )
-        try:
+        with contextlib.suppress(OSError):
             os.makedirs(log_dir, exist_ok=True)
-        except OSError:
-            pass
         try:
             _open_path_external(log_dir)
-        except Exception as e:
+        except OSError as e:
             messagebox.showerror("Error", f"Could not open log folder:\n{e}")
 
-    def _clear_log_widget(self):
+    def _clear_log_widget(self) -> None:
         """Clear the live log panel and reset the line counter atomically."""
         self._log_widget.configure(state="normal")
         self._log_widget.delete("1.0", "end")
         self._log_line_count = 0
         self._log_widget.configure(state="disabled")
 
-    def _append_logs(self, msgs: list[str]):
+    def _append_logs(self, msgs: list[str]) -> None:
         """Insert a batch of log messages in a single widget open/close cycle."""
         widget = self._log_widget
         widget.configure(state="normal")
@@ -176,18 +183,18 @@ class ServiceControlMixin(_ControlHost):
             widget.see("end")
         widget.configure(state="disabled")
 
-    def _append_log(self, msg: str):
+    def _append_log(self, msg: str) -> None:
         """Single-message convenience wrapper."""
         self._append_logs([msg])
 
     # ── Service control ───────────────────────────────────────────────────
 
-    def _apply_all_pages_to_config(self):
+    def _apply_all_pages_to_config(self) -> None:
         for page in self._pages.values():
             if hasattr(page, "apply_to_config"):
                 page.apply_to_config()
 
-    def _on_start(self):
+    def _on_start(self) -> None:
         self._apply_all_pages_to_config()
         self._clear_log_widget()
         setup_logging(
@@ -195,16 +202,17 @@ class ServiceControlMixin(_ControlHost):
             log_level=self._cfg.get("general", "log_level") or "INFO",
             log_to_file=bool(self._cfg.get("general", "log_to_file")),
         )
-        self._manager = ServiceManager(self._cfg)
+        manager = ServiceManager(self._cfg)
+        self._manager = manager
 
-        def _start_thread():
-            ok = self._manager.start()
+        def _start_thread() -> None:
+            ok = manager.start()
             self.after(0, self._update_ui_after_start, ok)
 
         threading.Thread(target=_start_thread, daemon=True).start()
         self._status_label.configure(text="\u25cf  Starting\u2026", fg=C_ORANGE)
 
-    def _update_ui_after_start(self, ok: bool):
+    def _update_ui_after_start(self, ok: bool) -> None:
         if ok:
             self._btn_start.configure(state="disabled")
             self._btn_stop.configure(state="normal")
@@ -218,7 +226,7 @@ class ServiceControlMixin(_ControlHost):
         else:
             self._status_label.configure(text="\u25cf  Failed \u2014 check log", fg=C_RED)
 
-    def _tick_timer(self):
+    def _tick_timer(self) -> None:
         """Update the status label with elapsed running time, once per second."""
         if self._start_time is None:
             return
@@ -234,27 +242,28 @@ class ServiceControlMixin(_ControlHost):
         self._status_label.configure(text=f"\u25cf  Running  {clock}", fg=C_GREEN)
         self._timer_job = self.after(1000, self._tick_timer)
 
-    def _stop_timer(self):
+    def _stop_timer(self) -> None:
         """Cancel the elapsed timer and clear state."""
         if self._timer_job is not None:
             self.after_cancel(self._timer_job)
             self._timer_job = None
         self._start_time = None
 
-    def _on_stop(self):
-        if not self._manager:
+    def _on_stop(self) -> None:
+        manager = self._manager
+        if manager is None:
             return
         self._btn_start.configure(state="disabled")
         self._btn_stop.configure(state="disabled")
         self._status_label.configure(text="\u25cf  Stopping...", fg=C_ORANGE)
 
-        def _stop_thread():
-            self._manager.stop()
+        def _stop_thread() -> None:
+            manager.stop()
             self.after(0, self._update_ui_after_stop)
 
         threading.Thread(target=_stop_thread, daemon=True).start()
 
-    def _update_ui_after_stop(self):
+    def _update_ui_after_stop(self) -> None:
         self._stop_timer()
         self._btn_start.configure(state="normal")
         self._btn_stop.configure(state="disabled")
@@ -262,14 +271,14 @@ class ServiceControlMixin(_ControlHost):
         for dot in self._svc_vars.values():
             dot.configure(fg=C_DIM)
 
-    def _on_save(self):
+    def _on_save(self) -> None:
         self._apply_all_pages_to_config()
         if self._cfg.save():
             messagebox.showinfo("Saved", f"Config saved to:\n{self._cfg.config_path}")
         else:
             messagebox.showerror("Error", "Failed to save config \u2014 check log.")
 
-    def _on_load(self):
+    def _on_load(self) -> None:
         initial = os.path.dirname(os.path.abspath(self._cfg.config_path)) or os.getcwd()
         path = filedialog.askopenfilename(
             title="Load Config",
@@ -301,8 +310,6 @@ class ServiceControlMixin(_ControlHost):
 
     def _fetch_latest_release(self) -> None:
         """Network call — runs on worker thread, schedules GUI update via after()."""
-        from gui.widgets import APP_VERSION  # noqa: PLC0415
-
         try:
             req = urllib.request.Request(  # noqa: S310
                 self._RELEASES_URL,
@@ -314,10 +321,7 @@ class ServiceControlMixin(_ControlHost):
             with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
                 data = json.loads(resp.read())
             tag = data.get("tag_name", "").lstrip("v")
-            url = data.get(
-                "html_url",
-                "https://github.com/retr0verride/NotTheNet/releases",
-            )
+            url = data.get("html_url", _RELEASES_PAGE)
             self.after(0, self._show_update_result, tag, url, None)
         except Exception as exc:  # noqa: BLE001
             logger.debug("Update check failed", exc_info=True)
@@ -330,8 +334,6 @@ class ServiceControlMixin(_ControlHost):
         error: str | None,
     ) -> None:
         """Main-thread callback: show result dialog and restore UI state."""
-        from gui.widgets import APP_VERSION  # noqa: PLC0415
-
         self._btn_check_updates.configure(state="normal")
         if self._start_time is None:
             self._status_label.configure(text="\u25cf  Stopped", fg=C_DIM)
@@ -359,16 +361,19 @@ class ServiceControlMixin(_ControlHost):
                 f"You are running: v{APP_VERSION}\n\n"
                 f"Open the releases page?",
             ):
-                webbrowser.open(url)
+                # Only ever open the project's own releases pages, whatever the API returned.
+                safe = url if url and url.startswith(_RELEASES_PAGE) else _RELEASES_PAGE
+                webbrowser.open(safe)
 
-    def _on_close(self):
-        if self._manager and self._manager.running:
+    def _on_close(self) -> None:
+        manager = self._manager
+        if manager is not None and manager.running:
             if messagebox.askyesno(
                 "Confirm Exit",
                 "NotTheNet is still running.\nStop all services and exit?",
             ):
-                def _stop_and_destroy():
-                    self._manager.stop()
+                def _stop_and_destroy() -> None:
+                    manager.stop()
                     self.after(0, self.destroy)
                 threading.Thread(target=_stop_and_destroy, daemon=True).start()
         else:

@@ -3,13 +3,13 @@ NotTheNet - Fake RDP Server (TCP port 3389)
 
 Why this matters:
     RDP is one of the most-targeted services for:
-      - Ransomware operators â€” manual access before encryption
-      - Brute-force botnets  â€” NLBrute, Hydra, Crowbar spraying creds
-      - RATs                 â€” initial foothold via exposed RDP
-      - Worms                â€” BlueKeep (CVE-2019-0708), DejaBlue lateral movement
+      - Ransomware operators — manual access before encryption
+      - Brute-force botnets  — NLBrute, Hydra, Crowbar spraying creds
+      - RATs                 — initial foothold via exposed RDP
+      - Worms                — BlueKeep (CVE-2019-0708), DejaBlue lateral movement
 
     Key intelligence: many RDP clients send a TPKT cookie of the form
-    "Cookie: mstshash=USERNAME\r\n" in the Connection Request TPDU â€”
+    "Cookie: mstshash=USERNAME\r\n" in the Connection Request TPDU —
     the username arrives BEFORE any authentication.  This gives us the
     Windows username being sprayed without needing to decrypt anything.
 
@@ -26,10 +26,12 @@ Security notes (OpenSSF):
 - Sessions are bounded to SESSION_TIMEOUT seconds
 """
 
+import contextlib
 import logging
 import re
 import socket
 import threading
+from typing import Any
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -42,18 +44,18 @@ _MAX_CONNECTIONS = 50
 _COOKIE_RE = re.compile(rb"Cookie:\s*mstshash=([^\r\n]{1,256})")
 
 # X.224 Connection Confirm TPDU + RDP Negotiation Response
-# selectedProtocol = 0x00000000 (PROTOCOL_RDP â€” no NLA, no CredSSP).
+# selectedProtocol = 0x00000000 (PROTOCOL_RDP — no NLA, no CredSSP).
 # Clients will proceed to standard RDP security exchange.
 #
 # Byte layout:
-#   03 00 00 13   â€” TPKT header (version=3, length=19)
-#   0e            â€” X.224 TPDU length indicator (14)
-#   d0            â€” TPDU code: Connection Confirm (CC)
-#   00 00         â€” dst-ref = 0
-#   12 34         â€” src-ref = 0x1234
-#   00            â€” class/options = 0
-#   02 00 08 00   â€” RDP Negotiation Response header (type=2, flags=0, length=8)
-#   00 00 00 00   â€” selectedProtocol = PROTOCOL_RDP
+#   03 00 00 13   — TPKT header (version=3, length=19)
+#   0e            — X.224 TPDU length indicator (14)
+#   d0            — TPDU code: Connection Confirm (CC)
+#   00 00         — dst-ref = 0
+#   12 34         — src-ref = 0x1234
+#   00            — class/options = 0
+#   02 00 08 00   — RDP Negotiation Response header (type=2, flags=0, length=8)
+#   00 00 00 00   — selectedProtocol = PROTOCOL_RDP
 _CONNECTION_CONFIRM = bytes([
     0x03, 0x00, 0x00, 0x13,
     0x0e, 0xd0, 0x00, 0x00, 0x12, 0x34, 0x00,
@@ -65,7 +67,7 @@ _CONNECTION_CONFIRM = bytes([
 class _RDPSession(threading.Thread):
     """Handles one RDP client session."""
 
-    def __init__(self, conn: socket.socket, addr: tuple, sem: threading.BoundedSemaphore | None = None):
+    def __init__(self, conn: socket.socket, addr: tuple[str, int], sem: threading.BoundedSemaphore | None = None) -> None:
         super().__init__(daemon=True)
         self.conn = conn
         self.addr = addr
@@ -126,17 +128,15 @@ class _RDPSession(threading.Thread):
         except OSError:
             logger.debug("RDP session error", exc_info=True)
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 self.conn.close()
-            except OSError:
-                pass
             if self._sem:
                 self._sem.release()
 
 class RDPService:
     """Fake RDP server on TCP port 3389."""
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 3389))
         self.bind_ip = bind_ip
@@ -183,10 +183,8 @@ class RDPService:
     def stop(self) -> None:
         self._stop.set()
         if self._sock:
-            try:
+            with contextlib.suppress(OSError):
                 self._sock.close()
-            except OSError:
-                pass
         if self._thread:
             self._thread.join(timeout=3.0)
         logger.info("RDP service stopped.")

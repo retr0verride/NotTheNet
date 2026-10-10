@@ -11,6 +11,7 @@ cryptography = pytest.importorskip("cryptography")
 
 from cryptography import x509  # noqa: E402
 from cryptography.hazmat.primitives import serialization  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric import rsa  # noqa: E402
 
 from utils.cert_utils import (  # noqa: E402
     DynamicCertCache,
@@ -44,6 +45,7 @@ class TestGenerateSelfSignedCert:
         generate_self_signed_cert(cert_path, key_path)
         with open(key_path, "rb") as f:
             key = serialization.load_pem_private_key(f.read(), password=None)
+        assert isinstance(key, rsa.RSAPrivateKey)
         assert key.key_size >= 2048
 
     @pytest.mark.skipif(os.name == "nt", reason="POSIX file permissions only")
@@ -60,6 +62,7 @@ class TestGenerateSelfSignedCert:
         generate_self_signed_cert(cert_path, key_path, key_bits=512)
         with open(key_path, "rb") as f:
             key = serialization.load_pem_private_key(f.read(), password=None)
+        assert isinstance(key, rsa.RSAPrivateKey)
         assert key.key_size >= 2048
 
     def test_cert_has_san_extension(self, tmp_path):
@@ -141,6 +144,20 @@ class TestForgeDomainCert:
         generate_ca_cert(ca_cert, ca_key, key_bits=2048)
         return ca_cert, ca_key
 
+    def test_forge_rejects_non_rsa_ca_key(self, ca_pair):
+        from cryptography.hazmat.primitives.asymmetric import ec  # noqa: PLC0415
+
+        ca_cert, ca_key = ca_pair
+        ec_key = ec.generate_private_key(ec.SECP256R1())
+        with open(ca_key, "wb") as f:
+            f.write(ec_key.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.PKCS8,
+                serialization.NoEncryption(),
+            ))
+        with pytest.raises(TypeError, match="must be RSA"):
+            forge_domain_cert("example.com", ca_cert, ca_key)
+
     def test_forge_returns_pem_tuple(self, ca_pair):
         cert_pem, key_pem = forge_domain_cert("example.com", *ca_pair)
         assert b"BEGIN CERTIFICATE" in cert_pem
@@ -196,28 +213,28 @@ class TestDynamicCertCache:
 
     def test_sni_callback_none_server_name(self, cache):
         """No SNI → returns None (fall through to default cert)."""
-        result = cache.sni_callback(None, None, None)  # type: ignore[arg-type]
+        result = cache.sni_callback(None, None, None)
         assert result is None
 
     def test_sni_callback_empty_string(self, cache):
-        result = cache.sni_callback(None, "", None)  # type: ignore[arg-type]
+        result = cache.sni_callback(None, "", None)
         assert result is None
 
     def test_sni_callback_caches_context(self, cache):
         mock_sock = type("S", (), {"context": None})()
-        cache.sni_callback(mock_sock, "example.com", None)  # type: ignore[arg-type]
+        cache.sni_callback(mock_sock, "example.com", None)
         assert mock_sock.context is not None
         # Second call should use cache (no regeneration)
         first_ctx = mock_sock.context
-        cache.sni_callback(mock_sock, "example.com", None)  # type: ignore[arg-type]
+        cache.sni_callback(mock_sock, "example.com", None)
         assert mock_sock.context is first_ctx
 
     def test_cache_eviction_on_overflow(self, cache):
         cache.MAX_CACHE_SIZE = 2
         s = type("S", (), {"context": None})()
-        cache.sni_callback(s, "a.com", None)  # type: ignore[arg-type]
-        cache.sni_callback(s, "b.com", None)  # type: ignore[arg-type]
-        cache.sni_callback(s, "c.com", None)  # type: ignore[arg-type]
+        cache.sni_callback(s, "a.com", None)
+        cache.sni_callback(s, "b.com", None)
+        cache.sni_callback(s, "c.com", None)
         # Oldest (a.com) should be evicted
         assert len(cache._cache) == 2
         assert "a.com" not in cache._cache
@@ -225,7 +242,7 @@ class TestDynamicCertCache:
     def test_temp_cert_files_cleaned_up(self, cache):
         """Dynamic cert files should not persist on disk."""
         s = type("S", (), {"context": None})()
-        cache.sni_callback(s, "cleanup.test", None)  # type: ignore[arg-type]
+        cache.sni_callback(s, "cleanup.test", None)
         certs_dir = os.path.dirname(os.path.abspath(cache._ca_cert))
         leftovers = [f for f in os.listdir(certs_dir) if f.startswith("_dyn_")]
         assert leftovers == [], f"Temp cert files not cleaned up: {leftovers}"

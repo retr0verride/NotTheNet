@@ -3,8 +3,8 @@ NotTheNet - DNS Server
 Resolves every hostname to redirect_ip, fooling malware DNS lookups.
 
 Key differences from INetSim / FakeNet-NG:
-- Single threaded async UDP server â€” no socket leak on restart
-- Handles PTR (reverse DNS) cleanly â€” returns a synthetic hostname
+- Single threaded async UDP server — no socket leak on restart
+- Handles PTR (reverse DNS) cleanly — returns a synthetic hostname
 - Custom record overrides supported via config
 - All query names sanitized before logging (log injection prevention)
 - dnslib used for packet building (no manual DNS byte-packing bugs)
@@ -12,7 +12,7 @@ Key differences from INetSim / FakeNet-NG:
 Security notes (OpenSSF):
 - Max UDP packet size accepted: 512 bytes (RFC 1035), extended to 4096 with EDNS
 - Truncated / malformed packets are silently dropped, never crash the server
-- Query name length validated (â‰¤ 253 chars per RFC 1035)
+- Query name length validated (≤ 253 chars per RFC 1035)
 """
 
 from __future__ import annotations
@@ -22,6 +22,8 @@ import math
 import re
 import threading
 from collections import Counter
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_hostname, sanitize_ip
@@ -38,7 +40,7 @@ def _shannon_entropy(label: str) -> float:
     return -sum((c / total) * math.log2(c / total) for c in counts.values())
 
 
-def _log_dns_query(request, handler, reply) -> None:
+def _log_dns_query(request: DNSRecord, handler: DNSHandler, reply: DNSRecord) -> None:
     """Emit a structured dns_query event reflecting the *actual* response sent.
 
     Must be called after resolution so that NXDOMAIN (kill-switch, DGA),
@@ -50,10 +52,7 @@ def _log_dns_query(request, handler, reply) -> None:
         return
     try:
         qname = str(request.q.qname).lower().rstrip(".")
-        try:
-            qtype = str(QTYPE[request.q.qtype])
-        except Exception:
-            qtype = str(request.q.qtype)
+        qtype = str(QTYPE[request.q.qtype])  # dnslib returns "TYPEnnn" for unknown codes
         src = handler.client_address[0] if hasattr(handler, "client_address") else ""
         rcode = reply.header.rcode
         if rcode == 3:
@@ -65,18 +64,22 @@ def _log_dns_query(request, handler, reply) -> None:
         else:
             resolve_to = "(empty)"
         jl.log("dns_query", qtype=qtype, qname=qname, src_ip=src, resolve_to=resolve_to)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # event logging must never break a DNS reply
         logger.debug("dns_query log error: %s", exc, exc_info=True)
 
 
 try:
     from dnslib import A, CAA, DNSRecord, MX, NS, PTR, QTYPE, RR, SOA, SRV, TXT  # noqa: I001
-    from dnslib.server import DNSServer
+    from dnslib.server import DNSHandler, DNSServer
     _DNSLIB_AVAILABLE = True
 except ImportError:
     _DNSLIB_AVAILABLE = False
     logger.warning("dnslib not installed; DNS server unavailable. pip install dnslib")
 
+
+if TYPE_CHECKING:
+    # (resolver, reply, qname, safe_name, request) -> reply
+    _QtypeResolver = Callable[["_FakeResolver", DNSRecord, str, str, DNSRecord], DNSRecord]
 
 class _FakeResolver:
     """
@@ -84,19 +87,20 @@ class _FakeResolver:
     Custom records can override specific names.
     """
 
-    _QTYPE_HANDLERS: dict = {}  # populated after class body when dnslib is available
+    # Populated after the class body (when dnslib is available): qtype -> resolver method.
+    _QTYPE_HANDLERS: dict[int, _QtypeResolver] = {}
 
     def __init__(
         self,
         redirect_ip: str,
-        custom_records: dict,
+        custom_records: dict[str, str],
         ttl: int,
         handle_ptr: bool,
         nxdomain_entropy_threshold: float = 0.0,
         nxdomain_label_min_length: int = 12,
-        public_response_ips: list | None = None,
-        kill_switch_domains: list | None = None,
-    ):
+        public_response_ips: list[str] | None = None,
+        kill_switch_domains: list[str] | None = None,
+    ) -> None:
         self.redirect_ip = redirect_ip
         self.custom_records = {k.lower().rstrip("."): v for k, v in custom_records.items()}
         self.ttl = ttl
@@ -106,7 +110,7 @@ class _FakeResolver:
         # Pool of public-looking IPs to return in A responses.  iptables
         # REDIRECT rules catch them regardless of destination IP, so returning
         # a plausible public IP here is transparent to routing but prevents
-        # malware from flagging the "all domains â†' 10.x.x.x" pattern.
+        # malware from flagging the "all domains → 10.x.x.x" pattern.
         self._public_ips: list[str] = list(public_response_ips or [])
         # Kill-switch domains: return NXDOMAIN so malware that checks for
         # an "intercepted" domain (expecting resolution) sees the domain as
@@ -116,7 +120,7 @@ class _FakeResolver:
             d.lower().rstrip(".") for d in (kill_switch_domains or [])
         )
 
-    def resolve(self, request: DNSRecord, handler) -> DNSRecord:
+    def resolve(self, request: DNSRecord, handler: DNSHandler) -> DNSRecord:
         """Resolve a DNS request and emit a structured log event reflecting the
         actual response sent (NXDOMAIN, resolved IP, etc.) rather than the
         configured redirect_ip."""
@@ -124,7 +128,7 @@ class _FakeResolver:
         _log_dns_query(request, handler, reply)
         return reply
 
-    def _do_resolve(self, request: DNSRecord, handler) -> DNSRecord:
+    def _do_resolve(self, request: DNSRecord, handler: DNSHandler) -> DNSRecord:
         reply = request.reply()
         try:
             qname = str(request.q.qname).lower().rstrip(".")
@@ -159,19 +163,21 @@ class _FakeResolver:
             if handler:
                 return handler(self, reply, qname, safe_name, request)
 
-            # Unknown / unsupported query types â€” NOERROR with empty answer.
+            # Unknown / unsupported query types — NOERROR with empty answer.
             logger.debug("  -> empty NOERROR for qtype=%s: %s", request.q.qtype, safe_name)
 
 
-        except Exception as e:
-            logger.warning("DNS resolve error: %s", e)
-            reply.header.rcode = 2  # SERVFAIL â€” never crash the server
+        except Exception as e:  # noqa: BLE001  # untrusted-input boundary: one bad session must not kill the service
+            logger.warning("DNS resolve error: %s", e, exc_info=True)
+            reply.header.rcode = 2  # SERVFAIL — never crash the server
         return reply
 
 
     # -- Per-qtype resolver handlers -------------------------------------------
 
-    def _resolve_ptr(self, reply, qname: str, safe_name: str, request):
+    def _resolve_ptr(
+        self, reply: DNSRecord, qname: str, safe_name: str, request: DNSRecord,
+    ) -> DNSRecord:
         if self.handle_ptr:
             ptr_label = qname
             for suffix in (".in-addr.arpa.", ".in-addr.arpa"):
@@ -179,22 +185,23 @@ class _FakeResolver:
                     ptr_label = ptr_label[: -len(suffix)]
                     break
             octets = ptr_label.split(".")
-            try:
-                ip_hyphen = "-".join(reversed(octets))
-                ptr_host = f"static-{ip_hyphen}.res.example.net."
-            except Exception:
-                ptr_host = "host.example.net."
+            ip_hyphen = "-".join(reversed(octets))
+            ptr_host = f"static-{ip_hyphen}.res.example.net."
             reply.add_answer(
                 RR(qname, QTYPE.PTR, ttl=self.ttl, rdata=PTR(ptr_host))
             )
             logger.debug("  -> PTR: %s -> %s", safe_name, ptr_host)
         return reply
 
-    def _resolve_aaaa(self, reply, qname: str, safe_name: str, _request):
+    def _resolve_aaaa(
+        self, reply: DNSRecord, qname: str, safe_name: str, _request: DNSRecord,
+    ) -> DNSRecord:
         logger.debug("  -> AAAA: %s -> (empty, client falls back to A)", safe_name)
         return reply
 
-    def _resolve_mx(self, reply, qname: str, safe_name: str, _request):
+    def _resolve_mx(
+        self, reply: DNSRecord, qname: str, safe_name: str, _request: DNSRecord,
+    ) -> DNSRecord:
         mail_host = f"mail.{qname}"
         reply.add_answer(
             RR(qname, QTYPE.MX, ttl=self.ttl, rdata=MX(mail_host, 10))
@@ -205,14 +212,18 @@ class _FakeResolver:
         logger.debug("  -> MX: %s -> %s -> %s", safe_name, mail_host, sanitize_ip(self.redirect_ip))
         return reply
 
-    def _resolve_txt(self, reply, qname: str, safe_name: str, _request):
+    def _resolve_txt(
+        self, reply: DNSRecord, qname: str, safe_name: str, _request: DNSRecord,
+    ) -> DNSRecord:
         reply.add_answer(
             RR(qname, QTYPE.TXT, ttl=self.ttl, rdata=TXT(b"v=spf1 +all"))
         )
         logger.debug("  -> TXT: %s", safe_name)
         return reply
 
-    def _resolve_ns(self, reply, qname: str, safe_name: str, _request):
+    def _resolve_ns(
+        self, reply: DNSRecord, qname: str, safe_name: str, _request: DNSRecord,
+    ) -> DNSRecord:
         ns_host = f"ns1.{qname}"
         reply.add_answer(
             RR(qname, QTYPE.NS, ttl=self.ttl, rdata=NS(ns_host))
@@ -223,7 +234,9 @@ class _FakeResolver:
         logger.debug("  -> NS: %s -> %s", safe_name, ns_host)
         return reply
 
-    def _resolve_soa(self, reply, qname: str, safe_name: str, _request):
+    def _resolve_soa(
+        self, reply: DNSRecord, qname: str, safe_name: str, _request: DNSRecord,
+    ) -> DNSRecord:
         reply.add_answer(
             RR(qname, QTYPE.SOA, ttl=self.ttl, rdata=SOA(
                 f"ns1.{qname}",
@@ -234,14 +247,18 @@ class _FakeResolver:
         logger.debug("  -> SOA: %s", safe_name)
         return reply
 
-    def _resolve_cname(self, reply, qname: str, safe_name: str, _request):
+    def _resolve_cname(
+        self, reply: DNSRecord, qname: str, safe_name: str, _request: DNSRecord,
+    ) -> DNSRecord:
         reply.add_answer(
             RR(qname, QTYPE.A, ttl=self.ttl, rdata=A(self.redirect_ip))
         )
         logger.debug("  -> CNAME(as A): %s -> %s", safe_name, sanitize_ip(self.redirect_ip))
         return reply
 
-    def _resolve_srv(self, reply, qname: str, safe_name: str, _request):
+    def _resolve_srv(
+        self, reply: DNSRecord, qname: str, safe_name: str, _request: DNSRecord,
+    ) -> DNSRecord:
         srv_host = f"srv.{qname}"
         reply.add_answer(
             RR(qname, QTYPE.SRV, ttl=self.ttl,
@@ -253,7 +270,9 @@ class _FakeResolver:
         logger.debug("  -> SRV: %s -> %s", safe_name, srv_host)
         return reply
 
-    def _resolve_caa(self, reply, qname: str, safe_name: str, _request):
+    def _resolve_caa(
+        self, reply: DNSRecord, qname: str, safe_name: str, _request: DNSRecord,
+    ) -> DNSRecord:
         reply.add_answer(
             RR(qname, QTYPE.CAA, ttl=self.ttl,
                rdata=CAA(0, "issue", "letsencrypt.org"))
@@ -261,7 +280,9 @@ class _FakeResolver:
         logger.debug("  -> CAA: %s", safe_name)
         return reply
 
-    def _resolve_a(self, reply, qname: str, safe_name: str, _request):
+    def _resolve_a(
+        self, reply: DNSRecord, qname: str, safe_name: str, _request: DNSRecord,
+    ) -> DNSRecord:
         # FCrDNS: if the query is for a synthesized PTR hostname
         # (static-A-B-C-D.res.example.net), return the embedded IP.
         _fcrdns_m = re.match(
@@ -333,7 +354,7 @@ if _DNSLIB_AVAILABLE:
 class DNSService:
     """Manages the fake DNS server lifecycle."""
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict[str, Any]) -> None:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 53))
         self.redirect_ip = config.get("resolve_to", "127.0.0.1")
@@ -384,9 +405,9 @@ class DNSService:
             )
             # Launch threads manually instead of start_thread() so we can
             # pass poll_interval=2.0 to serve_forever(), reducing idle
-            # wakeups from 4/sec to 1/sec (2 servers Ã— 0.5/sec each).
+            # wakeups from 4/sec to 1/sec (2 servers × 0.5/sec each).
             for srv in (self._server_udp, self._server_tcp):
-                def _run(s=srv):
+                def _run(s: DNSServer = srv) -> None:
                     s.isRunning = True
                     s.server.serve_forever(poll_interval=2.0)
                     s.isRunning = False
@@ -406,7 +427,7 @@ class DNSService:
             if srv:
                 try:
                     srv.stop()
-                except Exception:
+                except Exception:  # noqa: BLE001  # shutdown must continue past a failing listener
                     logger.debug("DNS server stop failed", exc_info=True)
         self._server_udp = None
         self._server_tcp = None
@@ -417,8 +438,5 @@ class DNSService:
         # dnslib's DNSServer exposes the underlying thread via .thread
         # (set by start_thread()).  Fall back gracefully if the attribute
         # layout ever changes.
-        try:
-            t = getattr(self._server_udp, "thread", None)
-            return bool(t and t.is_alive())
-        except Exception:
-            return False
+        t = getattr(self._server_udp, "thread", None)
+        return bool(t and t.is_alive())

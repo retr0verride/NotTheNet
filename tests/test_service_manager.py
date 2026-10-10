@@ -6,7 +6,6 @@ config validation, port-conflict detection, log purge, and session paths.
 import json
 import os
 import time
-from datetime import date
 from unittest.mock import patch
 
 import pytest
@@ -16,6 +15,7 @@ from service_manager import (
     _CONFLICTING_SYSTEM_SERVICES,
     _SERVICE_REGISTRY,
     ServiceManager,
+    local_date,
 )
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -78,10 +78,10 @@ class TestSessionLogPath:
         log_dir = str(tmp_path)
         path = ServiceManager._session_log_path(log_dir)
         assert path.endswith("_s1.jsonl")
-        assert date.today().isoformat() in path
+        assert local_date().isoformat() in path
 
     def test_increments_existing_sessions(self, tmp_path):
-        today = date.today().isoformat()
+        today = local_date().isoformat()
         for n in (1, 2, 3):
             (tmp_path / f"events_{today}_s{n}.jsonl").touch()
         path = ServiceManager._session_log_path(str(tmp_path))
@@ -106,7 +106,7 @@ class TestPurgeOldLogs:
         assert not old.exists()
 
     def test_keeps_recent_files(self, tmp_path):
-        recent = tmp_path / f"events_{date.today().isoformat()}_s1.jsonl"
+        recent = tmp_path / f"events_{local_date().isoformat()}_s1.jsonl"
         recent.touch()
         ServiceManager._purge_old_logs(str(tmp_path), max_age_days=14)
         assert recent.exists()
@@ -227,41 +227,52 @@ class TestBuildServicePorts:
         assert ports["udp"] == []
 
 
-# ── ServiceRepoAdapter ────────────────────────────────────────────────────────
+# ── service_report ───────────────────────────────────────────────────────────
 
-class TestServiceRepoAdapter:
-    """Verify adapter lifecycle and lazy-init contract."""
+class _FakeService:
+    """Minimal ServiceProtocol implementation."""
 
-    def _adapter(self, tmp_path):
-        from config import Config
-        from infrastructure.adapters.service_repo_adapter import ServiceRepoAdapter
+    enabled = True
 
-        cfg = Config.__new__(Config)
-        cfg._data = _cfg(tmp_path)._data
-        cfg._path = str(tmp_path / "config.json")
-        return ServiceRepoAdapter(cfg)
+    def __init__(self, running: bool) -> None:
+        self.running = running
 
-    def test_manager_not_created_at_init(self, tmp_path):
-        adapter = self._adapter(tmp_path)
-        assert adapter._manager is None
+    def start(self) -> bool:
+        return self.running
 
-    def test_probe_instantiates_manager(self, tmp_path):
-        adapter = self._adapter(tmp_path)
-        adapter.probe()
-        assert adapter._manager is not None
+    def stop(self) -> None:
+        self.running = False
 
-    def test_stop_all_before_start_is_noop(self, tmp_path):
-        """stop_all() before start_all() must not raise (manager is None)."""
-        adapter = self._adapter(tmp_path)
-        adapter.stop_all()  # should not raise
 
-    def test_is_running_before_start_returns_false(self, tmp_path):
-        adapter = self._adapter(tmp_path)
-        assert adapter.is_running("dns") is False
+class TestServiceReport:
+    """service_report() feeds the health API: one row per registered service."""
 
-    def test_get_status_before_start_returns_empty(self, tmp_path):
-        adapter = self._adapter(tmp_path)
-        assert adapter.get_status() == []
+    def test_all_stopped_before_start(self, tmp_path):
+        report = ServiceManager(_cfg(tmp_path)).service_report()
+        assert [r["name"] for r in report] == [s.name for s in _SERVICE_REGISTRY]
+        assert {r["state"] for r in report} == {"stopped"}
+
+    def test_running_failed_and_stopped_states(self, tmp_path):
+        sm = ServiceManager(_cfg(tmp_path))
+        sm._services = {"dns": _FakeService(True), "http": _FakeService(False)}
+        sm._failed = {"https"}
+        states = {r["name"]: r["state"] for r in sm.service_report()}
+        assert states["dns"] == "running"
+        assert states["http"] == "stopped"
+        assert states["https"] == "failed"
+        assert states["ftp"] == "stopped"
+
+    def test_reports_configured_port_not_default(self, tmp_path):
+        sm = ServiceManager(_cfg(tmp_path, {"http": {"port": 8081}}))
+        ports = {r["name"]: r["port"] for r in sm.service_report()}
+        assert ports["http"] == 8081
+        assert ports["https"] == 443
+
+    def test_stop_clears_failed(self, tmp_path):
+        sm = ServiceManager(_cfg(tmp_path))
+        sm._failed = {"https"}
+        sm.stop()
+        assert {r["state"] for r in sm.service_report()} == {"stopped"}
 
 
 # ── DNS resolve_to auto-derive in gateway mode ───────────────────────────────

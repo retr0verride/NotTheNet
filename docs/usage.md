@@ -26,7 +26,7 @@ This guide shows you how to use NotTheNet day-to-day — launching the GUI, conf
 NotTheNet must be run as **root** (administrator) because standard internet ports like 53 (DNS), 80 (HTTP), and 443 (HTTPS) are restricted to root on Linux. It also needs root to set up traffic redirection rules.
 
 ```bash
-# Standard launch (works for .deb and offline-bundle installs):
+# Standard launch (.deb install):
 sudo notthenet
 
 # Load a specific configuration file:
@@ -271,17 +271,16 @@ cp -r logs/emails emails_$(date +%s)/
 ## Command-Line Reference
 
 ```
-usage: notthenet.py [-h] [--config CONFIG] [--nogui] [--preflight] [--loglevel LEVEL]
-
-Fake internet simulator for malware analysis.
+usage: notthenet.py [-h] [--config CONFIG] [--nogui] [--preflight] [--loglevel LEVEL] [--version]
 
 options:
   -h, --help            Show this help message and exit
   --config CONFIG       Path to JSON config file (default: config.json)
-  --nogui               Run in headless/CLI mode without the GUI
+  --nogui, --headless   Run without the GUI (also enabled by NTN_HEADLESS=1)
   --preflight           Run local preflight checks and exit
   --loglevel LEVEL      Override log level: DEBUG, INFO, WARNING, ERROR
                         (default: value from config general.log_level)
+  --version             Print the version and exit
 ```
 
 ### Examples

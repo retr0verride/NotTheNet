@@ -4,7 +4,7 @@ Accepts FTP connections, optionally receives uploads, always reports success.
 
 Security notes (OpenSSF):
 - Upload directory is resolved via os.path.realpath and path-traversal checked
-- UUID-based filenames for saved uploads â€” no attacker path/name control
+- UUID-based filenames for saved uploads — no attacker path/name control
 - Total upload size capped (disk exhaustion prevention)
 - PASV port range is restricted to avoid footprint on reserved ports
 - No shell=True subprocess calls
@@ -20,6 +20,7 @@ import socket
 import socketserver
 import threading
 import uuid
+from typing import Any
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -40,12 +41,13 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
 
-    def __init__(self, server_address, request_handler_class,
-                 max_connections: int = _MAX_CONNECTIONS):
+    def __init__(self, server_address: tuple[str, int],
+                 request_handler_class: type[socketserver.BaseRequestHandler],
+                 max_connections: int = _MAX_CONNECTIONS) -> None:
         self._sem = threading.BoundedSemaphore(max_connections)
         super().__init__(server_address, request_handler_class)
 
-    def process_request(self, request, client_address):
+    def process_request(self, request: socket.socket, client_address: tuple[str, int]) -> None:  # type: ignore[override]  # TCP-only server: request is always a socket
         """Drop connection immediately if the session limit is reached."""
         if not self._sem.acquire(blocking=False):
             try:
@@ -55,10 +57,10 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
             return
         sem = self._sem
 
-        def _run():
+        def _run() -> None:
             try:
                 self.finish_request(request, client_address)
-            except Exception:
+            except Exception:  # noqa: BLE001  # mirrors socketserver: report via handle_error, keep serving
                 self.handle_error(request, client_address)
             finally:
                 self.shutdown_request(request)
@@ -75,7 +77,7 @@ def _get_disk_usage(directory: str) -> int:
             fp = os.path.join(directory, fname)
             if os.path.isfile(fp):
                 total += os.path.getsize(fp)
-    except Exception:
+    except OSError:
         logger.debug("FTP disk-usage scan failed", exc_info=True)
     return total
 
@@ -85,8 +87,8 @@ class _FTPSession(threading.Thread):
 
     def __init__(
         self,
-        conn,
-        addr,
+        conn: socket.socket,
+        addr: tuple[str, int],
         banner: str,
         upload_dir: str | None,
         bind_ip: str = "0.0.0.0",
@@ -98,7 +100,7 @@ class _FTPSession(threading.Thread):
         max_disk_usage_bytes: int = MAX_DISK_USAGE_BYTES,
         pasv_port_low: int = PASV_PORT_LOW,
         pasv_port_high: int = PASV_PORT_HIGH,
-    ):
+    ) -> None:
         super().__init__(daemon=True)
         self.conn = conn
         self.addr = addr
@@ -114,12 +116,12 @@ class _FTPSession(threading.Thread):
         self.pasv_port_low = pasv_port_low
         self.pasv_port_high = pasv_port_high
         self._data_conn = None
-        self._pasv_server = None
+        self._pasv_server: socket.socket | None = None
 
-    def _send(self, msg: str):
+    def _send(self, msg: str) -> None:
         try:
             self.conn.sendall((msg + "\r\n").encode("utf-8", errors="replace"))
-        except Exception:
+        except OSError:
             logger.debug("FTP control send failed", exc_info=True)
 
     def _open_pasv(self) -> str | None:
@@ -155,7 +157,7 @@ class _FTPSession(threading.Thread):
                 self._pasv_server.close()
                 self._pasv_server = None
                 return conn
-            except Exception:
+            except OSError:
                 logger.debug("FTP PASV accept failed", exc_info=True)
                 return None
         return None
@@ -180,12 +182,12 @@ class _FTPSession(threading.Thread):
                     self._handle_cmd(
                         line.decode("utf-8", errors="replace").strip(), safe_addr
                     )
-        except Exception as e:
-            logger.debug("FTP %s session error: %s", safe_addr, e)
+        except Exception as e:  # noqa: BLE001  # untrusted-input boundary: one bad session must not kill the service
+            logger.debug("FTP %s session error: %s", safe_addr, e, exc_info=True)
         finally:
             try:
                 self.conn.close()
-            except Exception:
+            except OSError:
                 logger.debug("FTP control socket close failed", exc_info=True)
             if self._pasv_server:
                 try:
@@ -194,7 +196,7 @@ class _FTPSession(threading.Thread):
                     logger.debug("FTP PASV server close failed", exc_info=True)
                 self._pasv_server = None
 
-    # Static command â†’ response mapping (commands that just send a fixed reply)
+    # Static command → response mapping (commands that just send a fixed reply)
     _SIMPLE_RESPONSES: dict[str, str] = {
         "USER": "230 Login successful",
         "PASS": "230 Login successful",
@@ -213,7 +215,7 @@ class _FTPSession(threading.Thread):
         "SIZE": "213 0",
     }
 
-    def _handle_cmd(self, line: str, safe_addr: str):
+    def _handle_cmd(self, line: str, safe_addr: str) -> None:
         parts = line.split(None, 1)
         if not parts:
             return
@@ -250,7 +252,7 @@ class _FTPSession(threading.Thread):
         else:
             self._send("502 Command not implemented")
 
-    def _recv_file(self, remote_name: str, safe_addr: str):
+    def _recv_file(self, remote_name: str, safe_addr: str) -> None:
         """Accept a file upload over the data connection."""
         self._send("150 Ok to send data")
         data_conn = self._accept_data()
@@ -280,25 +282,25 @@ class _FTPSession(threading.Thread):
         try:
             self._write_upload(data_conn, save_path, safe_addr, safe_fname, remote_name)
             self._send("226 Transfer complete")
-        except Exception as e:
+        except OSError as e:
             logger.error("FTP: upload error: %s", e)
             self._send("451 Requested action aborted")
         finally:
             try:
                 data_conn.close()
-            except Exception:
+            except OSError:
                 logger.debug("FTP data connection close failed", exc_info=True)
 
-    def _drain_and_close(self, data_conn, reason: str):
+    def _drain_and_close(self, data_conn: socket.socket, reason: str) -> None:
         """Drain and close a data connection, discarding all data."""
         try:
             while data_conn.recv(65536):
                 pass  # discard
-        except Exception:
+        except OSError:
             logger.debug("FTP STOR drain failed (%s)", reason, exc_info=True)
         data_conn.close()
 
-    def _write_upload(self, data_conn, save_path: str, safe_addr: str,
+    def _write_upload(self, data_conn: socket.socket, save_path: str, safe_addr: str,
                       safe_fname: str, remote_name: str) -> int:
         """Write uploaded data to disk; return bytes received."""
         received = 0
@@ -327,7 +329,7 @@ class _FTPSession(threading.Thread):
 
 
 class FTPService:
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 21))
         self.bind_ip = bind_ip
@@ -344,8 +346,8 @@ class FTPService:
         self.pasv_port_low = int(config.get("pasv_port_low", PASV_PORT_LOW))
         self.pasv_port_high = int(config.get("pasv_port_high", PASV_PORT_HIGH))
         self._upload_lock = threading.Lock()
-        self._server = None
-        self._thread = None
+        self._server: _ReuseServer | None = None
+        self._thread: threading.Thread | None = None
 
     def start(self) -> bool:
         if not self.enabled:
@@ -366,7 +368,7 @@ class FTPService:
         pasv_port_high = self.pasv_port_high
 
         class _Handler(socketserver.BaseRequestHandler):
-            def handle(self):
+            def handle(self) -> None:
                 sess = _FTPSession(
                     self.request,
                     self.client_address,

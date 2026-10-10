@@ -7,6 +7,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ## [Unreleased]
 
+## [2026.10.08-rc1] - 2026-10-08 (test build)
+
+### Security
+- **iptables snapshots moved from `logs/` to a root-owned `state/` dir (0700).** `logs/` is chowned to the drop user, so a post-drop compromise could rewrite the snapshot that `ExecStopPost` restores as root.
+- **Startup aborts if the privilege drop fails while running as root.** Previously it logged a warning and kept serving malware traffic as root.
+- **`redirect_ip` is revalidated before it reaches `iptables --to-destination`.** Invalid values fall back to `127.0.0.1`.
+- **CA cert server serves only `ca.crt` from a temp dir, bound to the lab IP.** It previously exposed all of `certs/` (including `ca.key`) with directory listing, and could bind `0.0.0.0`.
+- **Health API: `/health/status` and `/metrics` fail closed off-loopback.** Without `NTN_ADMIN_TOKEN` they return 403 on any non-loopback bind. The token is accepted as `X-Admin-Token` or `Authorization: Bearer` (what Prometheus sends). CORS no longer reflects arbitrary origins when no allowlist is set. **Breaking:** the token env var is renamed `NTN_HEALTH_TOKEN` → `NTN_ADMIN_TOKEN`.
+- **Grafana no longer defaults to `changeme`.** `docker compose` refuses to start it unless `GRAFANA_PASSWORD` is set.
+- **`cryptography` bumped 46.0.7 → 50.0.2** (GHSA-537c-gmf6-5ccf, PYSEC-2026-3552/3553/3554).
+
+### Changed
+- **One headless code path.** `--nogui`, `--headless` and `NTN_HEADLESS=1` now all run `headless.py` on top of `ServiceManager`. The parallel `domain/`, `application/` and `infrastructure/` layers (DI container, ports, adapters, pydantic settings, OTel hooks; about 1,300 lines) are removed.
+- **Health endpoint is opt-in: `NTN_HEALTH_ENABLED=1`.** The Docker image and compose file set it. systemd `--nogui` does not open a port. Bad `NTN_HEALTH_*` / `NTN_ADMIN_TOKEN` values (including a token shorter than 16 characters) stop startup with a clear error, and a health port that cannot be bound exits 1.
+- **`APP_VERSION` lives in `version.py`.** Headless and `--preflight` no longer import tkinter.
+- **The `.deb` installs fully offline.** `build-deb.sh` vendors dependency wheels for CPython 3.10 to 3.14 on x86_64 and aarch64; postinst installs with `--no-index` and falls back to PyPI only when no bundled wheel matches the host. Previously postinst always pip-installed from PyPI, so the documented "Offline / USB" method failed without internet. Building the `.deb` (including `update.sh` on a `.deb` install) now needs `python3-pip` and internet. `setproctitle` is pinned (`==1.3.8`) so the vendored set is reproducible.
+- **Releases are cut with `bash ship.sh`** (bump, checks, commit, tag, push). It refuses to run off `main` or with a dirty tree, and reverts the bump if checks fail.
+- **`notthenet.py` owns the CLI.** Added `--version`. `NTN_LOG_LEVEL` and `NTN_JSON_LOGS` now work in every mode.
+
+### Removed
+- `NTN_BIND_IP`, `NTN_REDIRECT_IP`, `NTN_SPOOF_PUBLIC_IP`, `NTN_INTERFACE`, `NTN_PROCESS_MASQ`, `NTN_DROP_PRIVS`, `NTN_LOG_DIR`, `NTN_CERT_PATH`, `NTN_KEY_PATH`, `NTN_CONFIG_PATH` and `NTN_OTEL_*` overrides. Set these in `config.json` (or pass `--config`).
+- `ship.ps1`, `make-bundle.ps1`, `predeploy.ps1` (Windows release flow, superseded by `ship.sh` and the offline `.deb`), and `install-offline.sh` / `prepare-usb.ps1` (orphaned USB path).
+- The docker-compose `observability` profile (Prometheus + Grafana). Its `docs/prometheus.yml` never existed, so it could not start, and its `GRAFANA_PASSWORD` guard made a plain `docker compose up` fail when the variable was unset. `/metrics` is unchanged.
+- OpenTelemetry hooks (the SDK was never a dependency, and no code recorded spans).
+- `pydantic` / `pydantic-settings` dev dependencies.
+- Automatic loading of `./.env` outside Docker (pydantic-settings did this). Docker Compose still loads it via `env_file:`; elsewhere, export the variables.
+
+### Fixed
+- **Headless/Docker mode failed at import on a clean `requirements.txt` install** (`No module named 'pydantic'`).
+- **`/health/status` reported every service as started** even when `ServiceManager.start()` failed, and showed default ports instead of configured ones. It now reports `running`, `failed` or `stopped` with the configured port.
+- **`/metrics` was served as `application/json`.** It is now `text/plain; version=0.0.4`.
+- **Docker headless ignored a failed start.** It now exits 1, like `--nogui`.
+- **Catch-all UDP thread crashed on shutdown** when `stop()` closed the socket during `select()`. `stop()` now also joins the worker.
+- **`.env.example` was never committed.** The `.gitignore` negation had an inline comment, which git treats as part of the pattern.
+- **`build-deb.sh` and `.dockerignore` exclude `state/`** so a dev machine's iptables snapshots never ship.
+
 ## [2026.05.13-19] — 2026-05-13
 
 ### Fixed

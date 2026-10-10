@@ -45,47 +45,19 @@ VS Code will detect the `.venv` automatically. If prompted, select it as the Pyt
 bash predeploy.sh
 ```
 
-Thin wrapper around `scripts/checks.py` (the same script CI runs). Executes ruff, mypy (strict on `domain/application/infrastructure`, informational elsewhere), bandit, pip-audit, OpenAPI validation, shellcheck, placeholder audit, pytest with coverage, version/changelog/python-floor/cert-freshness checks. **All checks must pass before pushing.** Use `--skip-tests` for a fast lint-only pass, or `--only 1,3` to run specific steps.
+Thin wrapper around `scripts/checks.py` (the same script CI runs). Executes ruff, mypy (strict on all application code, enforced on tests and tools), bandit, pip-audit, OpenAPI validation, shellcheck, placeholder audit, pytest with coverage, version/changelog/python-floor/cert-freshness checks. **All checks must pass before pushing.** Use `--skip-tests` for a fast lint-only pass, or `--only ruff,pytest` to run named steps (`--help` lists them).
 
 ---
 
-## Windows (development only)
+## Cutting a release
 
-NotTheNet **runs on Kali Linux only**. The Windows workflow is for developers who write and test code on a Windows host before pushing.
-
-### 1. Clone and set up the environment
-
-```powershell
-git clone https://github.com/retr0verride/NotTheNet
-cd NotTheNet
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+```bash
+bash ship.sh                # bump version, run checks, commit, tag, push
+bash ship.sh --no-push      # commit and tag locally only
+bash ship.sh --skip-checks  # skip scripts/checks.py (use sparingly)
 ```
 
-### 2. Open in VS Code
-
-```powershell
-code .
-```
-
-### 3. Run predeploy checks before committing
-
-```powershell
-.\predeploy.ps1
-```
-
-Thin wrapper around `scripts/checks.py` (the same script CI runs). Executes ruff, mypy (strict on `domain/application/infrastructure`, informational elsewhere), bandit, pip-audit, OpenAPI validation, shellcheck, placeholder audit, pytest with coverage, version/changelog/python-floor/cert-freshness checks. **All checks must pass before pushing.** Use `--skip-tests` for a fast lint-only pass, or `--only 1,3` to run specific steps.
-
-### 4. Cut a release
-
-```powershell
-.\ship.ps1                # bump version, run predeploy, build bundle, commit, tag, push
-.\ship.ps1 -SkipPush      # build artifacts only (no git ops)
-.\ship.ps1 -SkipPredeploy # skip checks (use sparingly)
-```
-
-`ship.ps1` is the one-command release path: it bumps `pyproject.toml` + `gui/widgets.py` to today's `YYYY.MM.DD-N`, runs `predeploy.ps1`, calls `make-bundle.ps1 -SkipChecks` to produce `dist/NotTheNet-<ver>.zip` + `dist/notthenet-bundle.sh`, then `git commit -m "chore(release): <ver>"`, `git tag -a v<ver>`, and pushes branch + tag to `origin`. CI re-runs the same `scripts/checks.py` server-side and (on tag push) builds the `.deb` and drafts a GitHub Release.
+`ship.sh` must run on a clean `main`. It bumps `version.py` and `pyproject.toml` to today's `YYYY.MM.DD-N`, runs `scripts/checks.py` (reverting the bump if it fails), commits `chore(release): <ver>`, tags `v<ver>` and pushes branch and tag. On the tag, CI re-runs the checks, builds the `.deb` (with dependency wheels vendored for offline installs), builds the sdist/wheel with SLSA provenance, and drafts the GitHub Release.
 
 ---
 
@@ -133,8 +105,9 @@ These extensions give you inline lint and type errors as you code:
 
 ## Project Structure
 
-| Path | Contents |
-|------|----------|
+See [architecture.md](architecture.md) for the code map, startup sequence, and how to add a service.
+
+------|----------|
 | `notthenet.py` | Main entry point — GUI, config, orchestration |
 | `services/` | One module per fake service (DNS, HTTP, SMTP, FTP, catch-all, DoH/WebSocket, dynamic responses) |
 | `network/` | iptables management, TCP/IP OS fingerprint spoofing |
@@ -151,4 +124,4 @@ These extensions give you inline lint and type errors as you code:
 
 - The GUI uses **Tkinter** only — no extra GUI dependencies beyond the Python standard library.
 - Services require **root** to bind to ports below 1024 (like 53, 80, 443). Run with `sudo` when testing services end-to-end; the GUI itself can be developed as a normal user with services disabled.
-- `network/iptables_manager.py` and `utils/privilege.py` are Linux-only. On Windows, mypy skips those modules (see `pyproject.toml`). They're fully exercised on Kali at deploy time.
+- mypy checks the code as Linux on every OS (`platform = "linux"` in `pyproject.toml`), so Linux-only calls like `os.geteuid` type-check on a Windows dev box too.

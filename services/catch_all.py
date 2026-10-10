@@ -5,9 +5,9 @@ responds with a protocol-aware response to keep malware engaged and
 capture as much of its communication as possible.
 
 Protocol detection (first-byte inspection):
-  - HTTP  â†’ proper HTTP/1.1 200 OK response
-  - TLS   â†’ complete TLS handshake using existing certs, then HTTP 200
-  - Other â†’ generic "200 OK" banner
+  - HTTP  → proper HTTP/1.1 200 OK response
+  - TLS   → complete TLS handshake using existing certs, then HTTP 200
+  - Other → generic "200 OK" banner
 
 Security notes (OpenSSF):
 - Accepts at most MAX_CONNECTIONS simultaneous TCP connections
@@ -18,6 +18,7 @@ Security notes (OpenSSF):
 - TLS wrap enforces TLSv1.2 minimum; no SSLv2/3/TLSv1/TLSv1.1
 """
 
+import contextlib
 import logging
 import os
 import select
@@ -26,6 +27,7 @@ import socketserver
 import ssl
 import threading
 from collections import defaultdict
+from typing import Any
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -38,13 +40,13 @@ SESSION_TIMEOUT = 10   # seconds — max lifetime of a single catch-all session
 PEEK_TIMEOUT    = 0.5  # seconds to wait for initial bytes before sending banner
 LOG_PREVIEW     = 256  # max bytes logged per received chunk (sanitized)
 
-# HTTP request method prefixes â€” first 4 bytes of a plain-text HTTP request
+# HTTP request method prefixes — first 4 bytes of a plain-text HTTP request
 _HTTP_PREFIXES = (
     b"GET ", b"POST", b"PUT ", b"HEAD",
     b"OPTI", b"DELE", b"PATC", b"TRAC", b"CONN",
 )
 
-# Realistic-looking HTTP 200 response â€” satisfies malware that checks the body
+# Realistic-looking HTTP 200 response — satisfies malware that checks the body
 _HTTP_200 = (
     b"HTTP/1.1 200 OK\r\n"
     b"Server: Apache/2.4.57\r\n"
@@ -54,7 +56,7 @@ _HTTP_200 = (
     b"\r\n"
 )
 
-# For unknown protocols, echo nothing protocol-specific â€” just close.
+# For unknown protocols, echo nothing protocol-specific — just close.
 # Sending "200 OK" to a non-HTTP protocol is a detectable anomaly.
 _GENERIC_BANNER = b""
 
@@ -92,7 +94,7 @@ def _build_tls_context(cert_path: str, key_path: str) -> "ssl.SSLContext | None"
         )
         ctx.load_cert_chain(certfile=cert_path, keyfile=key_path)
         return ctx
-    except Exception as e:
+    except OSError as e:
         logger.error("Failed to build catch-all TLS context: %s", e)
         return None
 
@@ -118,18 +120,18 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
 
     def __init__(
         self,
-        server_address,
-        request_handler_class,
+        server_address: tuple[str, int],
+        request_handler_class: type[socketserver.BaseRequestHandler],
         max_connections: int = MAX_CONNECTIONS,
         max_per_ip: int = MAX_PER_IP,
-    ):
+    ) -> None:
         self._sem = threading.BoundedSemaphore(max_connections)
         self._max_per_ip = max_per_ip
-        self._per_ip: defaultdict = defaultdict(int)
+        self._per_ip: defaultdict[str, int] = defaultdict(int)
         self._per_ip_lock = threading.Lock()
         super().__init__(server_address, request_handler_class)
 
-    def process_request(self, request, client_address):
+    def process_request(self, request: socket.socket, client_address: tuple[str, int]) -> None:  # type: ignore[override]  # TCP-only server: request is always a socket
         """Drop the connection when global or per-IP limits are exceeded."""
         ip = client_address[0]
 
@@ -156,7 +158,7 @@ class _ReuseServer(socketserver.ThreadingTCPServer):
 
         super().process_request(request, client_address)
 
-    def process_request_thread(self, request, client_address):
+    def process_request_thread(self, request: socket.socket, client_address: tuple[str, int]) -> None:  # type: ignore[override]  # TCP-only server: request is always a socket
         """Release the semaphore slot and per-IP counter after the handler finishes."""
         try:
             super().process_request_thread(request, client_address)
@@ -216,13 +218,13 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
         )
         return None
 
-    def handle(self):
+    def handle(self) -> None:
         safe_addr = sanitize_ip(self.client_address[0])
         src_port  = self.client_address[1]
         sock      = self.request
 
         try:
-            # â”€â”€ 1. Peek at first bytes to detect protocol â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # ── 1. Peek at first bytes to detect protocol ──────────────────
             sock.settimeout(self.peek_timeout)
             try:
                 peek = sock.recv(8, socket.MSG_PEEK)
@@ -231,7 +233,7 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
 
             protocol = _detect_protocol(peek)
 
-            # â”€â”€ 2. Complete TLS handshake if the client is speaking TLS â”€â”€â”€â”€
+            # ── 2. Complete TLS handshake if the client is speaking TLS ────
             if protocol == "tls":
                 sock = self._upgrade_tls(sock, safe_addr, src_port)
                 if sock is None:
@@ -244,7 +246,7 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
 
             sock.settimeout(self.session_timeout)
 
-            # â”€â”€ 3. Read the first request payload â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # ── 3. Read the first request payload ─────────────────────────
             #    For plain sockets, MSG_PEEK left the data in the buffer so
             #    recv() here returns those same bytes plus whatever follows.
             #    For TLS sockets, recv() returns decrypted plaintext.
@@ -261,20 +263,20 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
                         protocol.upper(), safe_addr, src_port,
                         min(len(first_data), LOG_PREVIEW), preview,
                     )
-            except Exception:
+            except OSError:
                 logger.debug("Catch-all TCP initial recv failed", exc_info=True)
 
-            # â”€â”€ 4. Send protocol-appropriate response â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # ── 4. Send protocol-appropriate response ──────────────────────
             response = (
                 _HTTP_200 if protocol in ("http", "tls") else _GENERIC_BANNER
             )
             try:
                 sock.sendall(response)
-            except Exception as e:
+            except OSError as e:
                 logger.debug("Catch-all send failed for %s:%s: %s", safe_addr, src_port, e)
                 return
 
-            # â”€â”€ 5. Log to structured JSON events â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # ── 5. Log to structured JSON events ───────────────────────────
             jl = get_json_logger()
             if jl:
                 jl.log(
@@ -285,7 +287,7 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
                     payload_bytes=len(first_data),
                 )
 
-            # â”€â”€ 6. Keep reading to capture follow-on messages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # ── 6. Keep reading to capture follow-on messages ──────────────
             try:
                 while True:
                     chunk = sock.recv(4096)
@@ -300,9 +302,9 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
                         protocol.upper(), safe_addr, src_port,
                         len(chunk), preview,
                     )
-            except Exception:
+            except OSError:
                 logger.debug("Catch-all TCP follow-on drain failed", exc_info=True)
-        except Exception:
+        except Exception:  # noqa: BLE001  # untrusted-input boundary: one bad session must not kill the service
             logger.debug(
                 "Catch-all TCP session error for %s:%s",
                 safe_addr, src_port,
@@ -313,7 +315,7 @@ class _CatchAllTCPHandler(socketserver.BaseRequestHandler):
 class CatchAllTCPService:
     """Listens on a TCP port. iptables redirects unknown ports here."""
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled  = config.get("redirect_tcp", True)
         self.port     = int(config.get("tcp_port", 9999))
         self.bind_ip  = bind_ip
@@ -323,8 +325,8 @@ class CatchAllTCPService:
         self.max_per_ip = int(config.get("max_per_ip", MAX_PER_IP))
         self.session_timeout = float(config.get("session_timeout_sec", SESSION_TIMEOUT))
         self.peek_timeout = float(config.get("peek_timeout_sec", PEEK_TIMEOUT))
-        self._server  = None
-        self._thread  = None
+        self._server: _ReuseServer | None = None
+        self._thread: threading.Thread | None = None
 
     def start(self) -> bool:
         if not self.enabled:
@@ -353,7 +355,7 @@ class CatchAllTCPService:
                 " (TLS ready)" if (
                     os.path.exists(self.cert_path)
                     and os.path.exists(self.key_path)
-                ) else " (no certs â€” TLS fallback disabled)"
+                ) else " (no certs — TLS fallback disabled)"
             )
             logger.info(
                 "Catch-all TCP service started on %s:%s%s",
@@ -366,10 +368,8 @@ class CatchAllTCPService:
 
     def stop(self) -> None:
         if self._server:
-            try:
+            with contextlib.suppress(OSError):
                 self._server.socket.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
             self._server.shutdown()
             self._server = None
         logger.info("Catch-all TCP service stopped.")
@@ -382,13 +382,13 @@ class CatchAllTCPService:
 class CatchAllUDPService:
     """Listens on a UDP port, echoes a short acknowledgement."""
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled = config.get("redirect_udp", False)
         self.port = int(config.get("udp_port", 9998))
         self.bind_ip = bind_ip
         self._sock: socket.socket | None = None
         self._stop_event = threading.Event()
-        self._thread = None
+        self._thread: threading.Thread | None = None
 
     def start(self) -> bool:
         if not self.enabled:
@@ -406,30 +406,35 @@ class CatchAllUDPService:
             return False
 
     def _serve(self) -> None:
-        assert self._sock is not None
+        sock = self._sock
+        assert sock is not None
         while not self._stop_event.is_set():
-            ready = select.select([self._sock], [], [], 1.0)
-            if not ready[0]:
-                continue
             try:
-                data, addr = self._sock.recvfrom(4096)
-                safe_addr = sanitize_ip(addr[0])
-                logger.info("CATCH-ALL UDP from %s:%s (%d bytes)", safe_addr, addr[1], len(data))
-                jl = get_json_logger()
-                if jl:
-                    jl.log("catch_all_udp", src_ip=addr[0], src_port=addr[1],
-                           data_len=len(data))
-                # Don't respond to unknown UDP â€” no real service echoes "OK".
-                # Silently logging is more realistic than replying.
-            except Exception as e:
-                if not self._stop_event.is_set():
-                    logger.debug("Catch-all UDP error: %s", e)
+                ready, _, _ = select.select([sock], [], [], 1.0)
+                if not ready:
+                    continue
+                data, addr = sock.recvfrom(4096)
+            except (OSError, ValueError):
+                # stop() closed the socket under select()/recvfrom(): normal shutdown.
+                if self._stop_event.is_set():
+                    return
+                logger.debug("Catch-all UDP receive error", exc_info=True)
+                continue
+            safe_addr = sanitize_ip(addr[0])
+            logger.info("CATCH-ALL UDP from %s:%s (%d bytes)", safe_addr, addr[1], len(data))
+            jl = get_json_logger()
+            if jl:
+                jl.log("catch_all_udp", src_ip=addr[0], src_port=addr[1], data_len=len(data))
+            # No reply: real hosts don't answer unknown UDP, so silence is more realistic.
 
     def stop(self) -> None:
         self._stop_event.set()
         if self._sock:
             self._sock.close()
             self._sock = None
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)
+            self._thread = None
         logger.info("Catch-all UDP service stopped.")
 
     @property

@@ -14,6 +14,7 @@ import re
 import select
 import time
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 from urllib.parse import parse_qs
 
 from services.doh_websocket import (
@@ -26,13 +27,16 @@ from services.doh_websocket import (
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
 
+if TYPE_CHECKING:
+    from services.http_server import FakeHTTPHandler
+
 logger = logging.getLogger(__name__)
 
 _TELEGRAM_PATH_RE = re.compile(r"^/bot[^/]+/([A-Za-z]+)")
 _DISCORD_WEBHOOK_RE = re.compile(r"^/api(?:/v\d+)?/webhooks/(\d+)/([A-Za-z0-9_-]+)")
 
 
-def route_doh(handler, max_body_size: int) -> bool:
+def route_doh(handler: FakeHTTPHandler, max_body_size: int) -> bool:
     """Handle DNS-over-HTTPS requests."""
     safe_addr = sanitize_ip(handler.client_address[0])
     path = handler.path or "/"
@@ -73,7 +77,7 @@ def route_doh(handler, max_body_size: int) -> bool:
     return False
 
 
-def route_websocket_upgrade(handler) -> bool:
+def route_websocket_upgrade(handler: FakeHTTPHandler) -> bool:
     """Complete a WebSocket handshake and send a clean close frame."""
     safe_addr = sanitize_ip(handler.client_address[0])
     ws_key = handler.headers.get("Sec-WebSocket-Key", "")
@@ -105,7 +109,7 @@ def route_websocket_upgrade(handler) -> bool:
                 if data and handler._cfg.log_requests:
                     preview = sanitize_log_string(data[:64].hex(), 128)
                     handler.log_message("WS frame preview: %s", preview)
-            except Exception:
+            except OSError:
                 logger.debug("WebSocket frame recv failed", exc_info=True)
 
         close_frame = build_websocket_close_frame(1000, "intercepted")
@@ -116,7 +120,7 @@ def route_websocket_upgrade(handler) -> bool:
     return True
 
 
-def route_telegram(handler, max_body_size: int, json_content_type: str) -> bool:
+def route_telegram(handler: FakeHTTPHandler, max_body_size: int, json_content_type: str) -> bool:
     """Fake Telegram Bot API responses for stealer/RAT C2 over Telegram."""
     path = handler.path or "/"
     m = _TELEGRAM_PATH_RE.match(path)
@@ -142,7 +146,7 @@ def route_telegram(handler, max_body_size: int, json_content_type: str) -> bool:
             parsed_qs = parse_qs(raw_body.decode(errors="replace"))
             parsed = {k: v[0] for k, v in parsed_qs.items() if v}
         chat_id = str(parsed.get("chat_id", ""))
-    except Exception:
+    except (ValueError, AttributeError):
         logger.debug("Telegram body parse failed", exc_info=True)
 
     jl = get_json_logger()
@@ -203,7 +207,7 @@ def route_telegram(handler, max_body_size: int, json_content_type: str) -> bool:
     return True
 
 
-def route_discord(handler, max_body_size: int, json_content_type: str) -> bool:
+def route_discord(handler: FakeHTTPHandler, max_body_size: int, json_content_type: str) -> bool:
     """Fake Discord webhook endpoint for stealer exfil."""
     path = handler.path or "/"
     m = _DISCORD_WEBHOOK_RE.match(path)
@@ -259,7 +263,7 @@ def route_discord(handler, max_body_size: int, json_content_type: str) -> bool:
 
 
 def route_simple_text(
-    handler,
+    handler: FakeHTTPHandler,
     event_name: str,
     body: bytes,
     content_type: str,
@@ -295,7 +299,7 @@ def route_simple_text(
     return True
 
 
-def route_dead_drop_ip(handler, event_name: str, host: str, server: str) -> bool:
+def route_dead_drop_ip(handler: FakeHTTPHandler, event_name: str, host: str, server: str) -> bool:
     """Return redirect IP as plain text for dead-drop style routes."""
     jl = get_json_logger()
     if jl:
@@ -317,7 +321,7 @@ def route_dead_drop_ip(handler, event_name: str, host: str, server: str) -> bool
     return True
 
 
-def route_file_hosting(handler, host: str) -> bool:
+def route_file_hosting(handler: FakeHTTPHandler, host: str) -> bool:
     """Return plausible 200 response for file-hosting payload pre-checks."""
     jl = get_json_logger()
     if jl:
@@ -344,7 +348,7 @@ def route_file_hosting(handler, host: str) -> bool:
     return True
 
 
-def route_google_content(handler, host: str) -> bool:
+def route_google_content(handler: FakeHTTPHandler, host: str) -> bool:
     """Return plausible Google Docs/Drive content for dead-drop retrieval."""
     jl = get_json_logger()
     if jl:

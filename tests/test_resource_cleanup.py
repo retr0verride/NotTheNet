@@ -12,8 +12,10 @@ from __future__ import annotations
 import collections
 import gc
 import os
+import ssl
 import threading
 import tracemalloc
+from typing import cast
 
 import pytest
 
@@ -25,6 +27,9 @@ from utils.cert_utils import (  # noqa: E402
     generate_self_signed_cert,
 )
 from utils.json_logger import JsonEventLogger  # noqa: E402
+
+# Stands in for a forged SSLContext; the LRU tests only count entries.
+_SENTINEL_CTX = cast(ssl.SSLContext, object())
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -56,7 +61,7 @@ class TestDynamicCertCacheEviction:
                 if len(cache._cache) >= max_size:
                     oldest = next(iter(cache._cache))
                     del cache._cache[oldest]
-                cache._cache[hostname] = object()  # sentinel value
+                cache._cache[hostname] = _SENTINEL_CTX
 
         with cache._lock:
             assert len(cache._cache) == max_size
@@ -69,14 +74,14 @@ class TestDynamicCertCacheEviction:
 
         for i in range(max_size):
             with cache._lock:
-                cache._cache[f"original-{i}.com"] = object()
+                cache._cache[f"original-{i}.com"] = _SENTINEL_CTX
 
         # Add one more — must evict "original-0.com"
         with cache._lock:
             if len(cache._cache) >= max_size:
                 oldest = next(iter(cache._cache))
                 del cache._cache[oldest]
-            cache._cache["newcomer.com"] = object()
+            cache._cache["newcomer.com"] = _SENTINEL_CTX
 
         with cache._lock:
             assert "original-0.com" not in cache._cache
@@ -124,7 +129,7 @@ class TestDynamicCertCacheEviction:
                 if len(cache._cache) >= max_size:
                     oldest = next(iter(cache._cache))
                     del cache._cache[oldest]
-                cache._cache[f"mem-{i}.example.com"] = object()
+                cache._cache[f"mem-{i}.example.com"] = _SENTINEL_CTX
 
         gc.collect()
         snap2 = tracemalloc.take_snapshot()
@@ -224,7 +229,6 @@ class TestPerIpCounterCleanup:
         server = object.__new__(_ReuseServer)
         server._per_ip = collections.defaultdict(int)
         server._per_ip_lock = threading.Lock()
-        server._sem = None
         server._max_per_ip = 20
         return server
 

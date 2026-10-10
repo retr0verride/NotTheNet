@@ -52,6 +52,7 @@ Thumbs.db
 logs/*.jsonl
 logs/*.rules
 logs/*.log
+state/
 
 # Git / CI artefacts
 .git/
@@ -61,4 +62,3 @@ logs/*.log
 # Build bundles and installers
 *.zip
 *.tar.gz
-notthenet-bundle.sh

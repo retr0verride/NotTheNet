@@ -1,5 +1,5 @@
 ﻿"""
-Tests for utils/validators.py â€” cover all public functions.
+Tests for utils/validators.py — cover all public functions.
 These are pure-Python, no I/O, safe to run anywhere.
 """
 
@@ -16,7 +16,7 @@ from utils.validators import (
     validate_port,
 )
 
-# â”€â”€ validate_ip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── validate_ip ──────────────────────────
 
 class TestValidateIp:
     def test_valid_ipv4(self):
@@ -37,6 +37,7 @@ class TestValidateIp:
     def test_invalid_string(self):
         ok, msg = validate_ip("not-an-ip")
         assert not ok
+        assert msg is not None
         assert "not-an-ip" in msg
 
     def test_empty_string(self):
@@ -50,7 +51,7 @@ class TestValidateIp:
         assert addr == "0.0.0.0"
 
 
-# â”€â”€ validate_port â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â
+# ── validate_port ────────────────────────────────────────────────────────────
 
 class TestValidatePort:
     def test_valid_ports(self):
@@ -84,8 +85,13 @@ class TestValidatePort:
         ok, val = validate_port(None)
         assert not ok
 
+    def test_infinite_float_rejected_not_crash(self):
+        ok, val = validate_port(float("inf"))
+        assert not ok
+        assert val is None
 
-# â”€â”€ validate_hostname â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+# ── validate_hostname ────────────────────────
 
 class TestValidateHostname:
     def test_simple_hostname(self):
@@ -114,7 +120,7 @@ class TestValidateHostname:
         assert validate_hostname("host123.example.com")
 
 
-# â”€â”€ validate_bind_ip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â
+# ── validate_bind_ip ─────────────────────────────────────────────────────────
 
 class TestValidateBindIp:
     def test_wildcard_ipv4(self):
@@ -137,7 +143,7 @@ class TestValidateBindIp:
         assert not ok
 
 
-# â”€â”€ sanitize_path â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â
+# ── sanitize_path ────────────────────────────────────────────────────────────
 
 class TestSanitizePath:
     def test_safe_subpath(self):
@@ -165,7 +171,7 @@ class TestSanitizePath:
                 assert ".." not in os.path.relpath(result, parent)
 
 
-# â”€â”€ validate_http_method â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── validate_http_method ───────────────────────
 
 class TestValidateHttpMethod:
     def test_standard_methods(self):
@@ -183,7 +189,7 @@ class TestValidateHttpMethod:
         assert not validate_http_method("")
 
 
-# â”€â”€ validate_config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+# ── validate_config ──────────────────────────────────────────────────────────
 
 class TestValidateConfig:
     def test_valid_full_config(self):
@@ -319,9 +325,13 @@ class TestValidateConfig:
         assert any("http.response_body_file" in e for e in errors)
 
     def test_positive_fields_absent_no_error(self):
-        cfg = {"smtp": {}}
+        cfg: dict[str, dict[str, object]] = {"smtp": {}}
         errors = validate_config(cfg)
         assert not any("smtp." in e for e in errors)
+
+    def test_positive_field_nan_invalid(self):
+        errors = validate_config({"smtp": {"conn_timeout_sec": float("nan")}})
+        assert any("smtp.conn_timeout_sec" in e for e in errors)
 
     def test_smb_session_timeout_zero_invalid(self):
         cfg = {"smb": {"session_timeout_sec": 0}}

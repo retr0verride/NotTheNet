@@ -5,32 +5,34 @@ Why this matters:
     SQL-injecting stealers, database credential harvesters, and malware that
     exfiltrates data to a remote MySQL instance all speak the MySQL wire
     protocol.  Common families:
-      - RedLine, Vidar, Raccoon  â€” exfiltrate logs to actor-controlled MySQL
-      - Web shells               â€” probe for local MySQL with default creds
-      - Brute-force tools        â€” spray username/password combos over TCP/3306
+      - RedLine, Vidar, Raccoon  — exfiltrate logs to actor-controlled MySQL
+      - Web shells               — probe for local MySQL with default creds
+      - Brute-force tools        — spray username/password combos over TCP/3306
 
     This server:
       1. Sends an authentic MySQL 5.7.x Handshake V10 greeting packet
       2. Reads the client's HandshakeResponse41 and extracts the username
-         (the auth response is an SHA1 hash â€” not reversible â€” but the
+         (the auth response is an SHA1 hash — not reversible — but the
          username arrives in plaintext)
       3. Returns an OK packet so the client proceeds to issue queries
       4. Logs every COM_QUERY the client sends (credentials, commands, etc.)
 
 Security notes (OpenSSF):
-- Auth challenge is os.urandom(20) â€” never reused, never predictable
+- Auth challenge is os.urandom(20) — never reused, never predictable
 - Received query strings are sanitised before logging (log injection)
 - Each session runs in a daemon thread; cannot block process exit
 - Sessions are bounded to SESSION_TIMEOUT seconds
 """
 
+import contextlib
 import logging
 import os
 import socket
 import struct
 import threading
+from typing import Any
 
-from utils.json_logger import get_json_logger
+from utils.json_logger import JsonEventLogger, get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
 
 logger = logging.getLogger(__name__)
@@ -105,7 +107,7 @@ def _read_mysql_packet(sock: socket.socket) -> bytes | None:
 class _MySQLSession(threading.Thread):
     """Handles one MySQL client session."""
 
-    def __init__(self, conn: socket.socket, addr: tuple, sem: threading.BoundedSemaphore | None = None):
+    def __init__(self, conn: socket.socket, addr: tuple[str, int], sem: threading.BoundedSemaphore | None = None) -> None:
         super().__init__(daemon=True)
         self.conn = conn
         self.addr = addr
@@ -121,7 +123,7 @@ class _MySQLSession(threading.Thread):
             return ""
         return payload[32:end].decode("utf-8", errors="replace")
 
-    def _query_loop(self, safe_addr: str, jl) -> None:
+    def _query_loop(self, safe_addr: str, jl: JsonEventLogger | None) -> None:
         """Read and log MySQL queries until the client disconnects."""
         while True:
             payload = _read_mysql_packet(self.conn)
@@ -162,17 +164,15 @@ class _MySQLSession(threading.Thread):
         except OSError:
             logger.debug("MySQL session error", exc_info=True)
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 self.conn.close()
-            except OSError:
-                pass
             if self._sem:
                 self._sem.release()
 
 class MySQLService:
     """Fake MySQL server on TCP port 3306."""
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 3306))
         self.bind_ip = bind_ip
@@ -219,10 +219,8 @@ class MySQLService:
     def stop(self) -> None:
         self._stop.set()
         if self._sock:
-            try:
+            with contextlib.suppress(OSError):
                 self._sock.close()
-            except OSError:
-                pass
         if self._thread:
             self._thread.join(timeout=3.0)
         logger.info("MySQL service stopped.")

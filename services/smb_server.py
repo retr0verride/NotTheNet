@@ -3,10 +3,10 @@ NotTheNet - Fake SMB Server (TCP port 445)
 
 Why this matters:
     SMB is the most-exploited protocol for lateral movement:
-      - WannaCry / NotPetya  â€” EternalBlue (MS17-010, SMBv1 TRANS2 exploit)
-      - Emotet, Ryuk         â€” SMBv2 credential spray over port 445
-      - Impacket             â€” smbclient, psexec-style lateral movement
-      - REvil / BlackMatter  â€” scan 445 before encrypting network shares
+      - WannaCry / NotPetya  — EternalBlue (MS17-010, SMBv1 TRANS2 exploit)
+      - Emotet, Ryuk         — SMBv2 credential spray over port 445
+      - Impacket             — smbclient, psexec-style lateral movement
+      - REvil / BlackMatter  — scan 445 before encrypting network shares
 
     Key intelligence:
       - Dialect list reveals whether the client is probing for SMBv1
@@ -31,10 +31,12 @@ Security notes (OpenSSF):
 - Each session runs in a daemon thread; cannot block process exit
 """
 
+import contextlib
 import logging
 import socket
 import struct
 import threading
+from typing import Any
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip
@@ -90,11 +92,11 @@ class _SMBSession(threading.Thread):
     def __init__(
         self,
         conn: socket.socket,
-        addr: tuple,
+        addr: tuple[str, int],
         sem: threading.BoundedSemaphore | None = None,
         session_timeout: float = SESSION_TIMEOUT,
         mode: str = "sniff_and_drop",
-    ):
+    ) -> None:
         super().__init__(daemon=True)
         self.conn = conn
         self.addr = addr
@@ -155,10 +157,13 @@ class _SMBSession(threading.Thread):
     def _parse_smb2_negotiate(data: bytes) -> int:
         """Extract message ID from SMBv2 negotiate header."""
         if len(data) >= 36:
-            return struct.unpack("<Q", data[28:36])[0]
+            message_id: int = struct.unpack("<Q", data[28:36])[0]
+            return message_id
         return 0
 
-    def _parse_negotiate(self, data: bytes) -> tuple:
+    def _parse_negotiate(
+        self, data: bytes,
+    ) -> tuple[str, list[str], bool, int, int, tuple[int, int, int, int]]:
         """Parse SMB negotiate data.
 
         Returns (version, dialects, eternalblue, message_id, dialect_index, smb1_hdr)
@@ -227,10 +232,8 @@ class _SMBSession(threading.Thread):
         except OSError:
             logger.debug("SMB session error", exc_info=True)
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 self.conn.close()
-            except OSError:
-                pass
             if self._sem:
                 self._sem.release()
 
@@ -356,7 +359,7 @@ def _smb1_error_response(request: bytes) -> bytes:
 class SMBService:
     """Fake SMB server on TCP port 445."""
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 445))
         self.mode = config.get("mode", "sniff_and_drop")
@@ -412,10 +415,8 @@ class SMBService:
     def stop(self) -> None:
         self._stop.set()
         if self._sock:
-            try:
+            with contextlib.suppress(OSError):
                 self._sock.close()
-            except OSError:
-                pass
         if self._thread:
             self._thread.join(timeout=3.0)
         logger.info("SMB service stopped.")

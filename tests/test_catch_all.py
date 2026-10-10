@@ -257,3 +257,22 @@ class TestCatchAllUDPLifecycle:
                 # Test passes if no exception was raised
         finally:
             svc.stop()
+
+
+class TestCatchAllUDPShutdown:
+    """Regression: stop() closing the socket under select() must not crash the thread."""
+
+    def test_stop_while_waiting_raises_nothing(self, monkeypatch):
+        import threading
+
+        errors: list[threading.ExceptHookArgs] = []
+        monkeypatch.setattr(threading, "excepthook", errors.append)
+        svc = CatchAllUDPService({"redirect_udp": True, "udp_port": 0}, bind_ip="127.0.0.1")
+        assert svc.start()
+        thread = svc._thread
+        assert thread is not None
+        time.sleep(0.2)  # let the worker block in select()
+        svc.stop()
+        assert not thread.is_alive()
+        assert errors == []
+        assert svc.running is False

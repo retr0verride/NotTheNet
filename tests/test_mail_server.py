@@ -1,10 +1,12 @@
-"""Tests for services/mail_server.py SMTP parsing and save behavior."""
+"""Tests for SMTP parsing/save behavior and POP3/IMAP service config."""
 
 from __future__ import annotations
 
+import socket
 from pathlib import Path
+from typing import cast
 
-from services import mail_server
+from services import imap_server, pop3_server, smtp_server
 
 
 class _FakeConn:
@@ -19,9 +21,9 @@ class _FakeConn:
         self.closed = True
 
 
-def _smtp(save_dir: str | None = None) -> mail_server._SMTPClientThread:
-    return mail_server._SMTPClientThread(
-        conn=_FakeConn(),
+def _smtp(save_dir: str | None = None) -> smtp_server._SMTPClientThread:
+    return smtp_server._SMTPClientThread(
+        conn=cast(socket.socket, _FakeConn()),
         addr=("127.0.0.1", 2525),
         hostname="mail.example.com",
         banner="220 test",
@@ -29,23 +31,28 @@ def _smtp(save_dir: str | None = None) -> mail_server._SMTPClientThread:
     )
 
 
+def _sent(smtp: smtp_server._SMTPClientThread) -> list[bytes]:
+    """Bytes the session wrote to its fake connection."""
+    return cast(_FakeConn, smtp.conn).sent
+
+
 def test_auth_login_state_machine() -> None:
     smtp = _smtp()
 
     smtp._handle_line("ignored", "127.0.0.1")
     # No auth state by default; unrecognized command path.
-    assert b"500 Unrecognized command" in b"".join(smtp.conn.sent)
+    assert b"500 Unrecognized command" in b"".join(_sent(smtp))
 
-    smtp.conn.sent.clear()
+    _sent(smtp).clear()
     smtp._auth_state = "login_user"
     smtp._handle_line("dXNlcg==", "127.0.0.1")
     assert smtp._auth_state == "login_pass"
-    assert b"334 UGFzc3dvcmQ6" in b"".join(smtp.conn.sent)
+    assert b"334 UGFzc3dvcmQ6" in b"".join(_sent(smtp))
 
-    smtp.conn.sent.clear()
+    _sent(smtp).clear()
     smtp._handle_line("cGFzcw==", "127.0.0.1")
     assert smtp._auth_state is None
-    assert b"235 2.7.0 Authentication successful" in b"".join(smtp.conn.sent)
+    assert b"235 2.7.0 Authentication successful" in b"".join(_sent(smtp))
 
 
 def test_data_mode_enforces_message_size() -> None:
@@ -87,7 +94,7 @@ def test_save_email_skips_when_disk_cap_exceeded(tmp_path: Path) -> None:
 
 
 def test_smtp_service_reads_configurable_limits() -> None:
-    svc = mail_server.SMTPService({
+    svc = smtp_server.SMTPService({
         "conn_timeout_sec": 17,
         "max_connections": 19,
         "max_email_size_bytes": 2222,
@@ -100,8 +107,8 @@ def test_smtp_service_reads_configurable_limits() -> None:
 
 
 def test_pop3_imap_service_reads_timeout_and_connections() -> None:
-    pop3 = mail_server.POP3Service({"conn_timeout_sec": 21, "max_connections": 9})
-    imap = mail_server.IMAPService({"conn_timeout_sec": 22, "max_connections": 8})
+    pop3 = pop3_server.POP3Service({"conn_timeout_sec": 21, "max_connections": 9})
+    imap = imap_server.IMAPService({"conn_timeout_sec": 22, "max_connections": 8})
     assert pop3.conn_timeout == 21
     assert pop3.max_connections == 9
     assert imap.conn_timeout == 22

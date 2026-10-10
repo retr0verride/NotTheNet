@@ -38,8 +38,12 @@ services:
       NTN_HEADLESS: "1"
       NTN_LOG_LEVEL: "${NTN_LOG_LEVEL:-INFO}"
       NTN_JSON_LOGS: "1"
+      NTN_HEALTH_ENABLED: "1"
       NTN_HEALTH_BIND: "0.0.0.0"   # expose health port to host for scraping
       NTN_HEALTH_PORT: "8080"
+      # NTN_ADMIN_TOKEN must be set (via .env) to expose /health/status and
+      # /metrics on this non-loopback bind. Without it those two endpoints
+      # return 403. Scrapers send it as a bearer token (see .env.example).
 
     # ── Volumes ───────────────────────────────────────────────────────────────
     volumes:
@@ -75,34 +79,6 @@ services:
       options:
         max-size: "50m"
         max-file: "5"
-
-
-# ── Optional: Prometheus + Grafana for local SLI dashboarding ────────────────
-
-  prometheus:
-    image: prom/prometheus:v2.54.1
-    container_name: notthenet-prometheus
-    profiles: [observability]   # only starts with: docker compose --profile observability up
-    volumes:
-      - ./docs/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    ports:
-      - "127.0.0.1:9090:9090"
-    networks:
-      - lab
-    restart: unless-stopped
-
-  grafana:
-    image: grafana/grafana:11.2.0
-    container_name: notthenet-grafana
-    profiles: [observability]
-    environment:
-      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_PASSWORD:-changeme}"
-      GF_USERS_ALLOW_SIGN_UP: "false"
-    ports:
-      - "127.0.0.1:3000:3000"
-    networks:
-      - lab
-    restart: unless-stopped
 
 
 # ── Named volumes ─────────────────────────────────────────────────────────────

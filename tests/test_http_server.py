@@ -11,23 +11,25 @@ import socket
 
 import pytest
 
-from services.http_server import (
+from services.http_catalog import (
     _CAPTIVE_PORTAL_HOSTS,
-    _DEFAULT_BODY,
-    _DEFAULT_SERVER_HEADER,
     _IP_CHECK_HOSTS,
     _NCSI_HOSTS,
     _NCSI_RESPONSES,
     _PKI_HOSTS,
-    HTTPService,
-    _build_handler_config,
     _fmt_checkip_aws,
     _fmt_httpbin,
     _fmt_ip_api,
     _fmt_ipinfo,
+    _resolve_pki_response,
+)
+from services.http_server import (
+    _DEFAULT_BODY,
+    _DEFAULT_SERVER_HEADER,
+    HTTPService,
+    _build_handler_config,
     _HandlerConfig,
     _load_response_body,
-    _resolve_pki_response,
     _validate_spoof_ip,
 )
 

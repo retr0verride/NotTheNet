@@ -4,16 +4,16 @@ NotTheNet - Fake LDAP Server (TCP port 389)
 Why this matters:
     LDAP is the backbone of Active Directory.  Malware that targets
     enterprise environments probes LDAP to:
-      - BloodHound / SharpHound â€” AD enumeration (group memberships, DACLs)
-      - Mimikatz / Rubeus       â€” LDAP queries for kerberoastable SPNs
-      - Cobalt Strike           â€” ldap_query BOF for trusts and admin accounts
-      - RATs                    â€” credential harvesters using
+      - BloodHound / SharpHound — AD enumeration (group memberships, DACLs)
+      - Mimikatz / Rubeus       — LDAP queries for kerberoastable SPNs
+      - Cobalt Strike           — ldap_query BOF for trusts and admin accounts
+      - RATs                    — credential harvesters using
                                   DirectoryServices .NET with SimpleBind
 
     Key intelligence with SimpleBind:
       - The Bind DN (e.g. "CN=svc_backup,OU=Service Accounts,DC=corp,DC=local")
         reveals the targeted domain and account name
-      - The password arrives in PLAINTEXT inside the BindRequest â€” no hashing,
+      - The password arrives in PLAINTEXT inside the BindRequest — no hashing,
         no challenge-response.
 
     Protocol:
@@ -38,9 +38,11 @@ Security notes (OpenSSF):
 - Sessions are bounded to SESSION_TIMEOUT seconds
 """
 
+import contextlib
 import logging
 import socket
 import threading
+from typing import Any
 
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
@@ -51,7 +53,7 @@ SESSION_TIMEOUT = 15
 _MAX_CONNECTIONS = 50
 
 
-# â”€â”€ Minimal BER TLV parser â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Minimal BER TLV parser ────────────────────────────────────────────────────
 
 def _ber_read(data: bytes, pos: int) -> tuple[int, int, bytes]:
     """
@@ -124,7 +126,7 @@ def _parse_bind_request(msg: bytes) -> tuple[int, str, str]:
         return message_id, "", ""
     dn = dn_bytes.decode("utf-8", errors="replace")
 
-    # authentication â€” CONTEXT [0] (0x80) for SimpleBind
+    # authentication — CONTEXT [0] (0x80) for SimpleBind
     if bpos >= len(bind_body):
         return message_id, dn, ""
 
@@ -148,7 +150,7 @@ def _ber_length(n: int) -> bytes:
 def _bind_response(message_id: int, result_code: int = 0) -> bytes:
     """
     Build an LDAP BindResponse.
-    result_code=0 â†’ success, which causes the client to continue.
+    result_code=0 → success, which causes the client to continue.
     """
     mid_bytes = message_id.to_bytes(
         max(1, (message_id.bit_length() + 7) // 8), "big"
@@ -173,7 +175,7 @@ def _bind_response(message_id: int, result_code: int = 0) -> bytes:
 class _LDAPSession(threading.Thread):
     """Handles one LDAP client session."""
 
-    def __init__(self, conn: socket.socket, addr: tuple, sem: threading.BoundedSemaphore | None = None):
+    def __init__(self, conn: socket.socket, addr: tuple[str, int], sem: threading.BoundedSemaphore | None = None) -> None:
         super().__init__(daemon=True)
         self.conn = conn
         self.addr = addr
@@ -231,10 +233,8 @@ class _LDAPSession(threading.Thread):
         except OSError:
             logger.debug("LDAP session error", exc_info=True)
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 self.conn.close()
-            except OSError:
-                pass
             if self._sem:
                 self._sem.release()
 
@@ -242,7 +242,7 @@ class _LDAPSession(threading.Thread):
 class LDAPService:
     """Fake LDAP server on TCP port 389."""
 
-    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+    def __init__(self, config: dict[str, Any], bind_ip: str = "0.0.0.0") -> None:
         self.enabled = config.get("enabled", True)
         self.port = int(config.get("port", 389))
         self.bind_ip = bind_ip
@@ -289,10 +289,8 @@ class LDAPService:
     def stop(self) -> None:
         self._stop.set()
         if self._sock:
-            try:
+            with contextlib.suppress(OSError):
                 self._sock.close()
-            except OSError:
-                pass
         if self._thread:
             self._thread.join(timeout=3.0)
         logger.info("LDAP service stopped.")

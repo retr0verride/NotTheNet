@@ -22,8 +22,8 @@ if dpkg -l notthenet 2>/dev/null | grep -q '^ii'; then
     SUDO_INVOKER="${SUDO_USER:-$(whoami)}"
     sudo -u "$SUDO_INVOKER" git pull origin main
 
-    EXPECTED_VERSION=$(grep -oP 'APP_VERSION\s*=\s*"\K[^"]+' "${SCRIPT_DIR}/gui/widgets.py" 2>/dev/null) || {
-        echo "[!] Could not extract APP_VERSION from gui/widgets.py — aborting."
+    EXPECTED_VERSION=$(grep -oP '^APP_VERSION = "\K[^"]+' "${SCRIPT_DIR}/version.py" 2>/dev/null) || {
+        echo "[!] Could not extract APP_VERSION from version.py — aborting."
         exit 1
     }
     INSTALLED_VERSION=$(dpkg-query -W -f='${Version}' notthenet 2>/dev/null || true)

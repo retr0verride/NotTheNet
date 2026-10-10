@@ -2,7 +2,7 @@
 Tests for services/cloud_exfil_routes.py
 
 Covers: all five route handlers (S3, Azure Blob, MS Graph, Dropbox, GDrive),
-body capture helpers, and host-matching regexes from http_server.py.
+body capture helpers, and host-matching regexes from http_catalog.py.
 All tests are pure-function or use a lightweight mock handler — no live sockets.
 """
 
@@ -25,11 +25,13 @@ from services.cloud_exfil_routes import (
     route_gdrive_upload,
     route_graph_onedrive,
 )
-from services.http_server import (
+from services.http_catalog import (
     _AWS_S3_RE,
     _AZURE_BLOB_RE,
     _DROPBOX_HOSTS,
     _GRAPH_HOST,
+)
+from services.http_server import (
     _HandlerConfig,
 )
 
@@ -102,7 +104,8 @@ class TestSaveExfilBody:
             path = _save_exfil_body("10.0.0.1", "s3", b"payload", d)
             assert path is not None
             assert os.path.exists(path)
-            assert open(path, "rb").read() == b"payload"
+            with open(path, "rb") as fh:
+                assert fh.read() == b"payload"
 
     def test_returns_none_on_empty_body(self):
         with tempfile.TemporaryDirectory() as d:
@@ -361,6 +364,15 @@ class TestRouteDropbox:
         written = json.loads(handler.wfile.write.call_args[0][0])
         assert written[".tag"] == "file"
         assert "creds.txt" in written["name"]
+
+    @pytest.mark.parametrize("raw", ["[]", "1", '"str"', "null", "not json"])
+    def test_non_object_api_arg_still_answers_200(self, raw):
+        """Dropbox-API-Arg is attacker-controlled; non-object JSON must not crash the route."""
+        handler = _make_handler("POST", "/2/files/upload",
+                                body=b"DATA", headers={"Content-Length": "4",
+                                                       "Dropbox-API-Arg": raw})
+        assert route_dropbox(handler) is True
+        handler.send_response.assert_called_with(200)
 
     def test_upload_session_start(self):
         handler = _make_handler("POST", "/2/files/upload_session/start",
