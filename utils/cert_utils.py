@@ -368,6 +368,8 @@ def forge_domain_cert(
         ca_cert = x509.load_pem_x509_certificate(f.read())
     with open(ca_key_path, "rb") as f:
         ca_key = serialization.load_pem_private_key(f.read(), password=None)
+    if not isinstance(ca_key, rsa.RSAPrivateKey):
+        raise TypeError(f"CA key {ca_key_path} must be RSA, got {type(ca_key).__name__}")
 
     # Generate ephemeral key for this domain (2048-bit is enough for short-lived)
     key = rsa.generate_private_key(
@@ -439,7 +441,7 @@ def forge_domain_cert(
         )
         .add_extension(
             x509.AuthorityKeyIdentifier.from_issuer_public_key(
-                ca_key.public_key()  # type: ignore[arg-type]  # always RSA; cryptography stubs return a wider union
+                ca_key.public_key()
             ),
             critical=False,
         )
@@ -447,7 +449,7 @@ def forge_domain_cert(
             _make_fake_sct_extension(),
             critical=False,
         )
-        .sign(ca_key, hashes.SHA256())  # type: ignore[arg-type]  # same reason
+        .sign(ca_key, hashes.SHA256())
     )
 
     cert_pem = cert.public_bytes(serialization.Encoding.PEM)

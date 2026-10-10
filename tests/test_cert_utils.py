@@ -144,6 +144,20 @@ class TestForgeDomainCert:
         generate_ca_cert(ca_cert, ca_key, key_bits=2048)
         return ca_cert, ca_key
 
+    def test_forge_rejects_non_rsa_ca_key(self, ca_pair):
+        from cryptography.hazmat.primitives.asymmetric import ec  # noqa: PLC0415
+
+        ca_cert, ca_key = ca_pair
+        ec_key = ec.generate_private_key(ec.SECP256R1())
+        with open(ca_key, "wb") as f:
+            f.write(ec_key.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.PKCS8,
+                serialization.NoEncryption(),
+            ))
+        with pytest.raises(TypeError, match="must be RSA"):
+            forge_domain_cert("example.com", ca_cert, ca_key)
+
     def test_forge_returns_pem_tuple(self, ca_pair):
         cert_pem, key_pem = forge_domain_cert("example.com", *ca_pair)
         assert b"BEGIN CERTIFICATE" in cert_pem

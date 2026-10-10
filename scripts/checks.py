@@ -108,9 +108,11 @@ def run(cmd: list[str], *, check: bool = True, cwd: Path | None = None) -> int:
 
 
 def step_install() -> None:
-    step("--", "Ensuring dev tools are installed (pinned versions)")
+    step("--", "Ensuring dev tools and runtime deps are installed (pinned versions)")
     run([PY, "-m", "pip", "install", "--quiet", "--upgrade", "pip"])
-    run([PY, "-m", "pip", "install", "--quiet", *PINNED_TOOLS])
+    # Runtime deps too: without them mypy sees cryptography/dnslib as Any and
+    # checks less in CI than it does locally.
+    run([PY, "-m", "pip", "install", "--quiet", *PINNED_TOOLS, "-r", "requirements.txt"])
     passed("tools ready")
 
 
